@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import ZaloQrModal from "./ZaloQrModal";
+import FacebookConnectModal from "./FacebookConnectModal";
 
 const PLATFORM_TABS = [
   { id: "ALL", label: "Tất Cả Kênh", icon: "🌐" },
@@ -21,6 +22,7 @@ export default function ChannelsPage() {
   const [platforms, setPlatforms] = useState({});
   const [loading, setLoading] = useState(true);
   const [isZaloQrOpen, setIsZaloQrOpen] = useState(false);
+  const [isFbModalOpen, setIsFbModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [testingId, setTestingId] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -134,6 +136,13 @@ export default function ChannelsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsFbModalOpen(true)}
+            className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
+          >
+            <span>📘</span> Kết Nối Fanpage 1-Click
+          </button>
           <button
             type="button"
             onClick={() => setIsZaloQrOpen(true)}
@@ -302,6 +311,15 @@ export default function ChannelsPage() {
                   >
                     {isTesting ? "Đang kiểm tra..." : "⚡ Kiểm Tra Kết Nối"}
                   </button>
+                  {ch.platform === "FACEBOOK" && (
+                    <button
+                      type="button"
+                      onClick={() => setIsFbModalOpen(true)}
+                      className="rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-semibold px-3 py-2 hover:bg-blue-600/30 transition"
+                    >
+                      {ch.status === "CONNECTED" ? "Đổi Fanpage" : "Chọn Fanpage"}
+                    </button>
+                  )}
                   {ch.platform === "ZALO_PERSONAL" && (
                     <>
                       {ch.status === "CONNECTED" && (
@@ -505,6 +523,19 @@ export default function ChannelsPage() {
           setBanner({
             type: "success",
             text: `Đăng nhập Zalo cá nhân thành công (${accountInfo.label || "Nick mới"})!`,
+          });
+          loadChannels();
+        }}
+      />
+
+      {/* Modal Kết Nối Fanpage 1-Click (WBS-16 & 17) */}
+      <FacebookConnectModal
+        isOpen={isFbModalOpen}
+        onClose={() => setIsFbModalOpen(false)}
+        onConnected={(newPages) => {
+          setBanner({
+            type: "success",
+            text: `Đã kết nối thành công ${newPages.length} Fanpage vào CRM!`,
           });
           loadChannels();
         }}
