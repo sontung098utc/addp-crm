@@ -1,5 +1,8 @@
 import crypto from "crypto";
 
+import fs from "fs";
+import path from "path";
+
 /**
  * ADDP Omnichannel AI CRM — ConnectionHub (WBS-11)
  * Quản lý đa tài khoản thuộc 7 nền tảng: Magento 2.4.8, Fanpage Facebook,
@@ -217,8 +220,71 @@ let runtimeChannelsStore = new Map([
   ],
 ]);
 
+function getLiveZaloAccounts() {
+  const accounts = [];
+  try {
+    const candidates = [
+      path.resolve(process.cwd(), "server", "mcp_servers.json"),
+      path.resolve(process.cwd(), "..", "server", "mcp_servers.json"),
+      "C:\\addp-crm\\server\\mcp_servers.json",
+    ];
+    let mcpPath = candidates.find((p) => fs.existsSync(p));
+    if (!mcpPath) return accounts;
+
+    const mcpData = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+    const seenUids = new Set();
+    const sortedConns = [...(mcpData.connections || [])].reverse();
+
+    for (const conn of sortedConns) {
+      if (conn.connector_id === "zalo" && conn.config?.home_dir) {
+        const accPath = path.join(conn.config.home_dir, ".zalo-agent-cli", "accounts.json");
+        const credPath = path.join(conn.config.home_dir, ".zalo-agent-cli", "credentials");
+        if (fs.existsSync(accPath) && fs.existsSync(credPath)) {
+          try {
+            const accList = JSON.parse(fs.readFileSync(accPath, "utf8"));
+            const activeAcc = Array.isArray(accList) ? accList.find((a) => a.active) || accList[0] : null;
+            if (activeAcc && activeAcc.ownId && !seenUids.has(activeAcc.ownId)) {
+              seenUids.add(activeAcc.ownId);
+              accounts.push({
+                id: `zalo_${conn.id}`,
+                connectionId: conn.id,
+                platform: "ZALO_PERSONAL",
+                name: `Zalo Cá Nhân (${activeAcc.name || conn.label})`,
+                externalId: activeAcc.ownId,
+                status: "CONNECTED",
+                statusLabel: "Đã kết nối trực tiếp (Quét QR)",
+                config: {
+                  homeDir: conn.config.home_dir,
+                  ownId: activeAcc.ownId,
+                  label: conn.label,
+                  accountName: activeAcc.name,
+                },
+                lastCheckedAt: new Date().toISOString(),
+                assignedStaffCodes: ["S001", "S002", "CS01"],
+              });
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  return accounts;
+}
+
 export function listAllChannels() {
-  return Array.from(runtimeChannelsStore.values()).map((ch) => ({
+  const staticList = Array.from(runtimeChannelsStore.values());
+  const liveZalo = getLiveZaloAccounts();
+
+  // Nếu đã có Zalo live thì thay thế hoặc bổ sung lên đầu danh sách
+  const combined = [...liveZalo];
+  for (const item of staticList) {
+    if (item.platform === "ZALO_PERSONAL" && liveZalo.length > 0) {
+      continue; // Đã có tài khoản Zalo thật
+    }
+    combined.push(item);
+  }
+
+  return combined.map((ch) => ({
     ...ch,
     platformMeta: PLATFORM_INFO[ch.platform] || {},
   }));
@@ -226,11 +292,21 @@ export function listAllChannels() {
 
 export function getChannelById(id) {
   const item = runtimeChannelsStore.get(String(id));
-  if (!item) return null;
-  return {
-    ...item,
-    platformMeta: PLATFORM_INFO[item.platform] || {},
-  };
+  if (item) {
+    return {
+      ...item,
+      platformMeta: PLATFORM_INFO[item.platform] || {},
+    };
+  }
+  const liveZalo = getLiveZaloAccounts();
+  const found = liveZalo.find((z) => z.id === String(id));
+  if (found) {
+    return {
+      ...found,
+      platformMeta: PLATFORM_INFO[found.platform] || {},
+    };
+  }
+  return null;
 }
 
 export function createChannelAccount(input) {
@@ -298,7 +374,7 @@ export function deleteChannelAccount(id) {
  * Kiểm tra kết nối thời gian thực cho từng tài khoản kênh (Health Check)
  */
 export async function testChannelHealth(id) {
-  const channel = runtimeChannelsStore.get(String(id));
+  const channel = getChannelById(id);
   if (!channel) {
     return { ok: false, error: "Không tìm thấy tài khoản kênh để kiểm tra." };
   }
@@ -319,7 +395,9 @@ export async function testChannelHealth(id) {
       result.message = "Cổng Meta Graph API: Cấu hình sẵn sàng nhận Webhook `messages` và `feed/comments`.";
       break;
     case "ZALO_PERSONAL":
-      result.message = "Engine Zalo QR Server (javis-zalo): Sẵn sàng khởi tạo phiên quét mã QR cô lập.";
+      result.message = channel.status === "CONNECTED"
+        ? `Tài khoản Zalo Cá Nhân (${channel.config.accountName || channel.name}) đang hoạt động ổn định trên Server!`
+        : "Engine Zalo QR Server (javis-zalo): Sẵn sàng khởi tạo phiên quét mã QR cô lập.";
       break;
     case "ZALO_OA":
       result.message = "Zalo OA Open API v3: Miền crm.addp.vn sẵn sàng tiếp nhận sự kiện tương tác.";

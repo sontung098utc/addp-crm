@@ -1,12 +1,10 @@
-import ModulePreviewView from "../components/ModulePreviewView";
+import LiveZaloInbox from "./LiveZaloInbox";
+
+export const metadata = {
+  title: "Hộp Thư Hội Thoại Live Zalo | ADDP CRM",
+  description: "Quản lý và gửi tin nhắn trực tiếp qua tài khoản Zalo Cá Nhân đã kết nối.",
+};
 
 export default function InboxPage() {
-  return (
-    <ModulePreviewView
-      moduleKey="inbox"
-      title="Hộp Thư Hội Thoại Hợp Nhất 7 Nền Tảng"
-      wbsBadge="Hộp Thư Đa Kênh"
-      subtitle="Quản lý tin nhắn đồng thời từ Zalo Cá Nhân, Zalo OA, Fanpage Messenger, TikTok Shop, Shopee và Website"
-    />
-  );
+  return <LiveZaloInbox />;
 }

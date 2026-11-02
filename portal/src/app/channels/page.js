@@ -303,13 +303,23 @@ export default function ChannelsPage() {
                     {isTesting ? "Đang kiểm tra..." : "⚡ Kiểm Tra Kết Nối"}
                   </button>
                   {ch.platform === "ZALO_PERSONAL" && (
-                    <button
-                      type="button"
-                      onClick={() => setIsZaloQrOpen(true)}
-                      className="rounded-xl bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold px-3 py-2 hover:bg-cyan-600/30 transition"
-                    >
-                      Quét Lại QR
-                    </button>
+                    <>
+                      {ch.status === "CONNECTED" && (
+                        <Link
+                          href="/inbox"
+                          className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-3 py-2 transition flex items-center gap-1"
+                        >
+                          💬 Vào Nhắn Tin
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsZaloQrOpen(true)}
+                        className="rounded-xl bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold px-3 py-2 hover:bg-cyan-600/30 transition"
+                      >
+                        {ch.status === "CONNECTED" ? "Đổi Nick QR" : "Quét Lại QR"}
+                      </button>
+                    </>
                   )}
                   <button
                     type="button"
