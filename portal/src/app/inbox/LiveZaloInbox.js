@@ -1,234 +1,339 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 /**
- * ADDP Omnichannel AI CRM — Bàn Làm Việc Nhắn Tin Live Zalo Cá Nhân (/inbox)
- * Cho phép nhân viên gửi tin nhắn trực tiếp dưới danh tính Zalo vừa quét QR.
- * Tuân thủ Điều 3 (normalizePhone), Điều 4 (Anti-Ban) & Điều 11 (Dữ liệu xác thực).
+ * ADDP Omnichannel AI CRM — Hộp Thư Hội Thoại Hợp Nhất 3 Cột Chuẩn Zalo / Messenger (WBS-21 -> WBS-25)
+ * Cột 1: Danh sách Hội thoại Đa kênh (Conversations List)
+ * Cột 2: Khung Chat 2 Chiều Thời Gian Thực (Message Stream & Composer)
+ * Cột 3: Hồ Sơ Khách Hàng 360 & Thông Tin Hội Thoại (Customer 360 Side Panel)
  */
 
 export default function LiveZaloInbox() {
-  const [contacts, setContacts] = useState([]);
-  const [loadingContacts, setLoadingContacts] = useState(true);
+  const [conversations, setConversations] = useState([]);
+  const [loadingConv, setLoadingConv] = useState(true);
+  const [activeConv, setActiveConv] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedContact, setSelectedContact] = useState(null);
+  const [activeTab, setActiveTab] = useState("all"); // 'all' | 'unread' | 'zalo' | 'fb'
 
-  // Form gửi tin
-  const [recipient, setRecipient] = useState("");
-  const [recipientName, setRecipientName] = useState("");
-  const [message, setMessage] = useState("");
+  // Tin nhắn của cuộc trò chuyện đang chọn
+  const [messages, setMessages] = useState([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [inputMessage, setInputMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [alert, setAlert] = useState(null);
 
-  // Lịch sử gửi trong phiên làm việc
-  const [sentHistory, setSentHistory] = useState([]);
+  // Hiển thị panel thông tin khách hàng (Cột 3)
+  const [showSidePanel, setShowSidePanel] = useState(true);
 
-  // Tải danh bạ thật từ Zalo session
+  // Thông báo nhanh
+  const [toast, setToast] = useState(null);
+
+  const messagesEndRef = useRef(null);
+
+  // Cuộn xuống tin nhắn mới nhất
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
-    async function loadContacts() {
+    scrollToBottom();
+  }, [messages]);
+
+  // 1. Tải danh sách cuộc hội thoại thực tế
+  useEffect(() => {
+    async function loadConversations() {
       try {
-        setLoadingContacts(true);
-        const res = await fetch("/api/channels/zalo/contacts");
-        const data = await res.json();
-        if (data.ok && Array.isArray(data.contacts)) {
-          setContacts(data.contacts);
+        setLoadingConv(true);
+        // Gọi cả recent conv và friends để đảm bảo luôn có danh sách đầy đủ
+        const [resConv, resContacts] = await Promise.all([
+          fetch("/api/channels/zalo/conversations"),
+          fetch("/api/channels/zalo/contacts"),
+        ]);
+
+        const dataConv = await resConv.json();
+        const dataContacts = await resContacts.json();
+
+        let list = [];
+        if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
+          list = dataConv.conversations;
+        } else if (dataContacts.ok && Array.isArray(dataContacts.contacts)) {
+          list = dataContacts.contacts.map((c) => ({
+            id: c.userId,
+            name: c.name,
+            phone: c.phone,
+            avatar: c.avatar,
+            lastMessage: "Đã kết nối qua Zalo Cá Nhân",
+            lastActive: "Gần đây",
+            channel: "ZALO_PERSONAL",
+            channelLabel: "Zalo Cá Nhân",
+          }));
+        }
+
+        setConversations(list);
+        if (list.length > 0) {
+          // Mặc định chọn cuộc trò chuyện đầu tiên
+          setActiveConv(list[0]);
         }
       } catch (err) {
-        console.error("Lỗi tải danh bạ:", err);
+        console.error("Lỗi tải hội thoại:", err);
       } finally {
-        setLoadingContacts(false);
+        setLoadingConv(false);
       }
     }
-    loadContacts();
+    loadConversations();
   }, []);
 
-  const filteredContacts = contacts.filter((c) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (c.name && c.name.toLowerCase().includes(q)) ||
-      (c.phone && c.phone.includes(q)) ||
-      (c.userId && c.userId.includes(q))
-    );
-  });
+  // 2. Tải lịch sử tin nhắn khi đổi người chat
+  useEffect(() => {
+    if (!activeConv?.id) return;
 
-  const handleSelectContact = (c) => {
-    setSelectedContact(c);
-    setRecipient(c.userId || c.phone);
-    setRecipientName(c.name);
-    setAlert(null);
-  };
+    async function loadHistory() {
+      try {
+        setLoadingMessages(true);
+        const res = await fetch(`/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}`);
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
+          setMessages(data.messages);
+        } else {
+          // Khởi tạo tin nhắn chào mẫu nếu thread mới
+          setMessages([
+            {
+              id: "init_1",
+              text: `Chào ${activeConv.name}, em là Dược sĩ bên ADDP hỗ trợ mình kiểm soát đường huyết ạ!`,
+              isMe: true,
+              senderName: "Sơn Tùng",
+              time: "15:20",
+              date: "Hôm nay",
+            },
+          ]);
+        }
+      } catch {
+        setMessages([]);
+      } finally {
+        setLoadingMessages(false);
+      }
+    }
+    loadHistory();
+  }, [activeConv]);
 
-  const handleTemplateClick = (tpl) => {
-    const name = recipientName || "anh/chị";
-    setMessage(tpl.replace(/{fullName}/g, name));
-  };
-
+  // 3. Gửi tin nhắn 2 chiều
   const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!recipient.trim()) {
-      setAlert({ type: "error", text: "Vui lòng nhập số điện thoại hoặc ID người nhận trên Zalo." });
-      return;
-    }
-    if (!message.trim()) {
-      setAlert({ type: "error", text: "Vui lòng nhập nội dung tin nhắn." });
-      return;
-    }
+    if (e) e.preventDefault();
+    if (!inputMessage.trim() || !activeConv || sending) return;
 
+    const messageText = inputMessage.trim();
+    const tempId = `temp_${Date.now()}`;
+    const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+
+    // Optimistic update: Hiện tin nhắn ngay lập tức bên phải
+    const optimisticMsg = {
+      id: tempId,
+      text: messageText,
+      isMe: true,
+      senderName: "Sơn Tùng",
+      time: nowTime,
+      date: "Hôm nay",
+      status: "sending",
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setInputMessage("");
     setSending(true);
-    setAlert(null);
 
     try {
       const res = await fetch("/api/channels/zalo/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recipient: recipient.trim(),
-          message: message.trim(),
+          recipient: activeConv.id,
+          message: messageText,
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.ok) {
-        setAlert({
-          type: "success",
-          text: `Đã gửi tin nhắn Zalo thành công tới '${recipientName || recipient}'!`,
-        });
-        setSentHistory((prev) => [
-          {
-            id: Date.now(),
-            recipient: recipientName || recipient,
-            phone: recipient,
-            message: message.trim(),
-            time: new Date().toLocaleTimeString("vi-VN"),
-            status: "Thành công",
-          },
-          ...prev,
-        ]);
-        setMessage("");
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m))
+        );
+        // Cập nhật lastMessage của active conversation
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === activeConv.id
+              ? { ...c, lastMessage: messageText, lastActive: "Vừa xong" }
+              : c
+          )
+        );
       } else {
-        setAlert({
-          type: "error",
-          text: data.error || "Gửi tin nhắn thất bại. Vui lòng kiểm tra lại kết nối.",
-        });
+        setToast({ type: "error", text: data.error || "Không thể gửi tin nhắn qua Zalo." });
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
+        );
       }
     } catch {
-      setAlert({ type: "error", text: "Lỗi kết nối tới máy chủ khi gửi tin." });
+      setToast({ type: "error", text: "Lỗi kết nối khi gửi tin nhắn." });
     } finally {
       setSending(false);
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const filteredConversations = conversations.filter((c) => {
+    const q = searchQuery.toLowerCase();
+    const matchSearch =
+      (c.name && c.name.toLowerCase().includes(q)) ||
+      (c.lastMessage && c.lastMessage.toLowerCase().includes(q)) ||
+      (c.id && c.id.includes(q));
+
+    if (activeTab === "unread") return matchSearch && c.unread > 0;
+    if (activeTab === "zalo") return matchSearch && c.channel === "ZALO_PERSONAL";
+    return matchSearch;
+  });
+
   return (
-    <div className="space-y-6">
-      {/* Thanh trạng thái Header */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-3 w-3 rounded-full bg-emerald-500 animate-pulse" />
-            <h1 className="text-xl font-bold text-white tracking-tight">
-              Hộp Thư Nhắn Tin Trực Tiếp — Zalo Cá Nhân
-            </h1>
-            <span className="rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-xs font-semibold text-cyan-400">
-              Live Session
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-slate-400">
-            Tài khoản gửi: <strong className="text-white">Sơn Tùng (Zalo Cá Nhân)</strong> • Tin nhắn gửi trực tiếp dưới danh tính chủ tài khoản (không phải bot)
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Link
-            href="/channels"
-            className="rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition"
-          >
-            ← Cấu Hình Kênh
-          </Link>
-          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-            🛡️ Anti-Ban: Giãn cách 45-120s • Max 70 tin/ngày
-          </div>
-        </div>
-      </div>
-
-      {alert && (
-        <div
-          className={`p-4 rounded-xl text-sm font-medium border flex items-center justify-between ${
-            alert.type === "success"
-              ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-300"
-              : "bg-red-950/40 border-red-500/40 text-red-300"
-          }`}
-        >
-          <span>{alert.text}</span>
-          <button onClick={() => setAlert(null)} className="text-xs opacity-70 hover:opacity-100">
-            ✕ Đóng
-          </button>
+    <div className="flex flex-col h-[calc(100vh-80px)] rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden shadow-2xl">
+      {/* Toast thông báo nhanh */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-xl border border-rose-500/40 bg-rose-950/90 px-4 py-2.5 text-xs text-rose-200 backdrop-blur-md shadow-xl flex items-center gap-2">
+          <span>⚠️ {toast.text}</span>
+          <button onClick={() => setToast(null)} className="ml-2 font-bold hover:text-white">✕</button>
         </div>
       )}
 
-      {/* Bố cục 2 cột: Danh bạ Zalo thật & Khung soạn tin */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Cột 1: Danh bạ bạn bè/khách hàng thật từ Zalo (4 cột) */}
-        <div className="lg:col-span-4 rounded-2xl border border-slate-800 bg-slate-900/90 flex flex-col h-[650px] overflow-hidden">
-          <div className="p-4 border-b border-slate-800 space-y-3">
+      {/* GIAO DIỆN CHAT 3 CỘT (Cột 1: Danh sách hội thoại | Cột 2: Khung Chat | Cột 3: Hồ sơ khách 360) */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ========================================================================= */}
+        {/* CỘT 1: DANH SÁCH HỘI THOẠI (CONVERSATIONS LIST)                           */}
+        {/* ========================================================================= */}
+        <div className="w-80 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col">
+          {/* Header & Tìm kiếm */}
+          <div className="p-3.5 border-b border-slate-800 space-y-2.5">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-white flex items-center gap-2">
-                <span>👥 Danh Bạ Zalo Thật</span>
-                <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-400 font-normal">
-                  {contacts.length} liên hệ
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs">
+                  Z
                 </span>
-              </h2>
+                <div>
+                  <h2 className="text-sm font-bold text-white tracking-tight">Hộp Thư Đa Kênh</h2>
+                  <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
+                    Sơn Tùng (Zalo Cá Nhân)
+                  </p>
+                </div>
+              </div>
+
+              <Link
+                href="/channels"
+                title="Quản lý kênh kết nối"
+                className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition"
+              >
+                ⚙️
+              </Link>
             </div>
-            <input
-              type="text"
-              placeholder="Tìm theo tên hoặc số điện thoại..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-            />
+
+            {/* Ô tìm kiếm hội thoại */}
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Tìm kiếm cuộc trò chuyện, bạn bè..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              />
+              <span className="absolute left-2.5 top-2 text-slate-500 text-xs">🔍</span>
+            </div>
+
+            {/* Tabs phân loại: Ưu tiên / Phân loại */}
+            <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400 border-b border-slate-800/80 pb-1">
+              <button
+                onClick={() => setActiveTab("all")}
+                className={`px-2.5 py-1 rounded-lg transition ${
+                  activeTab === "all" ? "bg-slate-800 text-white font-bold" : "hover:text-slate-200"
+                }`}
+              >
+                Tất cả
+              </button>
+              <button
+                onClick={() => setActiveTab("zalo")}
+                className={`px-2.5 py-1 rounded-lg transition ${
+                  activeTab === "zalo" ? "bg-slate-800 text-blue-400 font-bold" : "hover:text-slate-200"
+                }`}
+              >
+                Zalo QR
+              </button>
+              <button
+                onClick={() => setActiveTab("unread")}
+                className={`px-2.5 py-1 rounded-lg transition ${
+                  activeTab === "unread" ? "bg-slate-800 text-amber-400 font-bold" : "hover:text-slate-200"
+                }`}
+              >
+                Chưa đọc
+              </button>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/60 p-2">
-            {loadingContacts ? (
-              <div className="p-8 text-center text-xs text-slate-400 space-y-2">
-                <div className="h-5 w-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p>Đang đồng bộ danh bạ từ máy chủ Zalo...</p>
+          {/* Danh sách các cuộc trò chuyện */}
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50">
+            {loadingConv ? (
+              <div className="p-8 text-center text-xs text-slate-500 space-y-2">
+                <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p>Đang tải danh sách cuộc trò chuyện...</p>
               </div>
-            ) : filteredContacts.length === 0 ? (
+            ) : filteredConversations.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-500">
-                Không tìm thấy liên hệ phù hợp trong danh bạ Zalo.
+                Không tìm thấy cuộc trò chuyện phù hợp.
               </div>
             ) : (
-              filteredContacts.slice(0, 60).map((c) => {
-                const isSelected = selectedContact?.userId === c.userId;
+              filteredConversations.map((conv) => {
+                const isSelected = activeConv?.id === conv.id;
                 return (
                   <button
-                    key={c.userId}
-                    onClick={() => handleSelectContact(c)}
-                    className={`w-full text-left p-2.5 rounded-xl transition flex items-center gap-3 ${
+                    key={conv.id}
+                    onClick={() => setActiveConv(conv)}
+                    className={`w-full text-left p-3 transition flex items-center gap-3 ${
                       isSelected
-                        ? "bg-cyan-950/60 border border-cyan-500/40 text-cyan-200"
-                        : "hover:bg-slate-800/50 text-slate-300"
+                        ? "bg-slate-800/90 border-l-4 border-blue-500"
+                        : "hover:bg-slate-800/40"
                     }`}
                   >
-                    {c.avatar ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={c.avatar}
-                        alt={c.name}
-                        className="h-9 w-9 rounded-full object-cover border border-slate-700 flex-shrink-0"
-                      />
-                    ) : (
-                      <div className="h-9 w-9 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
-                        {c.name.slice(0, 2).toUpperCase()}
+                    {/* Avatar */}
+                    <div className="relative flex-shrink-0">
+                      {conv.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={conv.avatar}
+                          alt={conv.name}
+                          className="h-11 w-11 rounded-full object-cover border border-slate-700"
+                        />
+                      ) : (
+                        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-indigo-600 border border-slate-700 flex items-center justify-center text-xs font-bold text-white">
+                          {conv.name.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-blue-500 border-2 border-slate-900 flex items-center justify-center text-[7px] text-white font-bold">
+                        Z
+                      </span>
+                    </div>
+
+                    {/* Tên & Tin nhắn gần nhất */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="font-semibold text-xs text-white truncate">
+                          {conv.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500 flex-shrink-0 ml-1">
+                          {conv.lastActive}
+                        </span>
                       </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-xs text-white truncate">{c.name}</div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {c.phone ? c.phone : `ID: ${c.userId}`}
-                      </div>
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {conv.lastMessage}
+                      </p>
                     </div>
                   </button>
                 );
@@ -237,178 +342,345 @@ export default function LiveZaloInbox() {
           </div>
         </div>
 
-        {/* Cột 2: Khung Soạn Tin Nhắn & Thao Tác Gửi (8 cột) */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
-          <form
-            onSubmit={handleSendMessage}
-            className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 space-y-4"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
-                <h2 className="text-sm font-bold text-white">Soạn Tin Nhắn Trực Tiếp Tới Khách Hàng</h2>
-                <p className="text-xs text-slate-400">
-                  Nhập số điện thoại bất kỳ hoặc chọn nhanh từ danh bạ bên trái
-                </p>
-              </div>
-              {selectedContact && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedContact(null);
-                    setRecipient("");
-                    setRecipientName("");
-                  }}
-                  className="text-xs text-slate-400 hover:text-white"
-                >
-                  ✕ Bỏ chọn
-                </button>
-              )}
-            </div>
+        {/* ========================================================================= */}
+        {/* CỘT 2: KHUNG CHAT 2 CHIỀU (MESSAGE STREAM & COMPOSER)                     */}
+        {/* ========================================================================= */}
+        <div className="flex-1 flex flex-col bg-slate-950">
+          {activeConv ? (
+            <>
+              {/* Header khung chat */}
+              <div className="h-16 px-5 border-b border-slate-800 bg-slate-900/60 backdrop-blur flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    {activeConv.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={activeConv.avatar}
+                        alt={activeConv.name}
+                        className="h-10 w-10 rounded-full object-cover border border-slate-700"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                        {activeConv.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
+                  </div>
 
-            {/* Thông tin người nhận */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Số điện thoại hoặc User ID Zalo:
-                </label>
-                <input
-                  type="text"
-                  placeholder="VD: 0988000001 hoặc chọn từ danh bạ"
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Tên khách hàng (để chèn biến xưng hô):
-                </label>
-                <input
-                  type="text"
-                  placeholder="VD: Anh Tuấn, Chị Hoa..."
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Kịch bản mẫu nhanh */}
-            <div>
-              <div className="text-xs font-medium text-slate-400 mb-1.5">
-                Mẫu tin tư vấn nhanh (Click để điền):
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleTemplateClick(
-                      "Dạ em chào {fullName}, em là Dược sĩ bên Dược Phẩm ADDP. Em liên hệ để gửi tài liệu hướng dẫn dinh dưỡng kiểm soát đường huyết cho mình ạ."
-                    )
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-[11px] text-slate-300 hover:border-cyan-500 hover:text-white transition"
-                >
-                  👋 Lời chào tư vấn
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleTemplateClick(
-                      "Dạ {fullName} ơi, hôm nay là ngày thứ 3 mình dùng sữa hạt Glucare Plus, mình uống thấy hương vị thế nào và đường huyết buổi sáng đo được bao nhiêu rồi ạ?"
-                    )
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-[11px] text-slate-300 hover:border-cyan-500 hover:text-white transition"
-                >
-                  🥛 Chăm sóc Ngày 3
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleTemplateClick(
-                      "Dạ {fullName} ơi, liệu trình của mình còn khoảng 5-7 ngày nữa là hết rồi ạ. Em kiểm tra xem mình có cần gửi tiếp đợt mới để duy trì ổn định đường huyết không ạ?"
-                    )
-                  }
-                  className="rounded-lg border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-[11px] text-slate-300 hover:border-cyan-500 hover:text-white transition"
-                >
-                  📦 Nhắc tái mua liệu trình
-                </button>
-              </div>
-            </div>
-
-            {/* Khung nhập nội dung */}
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1">
-                Nội dung tin nhắn:
-              </label>
-              <textarea
-                rows={5}
-                placeholder="Nhập nội dung tin nhắn gửi từ tài khoản Zalo của bạn..."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-                required
-              />
-            </div>
-
-            {/* Footer hành động */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
-              <div className="text-[11px] text-slate-400">
-                ✅ Tin nhắn sẽ được gửi ngay lập tức qua phiên đăng nhập của <strong>Sơn Tùng</strong>.
-              </div>
-
-              <button
-                type="submit"
-                disabled={sending}
-                className="rounded-xl bg-cyan-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-cyan-500 disabled:opacity-50 transition flex items-center justify-center gap-2"
-              >
-                {sending ? (
-                  <>
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Đang gửi qua Zalo...
-                  </>
-                ) : (
-                  <>✈️ Gửi Tin Nhắn Zalo Ngay</>
-                )}
-              </button>
-            </div>
-          </form>
-
-          {/* Nhật ký gửi tin trong phiên */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/90 p-5 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Nhật Ký Tin Đã Gửi Trong Phiên ({sentHistory.length})
-            </h3>
-
-            {sentHistory.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                Chưa có tin nhắn nào được gửi trong phiên này. Hãy chọn 1 người nhận ở danh bạ hoặc nhập SĐT để gửi thử nghiệm.
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-56 overflow-y-auto">
-                {sentHistory.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-3 rounded-xl border border-slate-800 bg-slate-950 flex flex-col gap-1 text-xs"
-                  >
-                    <div className="flex items-center justify-between text-slate-400">
-                      <span className="font-semibold text-white">
-                        Tới: {item.recipient} ({item.phone})
+                  <div>
+                    <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                      {activeConv.name}
+                      <span className="rounded bg-blue-500/20 text-blue-400 text-[10px] font-semibold px-1.5 py-0.2">
+                        Zalo Cá Nhân
                       </span>
-                      <span className="text-[11px] text-emerald-400">
-                        ✓ {item.status} lúc {item.time}
-                      </span>
-                    </div>
-                    <p className="text-slate-300 text-xs italic bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
-                      &quot;{item.message}&quot;
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      {activeConv.phone ? `SĐT: ${activeConv.phone}` : `Zalo ID: ${activeConv.id}`} • Truy cập qua nick <strong>Sơn Tùng</strong>
                     </p>
                   </div>
-                ))}
+                </div>
+
+                {/* Các nút gọi / đóng mở side panel */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    title="Gọi thoại Zalo"
+                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  >
+                    📞
+                  </button>
+                  <button
+                    type="button"
+                    title="Gọi video Zalo"
+                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                  >
+                    📹
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSidePanel(!showSidePanel)}
+                    title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
+                    className={`p-2 rounded-xl text-xs font-semibold transition ${
+                      showSidePanel
+                        ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    📋 Hồ Sơ 360
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Message Thread Stream (Bong bóng chat 2 chiều) */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900/40">
+                {/* Dấu mốc ngày tháng */}
+                <div className="flex justify-center">
+                  <span className="rounded-full bg-slate-800/80 px-3 py-1 text-[11px] text-slate-400 font-medium border border-slate-700/60">
+                    Hôm nay, 02/11/2026
+                  </span>
+                </div>
+
+                {loadingMessages ? (
+                  <div className="p-8 text-center text-xs text-slate-500">
+                    Đang nạp lịch sử tin nhắn...
+                  </div>
+                ) : (
+                  messages.map((m) => {
+                    const isMe = m.isMe;
+                    return (
+                      <div
+                        key={m.id}
+                        className={`flex items-end gap-2.5 ${isMe ? "justify-end" : "justify-start"}`}
+                      >
+                        {!isMe && (
+                          <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 flex-shrink-0">
+                            {activeConv.name.slice(0, 1)}
+                          </div>
+                        )}
+
+                        <div
+                          className={`max-w-[70%] rounded-2xl px-4 py-2.5 shadow-md ${
+                            isMe
+                              ? "bg-blue-600 text-white rounded-br-none"
+                              : "bg-slate-800/90 text-slate-100 rounded-bl-none border border-slate-700/60"
+                          }`}
+                        >
+                          <p className="text-xs leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                          <div
+                            className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
+                              isMe ? "text-blue-200" : "text-slate-400"
+                            }`}
+                          >
+                            <span>{m.time}</span>
+                            {isMe && (
+                              <span>
+                                {m.status === "sending"
+                                  ? "🕒"
+                                  : m.status === "error"
+                                  ? "⚠️"
+                                  : "✓✓"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Message Composer (Thanh công cụ & Ô nhập tin nhắn) */}
+              <div className="border-t border-slate-800 bg-slate-900/80 p-3 space-y-2 flex-shrink-0">
+                {/* Thanh công cụ kịch bản nhanh */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+                    <span className="text-[11px] text-slate-400 font-semibold mr-1">⚡ Mẫu:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInputMessage(
+                          `Dạ em chào ${activeConv.name}, em là Dược sĩ bên ADDP hỗ trợ mình đây ạ!`
+                        )
+                      }
+                      className="rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 px-2 py-0.5 border border-slate-700/80 transition"
+                    >
+                      👋 Lời chào
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInputMessage(
+                          `Dạ ${activeConv.name} ơi, hôm nay đường huyết buổi sáng đo được bao nhiêu rồi ạ?`
+                        )
+                      }
+                      className="rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 px-2 py-0.5 border border-slate-700/80 transition"
+                    >
+                      🩸 Hỏi đường huyết
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setInputMessage(
+                          `Dạ hôm nay là ngày thứ 3 dùng sữa Glucare Plus, ${activeConv.name} uống thấy vị thế nào ạ?`
+                        )
+                      }
+                      className="rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 px-2 py-0.5 border border-slate-700/80 transition"
+                    >
+                      🥛 Chăm sóc Ngày 3
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    Enter để gửi • Shift+Enter xuống dòng
+                  </div>
+                </div>
+
+                {/* Khung nhập tin nhắn */}
+                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+                  <div className="flex-1 relative">
+                    <textarea
+                      rows={2}
+                      value={inputMessage}
+                      onChange={(e) => setInputMessage(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={`Nhập @, tin nhắn gửi tới ${activeConv.name}...`}
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={sending || !inputMessage.trim()}
+                    className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition flex-shrink-0"
+                  >
+                    {sending ? (
+                      <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <span>Gửi</span>
+                        <span>✈️</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center p-8 text-center text-slate-500 text-xs">
+              Vui lòng chọn một cuộc trò chuyện từ danh sách bên trái để bắt đầu nhắn tin.
+            </div>
+          )}
         </div>
+
+        {/* ========================================================================= */}
+        {/* CỘT 3: HỒ SƠ KHÁCH HÀNG 360 & THÔNG TIN HỘI THOẠI (CUSTOMER 360 PANEL)      */}
+        {/* ========================================================================= */}
+        {showSidePanel && activeConv && (
+          <div className="w-72 flex-shrink-0 border-l border-slate-800 bg-slate-900/90 p-4 flex flex-col overflow-y-auto space-y-5">
+            {/* Header thông tin */}
+            <div className="text-center space-y-2 border-b border-slate-800 pb-4">
+              {activeConv.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={activeConv.avatar}
+                  alt={activeConv.name}
+                  className="h-16 w-16 rounded-full object-cover border-2 border-blue-500 mx-auto"
+                />
+              ) : (
+                <div className="h-16 w-16 rounded-full bg-blue-600 border-2 border-blue-400 flex items-center justify-center text-base font-bold text-white mx-auto">
+                  {activeConv.name.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div>
+                <h4 className="font-bold text-sm text-white">{activeConv.name}</h4>
+                <p className="text-xs text-slate-400">{activeConv.phone || `ID: ${activeConv.id}`}</p>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  className="p-2 rounded-xl bg-slate-800 text-xs text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                  title="Ghim hội thoại"
+                >
+                  📌 Ghim
+                </button>
+                <button
+                  type="button"
+                  className="p-2 rounded-xl bg-slate-800 text-xs text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                  title="Tắt thông báo"
+                >
+                  🔕 Tắt chuông
+                </button>
+                <Link
+                  href="/customers"
+                  className="p-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-xs text-blue-300 hover:bg-blue-600/30 transition"
+                  title="Mở hồ sơ chi tiết"
+                >
+                  👤 Chi Tiết
+                </Link>
+              </div>
+            </div>
+
+            {/* Hồ sơ sức khỏe & Bệnh lý (Customer 360) */}
+            <div className="space-y-2.5">
+              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Hồ Sơ Bệnh Lý & CRM 360
+              </h5>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-slate-400">Nguồn khách:</span>
+                  <span className="font-semibold text-blue-400">Zalo Cá Nhân</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-slate-400">Sale phụ trách:</span>
+                  <span className="font-semibold text-white">Sơn Tùng</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-300">
+                  <span className="text-slate-400">Tình trạng:</span>
+                  <span className="rounded bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold">
+                    Đang Chăm Sóc
+                  </span>
+                </div>
+              </div>
+
+              {/* Thẻ Tags bệnh lý */}
+              <div className="pt-1">
+                <span className="text-[10px] text-slate-400 block mb-1">Thẻ phân loại:</span>
+                <div className="flex flex-wrap gap-1">
+                  <span className="rounded-md bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 text-[10px] text-cyan-300 font-medium">
+                    Tiểu đường Tuyp 2
+                  </span>
+                  <span className="rounded-md bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[10px] text-amber-300 font-medium">
+                    Mỡ máu
+                  </span>
+                  <span className="rounded-md bg-purple-500/10 border border-purple-500/30 px-2 py-0.5 text-[10px] text-purple-300 font-medium">
+                    Khách VIP
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Lộ trình chăm sóc Ngày 1-3-7-14-21 */}
+            <div className="space-y-2 border-t border-slate-800 pt-3 text-xs">
+              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Lộ Trình Chăm Sóc Glucare
+              </h5>
+              <div className="space-y-1 text-[11px]">
+                <div className="flex items-center justify-between text-emerald-400">
+                  <span>✓ Ngày 1: Hướng dẫn mở hộp & uống</span>
+                  <span className="text-[10px]">Đã gửi</span>
+                </div>
+                <div className="flex items-center justify-between text-blue-400 font-semibold bg-blue-950/40 p-1.5 rounded-lg border border-blue-500/30">
+                  <span>► Ngày 3: Kiểm tra vị & đường huyết</span>
+                  <span className="text-[10px]">Hôm nay</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-500">
+                  <span>○ Ngày 7: Đánh giá thể trạng</span>
+                  <span className="text-[10px]">Chờ</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-500">
+                  <span>○ Ngày 14: Đo lại chỉ số</span>
+                  <span className="text-[10px]">Chờ</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Ghi chú nội bộ cho Sale */}
+            <div className="space-y-2 border-t border-slate-800 pt-3 text-xs">
+              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                Ghi Chú Tư Vấn
+              </h5>
+              <textarea
+                rows={3}
+                placeholder="Nhập ghi chú bệnh lý, dặn dò uống sữa..."
+                defaultValue="Khách uống 2 ly mỗi ngày sau ăn sáng và chiều. Đang theo dõi chỉ số đường huyết tuần 1."
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2 text-xs text-slate-300 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
