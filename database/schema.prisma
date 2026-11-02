@@ -1,0 +1,573 @@
+// ============================================================================
+// ADDP OMNICHANNEL AI CRM & ERP — SCHEMA MYSQL 8.0 HỢP NHẤT (addp_crm)
+// WBS-03 (Phần 1: CRM Core, RBAC, Đa Tài Khoản, Khách Hàng 360, Lộ Trình CSKH)
+// WBS-04 (Phần 2: Đơn Hàng 7 Kênh, Kho Combo, Lãi/Lỗ, Hộp Thư Hợp Nhất & Broadcast)
+// Kế thừa từ: C:\QuanlyKH + C:\AH-Trabi\quan-ly-kho + C:\AdsTiktok + Javis OS
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// PHẦN 1 (WBS-03): NHÂN SỰ, PHÂN QUYỀN RBAC, ĐA TÀI KHOẢN KÊNH & KHÁCH HÀNG 360
+// ============================================================================
+
+enum StaffRole {
+  ADMIN
+  SALE_LEADER
+  SALE
+  CSKH
+  KHO
+  KE_TOAN
+}
+
+enum PlatformType {
+  ZALO_PERSONAL
+  ZALO_OA
+  FACEBOOK
+  TIKTOK_SHOP
+  SHOPEE
+  KIOTVIET
+  MAGENTO
+  CALL
+  SMS
+  OTHER
+}
+
+enum AiReplyMode {
+  AUTO_REPLY
+  DRAFT_ONLY
+  HUMAN_ONLY
+  OFF
+}
+
+enum CustomerVipLevel {
+  NEW
+  REPEAT_2
+  LOYAL_3
+  VIP_5
+}
+
+enum InteractionStatus {
+  SUCCESS
+  NO_ANSWER
+  UNREACHABLE
+  BUSY
+}
+
+enum FeedbackRating {
+  GOOD
+  BAD
+  NONE
+}
+
+enum TaskType {
+  DAY_1
+  DAY_3
+  DAY_7
+  DAY_14
+  DAY_21
+  HALF_USAGE
+  TWO_THIRD_USAGE
+  OTHER
+}
+
+enum TaskPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ConversationState {
+  NEED_HUMAN
+  AI_HANDLING
+  HUMAN_HANDLING
+  LOG_ONLY
+}
+
+/// Bảng Nhân viên & Phân quyền (Kế thừa QuanlyKH.staff + quan-ly-kho.users)
+model Staff {
+  id              Int      @id @default(autoincrement())
+  code            String   @unique @db.VarChar(64)
+  name            String   @db.VarChar(191)
+  email           String?  @db.VarChar(191)
+  phone           String?  @db.VarChar(32)
+  password        String?  @db.VarChar(255)
+  role            StaffRole @default(SALE)
+  teamName        String?  @db.VarChar(100)
+  /// Danh sách quyền truy cập tab/module JSON (kế thừa quan-ly-kho users_management_view.php)
+  tabPermissions  Json?
+  /// Chỉ tiêu doanh số tháng (VNĐ)
+  kpi             BigInt   @default(0)
+  /// Chỉ tiêu số khách chăm sóc mỗi ngày (kế thừa QuanlyKH)
+  dailyCareTarget Int      @default(7)
+  /// Định mức tin nhắn chủ động tối đa mỗi ngày (luật chống khóa Zalo - Điều 4 AGENTS.md)
+  dailyMsgTarget  Int      @default(70)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customers          Customer[]
+  orders             Order[]
+  tasks              Task[]
+  interactions       Interaction[]
+  channelPermissions StaffChannelPermission[]
+  conversations      Conversation[]
+
+  @@index([role, isActive])
+  @@map("staff")
+}
+
+/// Bảng Tài khoản Kênh Bán hàng & Nhắn tin (Multi-Account Hub cho 7 nền tảng)
+model ChannelAccount {
+  id                   Int          @id @default(autoincrement())
+  platform             PlatformType
+  /// Mã định danh trên nền tảng (Page ID, OA ID, Shop ID, SĐT Zalo QR, Store Code Magento)
+  accountKey           String       @db.VarChar(128)
+  accountName          String       @db.VarChar(255)
+  shopId               String?      @db.VarChar(128)
+  shopCipher           String?      @db.VarChar(255)
+  appKey               String?      @db.VarChar(128)
+  appSecretEncrypted   String?      @db.Text
+  accessToken          String?      @db.Text
+  refreshToken         String?      @db.Text
+  tokenExpiresAt       DateTime?
+  refreshExpiresAt     DateTime?
+  webhookVerifyToken   String?      @db.VarChar(255)
+  /// Đường dẫn thư mục session trên Server (dùng cho Zalo cá nhân quét QR - javis-zalo)
+  sessionDir           String?      @db.VarChar(255)
+  /// Chế độ AI mặc định của kênh này
+  defaultAiMode        AiReplyMode  @default(DRAFT_ONLY)
+  /// Tên Agent / Brain trong Javis OS phụ trách kênh này
+  aiAgentSlug          String?      @db.VarChar(128)
+  /// Giới hạn số tin nhắn chủ động/ngày trên tài khoản này (Bảo vệ nick Zalo cá nhân)
+  dailyMsgLimit        Int          @default(70)
+  sentTodayCount       Int          @default(0)
+  status               String       @default("CONNECTED") @db.VarChar(32)
+  lastErrorMessage     String?      @db.Text
+  lastSyncAt           DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  staffPermissions   StaffChannelPermission[]
+  conversations      Conversation[]
+  orders             Order[]
+  broadcastCampaigns BroadcastCampaign[]
+
+  @@unique([platform, accountKey], map: "uq_platform_account_key")
+  @@index([platform, status])
+  @@map("channel_accounts")
+}
+
+/// Bảng Ma trận Phân quyền Nhân viên <-> Tài khoản Kênh (WBS-08)
+model StaffChannelPermission {
+  id                   Int      @id @default(autoincrement())
+  staffId              Int
+  channelAccountId     Int
+  canView              Boolean  @default(true)
+  canReply             Boolean  @default(true)
+  canManage            Boolean  @default(false)
+  /// Có nhận khách mới chia tự động (Round-Robin) từ kênh này không
+  isAutoAssignEligible Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  staff          Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, channelAccountId], map: "uq_staff_channel")
+  @@index([channelAccountId])
+  @@map("staff_channel_permissions")
+}
+
+/// Bảng Hồ sơ Khách hàng 360 (Kế thừa QuanlyKH.customer + quan-ly-kho khach_hang_view.php)
+model Customer {
+  id              Int              @id @default(autoincrement())
+  code            String           @unique @db.VarChar(64)
+  fullName        String           @db.VarChar(255)
+  /// Số điện thoại chuẩn hóa 10 số bắt đầu bằng 0 (normalizePhone - Điều 3 AGENTS.md)
+  phone           String           @unique @db.VarChar(32)
+  secondaryPhones String?          @db.VarChar(255)
+  email           String?          @db.VarChar(191)
+  address         String?          @db.Text
+  province        String?          @db.VarChar(100)
+  district        String?          @db.VarChar(100)
+  ward            String?          @db.VarChar(100)
+  age             Int?
+  gender          String?          @db.VarChar(16)
+  /// Tình trạng bệnh lý (tiểu đường, mỡ máu, gan...) kế thừa QuanlyKH
+  pathology       String?          @db.Text
+  /// Chỉ số đường huyết ban đầu (mmol/L hoặc mg/dL)
+  initialGlucose  Float?
+  currentGlucose  Float?
+  status          String?          @default("Khách Mới") @db.VarChar(64)
+  vipLevel        CustomerVipLevel @default(NEW)
+  careStatus      String?          @default("Đang chăm sóc") @db.VarChar(64)
+  source          PlatformType?    @default(OTHER)
+  staffId         Int?
+  totalOrders     Int              @default(0)
+  totalSpent      Decimal          @default(0.00) @db.Decimal(15, 2)
+  lastOrderDate   DateTime?
+  facebookUrl     String?          @db.VarChar(255)
+  zaloUid         String?          @db.VarChar(128)
+  vpageUrl        String?          @db.VarChar(255)
+  notes           String?          @db.Text
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  staff         Staff?         @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  carePlans     CarePlan[]
+  interactions  Interaction[]
+  orders        Order[]
+  tasks         Task[]
+  customerTags  CustomerTag[]
+  conversations Conversation[]
+
+  @@index([staffId])
+  @@index([source])
+  @@index([vipLevel])
+  @@index([lastOrderDate])
+  @@map("customers")
+}
+
+/// Bảng Danh mục Thẻ phân loại Khách hàng (Tag màu tùy chỉnh + AI Auto-Tag)
+model Tag {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique @db.VarChar(100)
+  slug        String   @unique @db.VarChar(100)
+  color       String   @default("#2563eb") @db.VarChar(32)
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now())
+
+  customerTags CustomerTag[]
+
+  @@map("tags")
+}
+
+/// Bảng Liên kết Khách hàng <-> Thẻ Tag (N-N)
+model CustomerTag {
+  id            Int      @id @default(autoincrement())
+  customerId    Int
+  tagId         Int
+  assignedByAi  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, tagId], map: "uq_customer_tag")
+  @@index([tagId])
+  @@map("customer_tags")
+}
+
+/// Bảng Lộ trình Chăm sóc Sản phẩm (Kế thừa QuanlyKH.careplan)
+model CarePlan {
+  id             Int      @id @default(autoincrement())
+  customerId     Int
+  productName    String   @db.VarChar(255)
+  startDate      DateTime
+  usageDays      Int      @default(15)
+  historyChanges String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("care_plans")
+}
+
+/// Bảng Lịch sử Tương tác & Chỉ số Sức khỏe Hàng tuần (Kế thừa QuanlyKH.interaction)
+model Interaction {
+  id                Int               @id @default(autoincrement())
+  customerId        Int
+  staffId           Int?
+  interactionDate   DateTime          @default(now())
+  channel           PlatformType      @default(CALL)
+  interactionStatus InteractionStatus @default(SUCCESS)
+  content           String            @db.Text
+  weeklyFeedback    String?           @db.Text
+  healthIndexRaw    String?           @db.VarChar(255)
+  feedbackRating    FeedbackRating    @default(NONE)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  staff    Staff?   @relation(fields: [staffId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, interactionDate])
+  @@index([staffId])
+  @@map("interactions")
+}
+
+/// Bảng Lịch Nhắc việc Chăm sóc Tự động Ngày 1, 3, 7, 14, 21, 1/2, 2/3 (Kế thừa QuanlyKH.task)
+model Task {
+  id          Int           @id @default(autoincrement())
+  customerId  Int
+  staffId     Int
+  orderId     Int?
+  deadline    DateTime
+  taskType    TaskType      @default(DAY_3)
+  title       String?       @db.VarChar(255)
+  priority    TaskPriority  @default(MEDIUM)
+  channel     PlatformType? @default(ZALO_PERSONAL)
+  isCompleted Boolean       @default(false)
+  completedAt DateTime?
+  resultNote  String?       @db.Text
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  staff    Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, isCompleted, deadline])
+  @@index([customerId])
+  @@map("tasks")
+}
+
+// ============================================================================
+// PHẦN 2 (WBS-04): SẢN PHẨM, KHO COMBO, ĐƠN HÀNG ĐA SÀN, LÃI/LỖ & HỘP THƯ HỢP NHẤT
+// ============================================================================
+
+/// Bảng Danh mục Hàng hóa, Giá vốn & Công thức Combo (Kế thừa quan-ly-kho.items + AdsTiktok COGS)
+model Product {
+  id                Int      @id @default(autoincrement())
+  /// Mã hàng chuẩn nội bộ (VD: MÁTGAN, CAM, CHANHLEO, HỘPGLUCARE, GÓIGLUCARE, VAD...)
+  code              String   @unique @db.VarChar(128)
+  name              String   @db.VarChar(255)
+  unit              String   @default("Hộp") @db.VarChar(32)
+  retailPrice       Decimal  @default(0.00) @db.Decimal(15, 2)
+  /// Giá vốn hàng bán (COGS) phục vụ tính Lãi/Lỗ đơn hàng (AdsTiktok commerce_product_cost_service)
+  costPrice         Decimal  @default(0.00) @db.Decimal(15, 2)
+  /// Số ngày sử dụng trên 1 đơn vị (VD: Sữa hạt Glucare = 5 ngày, Viên An Đường = 15 ngày)
+  usageDaysPerUnit  Int      @default(15)
+  /// Công thức tách mã gộp/Combo (VD: "MÁTGAN:3,GÓIGLUCARE:1")
+  comboFormula      String?  @db.Text
+  stockQuantity     Decimal  @default(0.00) @db.Decimal(15, 2)
+  prepackedQuantity Decimal  @default(0.00) @db.Decimal(15, 2)
+  sortOrder         Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("products")
+}
+
+/// Bảng Ánh xạ SKU Đa Sàn về Mã kho nội bộ (Kế thừa tiktok_sku_mapping & shopee_sku_mapping)
+model SkuMapping {
+  id                  Int          @id @default(autoincrement())
+  platform            PlatformType
+  shopId              String?      @db.VarChar(128)
+  platformProductId   String       @db.VarChar(128)
+  platformProductName String?      @db.VarChar(255)
+  platformSkuId       String       @db.VarChar(128)
+  platformSkuName     String?      @db.VarChar(255)
+  sellerSku           String?      @db.VarChar(128)
+  /// Mã sản phẩm hoặc mã Combo nội bộ (liên kết logic tới Product.code)
+  localItemCode       String       @db.VarChar(128)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@unique([platform, platformProductId, platformSkuId], map: "uq_platform_product_sku")
+  @@index([localItemCode])
+  @@map("sku_mappings")
+}
+
+/// Bảng Đơn hàng Hợp nhất 7 Nền tảng (Kế thừa QuanlyKH.order + quan-ly-kho + AdsTiktok.commerce_orders)
+model Order {
+  id                  Int          @id @default(autoincrement())
+  /// Mã đơn chuẩn duy nhất trên CRM (VD: KV-HD001, TT-57689, SP-261031, MG-100012)
+  code                String       @unique @db.VarChar(128)
+  platform            PlatformType @default(KIOTVIET)
+  channelAccountId    Int?
+  platformOrderId     String?      @db.VarChar(128)
+  customerId          Int
+  staffId             Int?
+  orderDate           DateTime     @default(now())
+  deliveredDate       DateTime?
+  status              String       @default("Đang xử lý") @db.VarChar(64)
+  platformStatus      String?      @db.VarChar(64)
+  deliveryStatus      String?      @db.VarChar(64)
+  shippingProvider    String?      @db.VarChar(100)
+  trackingNumber      String?      @db.VarChar(100)
+  /// Chuỗi JSON danh sách sản phẩm tóm tắt (tương thích ngược với QuanlyKH)
+  productsJson        String       @db.Text
+  /// Các trường tài chính & đối soát Lãi/Lỗ (kế thừa AdsTiktok commerce_orders & commerce_loss_engine)
+  grossAmount         Decimal      @default(0.00) @db.Decimal(15, 2)
+  subTotal            Decimal      @default(0.00) @db.Decimal(15, 2)
+  shippingFee         Decimal      @default(0.00) @db.Decimal(15, 2)
+  sellerDiscount      Decimal      @default(0.00) @db.Decimal(15, 2)
+  platformDiscount    Decimal      @default(0.00) @db.Decimal(15, 2)
+  platformFee         Decimal      @default(0.00) @db.Decimal(15, 2)
+  affiliateCommission Decimal      @default(0.00) @db.Decimal(15, 2)
+  adsCostAllocated    Decimal      @default(0.00) @db.Decimal(15, 2)
+  cogsAmount          Decimal      @default(0.00) @db.Decimal(15, 2)
+  netProfit           Decimal      @default(0.00) @db.Decimal(15, 2)
+  buyerPayment        Decimal      @default(0.00) @db.Decimal(15, 2)
+  isInventoryDeducted Boolean      @default(false)
+  careTasksGenerated  Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  staff          Staff?          @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+
+  @@index([platform, orderDate])
+  @@index([customerId])
+  @@index([staffId])
+  @@index([status, deliveryStatus])
+  @@map("orders")
+}
+
+/// Bảng Chi tiết từng Dòng sản phẩm trong Đơn hàng (Kế thừa AdsTiktok.commerce_order_items)
+model OrderItem {
+  id                  Int      @id @default(autoincrement())
+  orderId             Int
+  platformLineItemId  String?  @db.VarChar(128)
+  productCode         String   @db.VarChar(128)
+  productName         String   @db.VarChar(255)
+  skuId               String?  @db.VarChar(128)
+  skuName             String?  @db.VarChar(255)
+  quantity            Int      @default(1)
+  salePrice           Decimal  @default(0.00) @db.Decimal(15, 2)
+  costPrice           Decimal  @default(0.00) @db.Decimal(15, 2)
+  /// Kết quả phân rã công thức Combo để trừ kho chính xác (VD: {"MÁTGAN": 3, "GÓIGLUCARE": 1})
+  resolvedComboJson   Json?
+  createdAt           DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productCode])
+  @@map("order_items")
+}
+
+/// Bảng Nhật ký Xuất / Nhập Kho & Đối soát Đơn vị vận chuyển (Kế thừa quan-ly-kho.inventory_logs)
+model InventoryLog {
+  id              Int      @id @default(autoincrement())
+  logDate         DateTime @db.Date
+  /// OUT (Xuất bán), IN (Nhập kho), RETURN (Hoàn hàng), PACK (Đóng sẵn)
+  logType         String   @default("OUT") @db.VarChar(32)
+  salesChannel    String   @default("Khác") @db.VarChar(100)
+  shippingUnit    String   @default("Khác") @db.VarChar(100)
+  batchNumber     Int      @default(1)
+  itemCode        String   @db.VarChar(128)
+  quantity        Decimal  @db.Decimal(15, 2)
+  externalOrderId String?  @db.VarChar(128)
+  note            String?  @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([logDate, salesChannel])
+  @@index([itemCode])
+  @@index([externalOrderId])
+  @@map("inventory_logs")
+}
+
+/// Bảng Chốt Kiểm kê Tồn kho theo Ngày (Kế thừa quan-ly-kho.stock_takes)
+model StockTake {
+  id          Int      @id @default(autoincrement())
+  balanceDate DateTime @db.Date
+  itemCode    String   @db.VarChar(128)
+  quantity    Decimal  @db.Decimal(15, 2)
+  note        String?  @db.VarChar(255)
+  createdAt   DateTime @default(now())
+
+  @@unique([balanceDate, itemCode], map: "uq_balance_date_item")
+  @@map("stock_takes")
+}
+
+/// Bảng Hội thoại Khách hàng Đa kênh (Omnichannel Inbox 3 cột - Kế thừa Javis OS)
+model Conversation {
+  id                  Int               @id @default(autoincrement())
+  channelAccountId    Int
+  platform            PlatformType
+  /// Thread ID trên Zalo / PSID trên Facebook / User ID trên Zalo OA / Session ID Web
+  externalThreadId    String            @db.VarChar(191)
+  threadName          String            @db.VarChar(255)
+  avatarUrl           String?           @db.VarChar(512)
+  isGroup             Boolean           @default(false)
+  customerId          Int?
+  assignedStaffId     Int?
+  /// Trạng thái xử lý: NEED_HUMAN (Vàng), AI_HANDLING (Tím), HUMAN_HANDLING (Xanh), LOG_ONLY (Xám)
+  handlerState        ConversationState @default(NEED_HUMAN)
+  aiMode              AiReplyMode       @default(DRAFT_ONLY)
+  unreadCount         Int               @default(0)
+  totalMessages       Int               @default(0)
+  lastMessageAt       DateTime          @default(now())
+  lastMessagePreview  String?           @db.Text
+  lastSenderType      String            @default("CUSTOMER") @db.VarChar(32)
+  /// Bản nháp do AI soạn sẵn chờ Sale bấm Duyệt/Gửi (chế độ A.I. soạn)
+  aiDraftText         String?           @db.Text
+  tagsJson            Json?
+  isPinned            Boolean           @default(false)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  channelAccount ChannelAccount @relation(fields: [channelAccountId], references: [id], onDelete: Cascade)
+  customer       Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedStaff  Staff?         @relation(fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  messages       Message[]
+
+  @@unique([channelAccountId, externalThreadId], map: "uq_channel_thread")
+  @@index([handlerState, lastMessageAt])
+  @@index([assignedStaffId, lastMessageAt])
+  @@index([customerId])
+  @@map("conversations")
+}
+
+/// Bảng Tin nhắn Chi tiết trong Hộp thư Hợp nhất
+model Message {
+  id                Int      @id @default(autoincrement())
+  conversationId    Int
+  externalMessageId String?  @db.VarChar(191)
+  /// CUSTOMER (Khách gửi), AI (Bot gửi), STAFF (Sale gửi)
+  senderType        String   @default("CUSTOMER") @db.VarChar(32)
+  senderName        String?  @db.VarChar(191)
+  staffId           Int?
+  content           String   @db.Text
+  attachmentsJson   Json?
+  isRead            Boolean  @default(false)
+  sentAt            DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, sentAt])
+  @@map("messages")
+}
+
+/// Bảng Chiến dịch Gửi tin nhắn Hàng loạt & Smart Queue chống khóa Zalo (WBS-35 & Điều 4 AGENTS.md)
+model BroadcastCampaign {
+  id                 Int          @id @default(autoincrement())
+  name               String       @db.VarChar(255)
+  platform           PlatformType @default(ZALO_PERSONAL)
+  channelAccountId   Int?
+  /// Điều kiện lọc tệp KH (theo Tag, Nguồn, Sản phẩm đã mua, Số ngày chưa mua lại)
+  filterCriteriaJson Json?
+  templateContent    String       @db.Text
+  /// Dùng AI viết lại câu chào theo tên/sản phẩm để tránh trùng lặp nội dung 100%
+  useAiRewrite       Boolean      @default(true)
+  /// Khoảng giãn cách ngẫu nhiên giữa 2 tin nhắn (Mặc định 45 - 120 giây theo Điều 4 AGENTS.md)
+  minDelaySec        Int          @default(45)
+  maxDelaySec        Int          @default(120)
+  status             String       @default("DRAFT") @db.VarChar(32)
+  totalTargets       Int          @default(0)
+  sentCount          Int          @default(0)
+  failedCount        Int          @default(0)
+  scheduledAt        DateTime?
+  createdByStaffId   Int?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  channelAccount ChannelAccount? @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledAt])
+  @@map("broadcast_campaigns")
+}
