@@ -1,32 +1,41 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 
 export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
   const [loading, setLoading] = useState(true);
-  const [accountLabel, setAccountLabel] = useState("Zalo Tư Vấn ADDP");
+  const [accountLabel, setAccountLabel] = useState("ADDP Zalo Cá Nhân");
   const [session, setSession] = useState(null);
+  const [qrImage, setQrImage] = useState("");
   const [countdown, setCountdown] = useState(180);
   const [scanStatus, setScanStatus] = useState("waiting_scan");
   const [errorMessage, setErrorMessage] = useState("");
   const timerRef = useRef(null);
   const pollRef = useRef(null);
 
-  const startQrSession = useCallback(async (label = accountLabel) => {
+  const startQrSession = async (customLabel) => {
     setLoading(true);
     setErrorMessage("");
     setScanStatus("waiting_scan");
+    setQrImage("");
     setCountdown(180);
+    clearInterval(pollRef.current);
+    clearInterval(timerRef.current);
+
+    const labelToUse = customLabel || accountLabel || "ADDP Zalo Cá Nhân";
 
     try {
       const res = await fetch("/api/channels/zalo/qr", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label }),
+        body: JSON.stringify({ label: labelToUse }),
       });
       const data = await res.json();
       if (res.ok && data.sid) {
         setSession(data);
+        if (data.qr) {
+          setQrImage(data.qr);
+        }
         setLoading(false);
       } else {
         setErrorMessage(data.error || "Không thể khởi tạo phiên quét QR.");
@@ -36,8 +45,9 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
       setErrorMessage("Lỗi kết nối máy chủ khi tạo mã QR.");
       setLoading(false);
     }
-  }, [accountLabel]);
+  };
 
+  // Chỉ kích hoạt startQrSession 1 lần khi modal mở lên
   useEffect(() => {
     if (isOpen) {
       startQrSession();
@@ -45,10 +55,12 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
       clearInterval(timerRef.current);
       clearInterval(pollRef.current);
       setSession(null);
+      setQrImage("");
     }
-  }, [isOpen, startQrSession]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
-  // Countdown timer
+  // Bộ đếm ngược thời gian hết hạn (180s)
   useEffect(() => {
     if (!isOpen || !session?.sid) return;
     timerRef.current = setInterval(() => {
@@ -65,7 +77,7 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
     return () => clearInterval(timerRef.current);
   }, [isOpen, session]);
 
-  // Polling QR login status
+  // Vòng lặp kiểm tra trạng thái QR từ Server mỗi 1.5 giây
   useEffect(() => {
     if (!isOpen || !session?.sid || scanStatus === "expired" || scanStatus === "done") return;
 
@@ -73,9 +85,12 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
       try {
         const res = await fetch(`/api/channels/zalo/qr?sid=${encodeURIComponent(session.sid)}`);
         const data = await res.json();
-        if (data.qr) {
-          setSession((prev) => ({ ...prev, qr: data.qr }));
+
+        // Nhận được ảnh QR thật từ máy chủ Zalo
+        if (data.qr && data.qr.length > 50) {
+          setQrImage(data.qr);
         }
+
         if (data.state === "scanned") {
           setScanStatus("scanned");
         } else if (data.state === "done" || data.state === "success") {
@@ -87,11 +102,11 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
             onClose();
           }, 1500);
         } else if (data.state === "error") {
-          setErrorMessage(data.error || "Phiên quét QR bị hủy.");
+          setErrorMessage(data.error || "Phiên quét QR bị lỗi hoặc hết hạn.");
           clearInterval(pollRef.current);
         }
       } catch {}
-    }, 2000);
+    }, 1500);
 
     return () => clearInterval(pollRef.current);
   }, [isOpen, session, scanStatus, onLoggedIn, onClose]);
@@ -133,24 +148,25 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
               value={accountLabel}
               onChange={(e) => setAccountLabel(e.target.value)}
               className="flex-1 rounded-xl bg-slate-950 border border-slate-800 px-3 py-1.5 text-xs text-white focus:border-cyan-500 focus:outline-none"
-              placeholder="VD: Zalo Tư Vấn 01 - Dược sĩ Hà"
+              placeholder="VD: Zalo Sơn Tùng"
             />
             <button
               type="button"
               onClick={() => startQrSession(accountLabel)}
               className="rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 px-3 py-1.5 font-semibold transition"
             >
-              Đổi Tên
+              Lấy Mã Mới
             </button>
           </div>
         </div>
 
         {/* QR Display Area */}
-        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 flex flex-col items-center justify-center text-center space-y-3">
-          {loading || !session?.qr ? (
-            <div className="h-48 flex flex-col items-center justify-center space-y-2 text-xs text-slate-400">
-              <div className="h-6 w-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-              <div>Đang kết nối tới máy chủ Zalo để tải mã QR thật...</div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 flex flex-col items-center justify-center text-center space-y-3 min-h-[260px]">
+          {loading || !qrImage ? (
+            <div className="h-48 flex flex-col items-center justify-center space-y-3 text-xs text-slate-400">
+              <div className="h-8 w-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+              <div className="font-medium text-slate-300">Đang tạo mã QR Zalo từ Server...</div>
+              <div className="text-[11px] text-slate-500">Tiến trình javis-zalo đang kết nối tới Zalo Auth</div>
             </div>
           ) : errorMessage ? (
             <div className="h-48 flex flex-col items-center justify-center space-y-2 text-rose-400 text-xs">
@@ -187,13 +203,13 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
               <div className="relative rounded-xl overflow-hidden p-2 bg-white shadow-lg">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={session?.qr}
-                  alt="Zalo QR Login"
+                  src={qrImage}
+                  alt="Mã QR Đăng Nhập Zalo Thật"
                   className="w-48 h-48 object-contain"
                 />
                 {scanStatus === "scanned" && (
-                  <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center text-emerald-400 text-xs font-bold p-3">
-                    <span className="text-xl mb-1">📱</span>
+                  <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center text-emerald-400 text-xs font-bold p-3">
+                    <span className="text-2xl mb-1">📱</span>
                     Đã quét thành công!
                     <span className="text-slate-300 font-normal text-[10px] mt-1 text-center">
                       Vui lòng bấm &ldquo;Đăng nhập&rdquo; trên điện thoại để xác nhận
