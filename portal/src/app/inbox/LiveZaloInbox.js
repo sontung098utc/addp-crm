@@ -40,39 +40,37 @@ export default function LiveZaloInbox() {
     scrollToBottom();
   }, [messages]);
 
-  // 1. Tải danh sách cuộc hội thoại thực tế
+  // 1. Tải danh sách cuộc hội thoại thực tế (Tối ưu: chỉ tải conversations trước để trang hiện tức thì)
   useEffect(() => {
     async function loadConversations() {
       try {
         setLoadingConv(true);
-        // Gọi cả recent conv và friends để đảm bảo luôn có danh sách đầy đủ
-        const [resConv, resContacts] = await Promise.all([
-          fetch("/api/channels/zalo/conversations"),
-          fetch("/api/channels/zalo/contacts"),
-        ]);
-
+        const resConv = await fetch("/api/channels/zalo/conversations");
         const dataConv = await resConv.json();
-        const dataContacts = await resContacts.json();
 
         let list = [];
         if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
           list = dataConv.conversations;
-        } else if (dataContacts.ok && Array.isArray(dataContacts.contacts)) {
-          list = dataContacts.contacts.map((c) => ({
-            id: c.userId,
-            name: c.name,
-            phone: c.phone,
-            avatar: c.avatar,
-            lastMessage: "Đã kết nối qua Zalo Cá Nhân",
-            lastActive: "Gần đây",
-            channel: "ZALO_PERSONAL",
-            channelLabel: "Zalo Cá Nhân",
-          }));
+        } else {
+          // Dự phòng nếu chưa có tin nhắn gần đây thì mới tải danh bạ
+          const resContacts = await fetch("/api/channels/zalo/contacts");
+          const dataContacts = await resContacts.json();
+          if (dataContacts.ok && Array.isArray(dataContacts.contacts)) {
+            list = dataContacts.contacts.map((c) => ({
+              id: c.userId,
+              name: c.name,
+              phone: c.phone,
+              avatar: c.avatar,
+              lastMessage: "Đã kết nối qua Zalo Cá Nhân",
+              lastActive: "Gần đây",
+              channel: "ZALO_PERSONAL",
+              channelLabel: "Zalo Cá Nhân",
+            }));
+          }
         }
 
         setConversations(list);
         if (list.length > 0) {
-          // Mặc định chọn cuộc trò chuyện đầu tiên
           setActiveConv(list[0]);
         }
       } catch (err) {

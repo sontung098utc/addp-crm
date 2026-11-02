@@ -410,43 +410,72 @@ export default function ChannelsPage() {
               )}
 
               {newForm.platform === "FACEBOOK" && (
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Page Access Token (Long-lived)</label>
-                  <input
-                    type="password"
-                    placeholder="EAA..."
-                    onChange={(e) =>
-                      setNewForm({
-                        ...newForm,
-                        config: { ...newForm.config, pageAccessToken: e.target.value },
-                      })
-                    }
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
-                  />
-                </div>
-              )}
-
-              {newForm.platform === "ZALO_OA" && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">OA ID</label>
+                    <label className="block text-slate-300 font-semibold mb-1">Page Access Token (Long-lived)</label>
                     <input
-                      placeholder="1829..."
+                      type="password"
+                      placeholder="EAA..."
                       onChange={(e) =>
                         setNewForm({
                           ...newForm,
-                          config: { ...newForm.config, oaId: e.target.value },
+                          config: { ...newForm.config, pageAccessToken: e.target.value },
                         })
                       }
                       className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
                     />
                   </div>
-                  <div>
-                    <label className="block text-slate-300 font-semibold mb-1">App ID</label>
-                    <input
-                      placeholder="2938..."
-                      onChange={(e) =>
-                        setNewForm({
+                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-1.5 text-[11px] text-blue-200">
+                    <div className="font-bold text-white flex items-center gap-1.5">
+                      <span>📘 Webhook Meta Graph API (WBS-16 & 17)</span>
+                    </div>
+                    <p>• Callback URL: <code className="bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/facebook</code></p>
+                    <p>• Verify Token: <code className="bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 font-mono">addp_crm_fb_webhook_secret_2026</code></p>
+                    <p className="text-emerald-400 font-semibold">✓ Đã bật tự động ẩn bình luận chứa SĐT khách hàng (Chống cướp khách)</p>
+                  </div>
+                </div>
+              )}
+
+              {newForm.platform === "ZALO_OA" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">OA ID</label>
+                      <input
+                        placeholder="1829..."
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, oaId: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">App ID</label>
+                      <input
+                        placeholder="2938..."
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, appId: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 space-y-1.5 text-[11px] text-sky-200">
+                    <div className="font-bold text-white flex items-center gap-1.5">
+                      <span>🏢 Webhook Zalo OA Open API v3 (WBS-15 & 17)</span>
+                    </div>
+                    <p>• Webhook URL: <code className="bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/zalo-oa</code></p>
+                    <p>• Sự kiện đã kích hoạt: <span className="text-white">user_send_text, user_send_image, user_submit_info, follow</span></p>
+                    <p className="text-emerald-400 font-semibold">✓ Hỗ trợ CSKH tự động ZNS và xoay vòng Refresh Token</p>
+                  </div>
+                </div>
+              )}
                           ...newForm,
                           config: { ...newForm.config, appId: e.target.value },
                         })
