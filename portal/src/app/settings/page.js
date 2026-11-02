@@ -280,9 +280,9 @@ export default function SettingsPage() {
                     type="button"
                     disabled={seeding}
                     onClick={handleTriggerSeed}
-                    className="rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 shadow transition"
+                    className="rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold px-4 py-2.5 transition"
                   >
-                    {seeding ? "Đang khởi tạo Seed..." : "🌱 Khởi Tạo Lại Dữ Liệu Mẫu 7 Kênh (WBS-10)"}
+                    {seeding ? "Đang chạy test..." : "🧪 Chạy Kiểm Thử Khung Kỹ Thuật (Dev Only)"}
                   </button>
                 </div>
 
@@ -306,16 +306,12 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                    <div className="text-slate-400">Dữ liệu Mẫu Đã Seed (Giai đoạn 1)</div>
-                    <div className="font-bold text-white text-sm mt-1">
-                      {stage1Report.seedData?.counts?.customersTotal} Khách hàng •{" "}
-                      {stage1Report.seedData?.counts?.ordersTotal} Đơn •{" "}
-                      {stage1Report.seedData?.counts?.tasksTotal} Task CSKH
+                    <div className="text-slate-400">Dữ liệu Giả lập Kỹ thuật (Dev Fixtures)</div>
+                    <div className="font-bold text-amber-400 text-sm mt-1">
+                      [DEV ONLY] {stage1Report.seedData?.counts?.customersTotal} Mẫu test logic RBAC
                     </div>
-                    <div className="text-amber-400 mt-1">
-                      Hiển thị theo RBAC ({stage1Report.ViewingAs?.code}):{" "}
-                      {stage1Report.seedData?.counts?.customersVisible} KH /{" "}
-                      {stage1Report.seedData?.counts?.ordersVisible} Đơn
+                    <div className="text-slate-500 mt-1">
+                      Tuân thủ Điều 11 AGENTS.md: Không chiếu số liệu giả ra màn hình kinh doanh
                     </div>
                   </div>
                 </div>
