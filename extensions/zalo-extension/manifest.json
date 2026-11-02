@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "ADDP CRM — Zalo Multi-Account Bridge Extension",
+  "version": "2.0.0",
+  "description": "Tiện ích mở rộng kết nối Zalo Cá Nhân (chat.zalo.me) với Hệ thống Quản trị Khách hàng ADDP CRM (crm.addp.vn)",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://chat.zalo.me/*",
+    "*://crm.addp.vn/*",
+    "*://localhost/*",
+    "*://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://crm.addp.vn/*",
+        "*://localhost/*",
+        "*://127.0.0.1/*"
+      ],
+      "js": ["content_crm.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://chat.zalo.me/*"
+      ],
+      "js": ["content_zalo.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "ADDP CRM Zalo Bridge"
+  }
+}
