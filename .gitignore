@@ -208,3 +208,21 @@ server/notify_policy.json
 server/engine_down_notified.json
 server/client_errors.json
 server/client_errors.tmp
+
+# ===== ADDP CRM: file runtime cua Javis & bi mat - KHONG BAO GIO commit (AGENTS.md Dieu 5) =====
+server/agent_notify.json
+server/cache/
+server/connect_smoke.json
+server/github_work.db*
+server/javis_core.json
+server/news_read.json
+server/plan_limits.json
+server/webhook_events.sqlite3*
+server/logs/
+*.env
+!env.example
+!**/.env.example
+deploy/.env
+deploy/certbot/
+portal/node_modules/
+portal/.next/
