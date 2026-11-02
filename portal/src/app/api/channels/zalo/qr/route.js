@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
  * Proxy trực tiếp tới Javis OS FastAPI (/connect/zalo/start & /connect/zalo/status)
  */
 
-const JAVIS_API_URL = process.env.JAVIS_API_URL || "http://127.0.0.1:8000";
+const JAVIS_API_URL = process.env.JAVIS_API_URL || "http://127.0.0.1:7777";
 
 // Fallback session store nếu Javis FastAPI chưa mở cổng 8000
 const localQrSessions = new Map();

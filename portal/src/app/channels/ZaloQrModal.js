@@ -73,6 +73,9 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
       try {
         const res = await fetch(`/api/channels/zalo/qr?sid=${encodeURIComponent(session.sid)}`);
         const data = await res.json();
+        if (data.qr) {
+          setSession((prev) => ({ ...prev, qr: data.qr }));
+        }
         if (data.state === "scanned") {
           setScanStatus("scanned");
         } else if (data.state === "done" || data.state === "success") {
@@ -88,7 +91,7 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
           clearInterval(pollRef.current);
         }
       } catch {}
-    }, 2500);
+    }, 2000);
 
     return () => clearInterval(pollRef.current);
   }, [isOpen, session, scanStatus, onLoggedIn, onClose]);
@@ -144,9 +147,10 @@ export default function ZaloQrModal({ isOpen, onClose, onLoggedIn }) {
 
         {/* QR Display Area */}
         <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 flex flex-col items-center justify-center text-center space-y-3">
-          {loading ? (
-            <div className="h-48 flex items-center justify-center text-xs text-slate-400">
-              Đang khởi tạo engine Zalo và tải mã QR...
+          {loading || !session?.qr ? (
+            <div className="h-48 flex flex-col items-center justify-center space-y-2 text-xs text-slate-400">
+              <div className="h-6 w-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+              <div>Đang kết nối tới máy chủ Zalo để tải mã QR thật...</div>
             </div>
           ) : errorMessage ? (
             <div className="h-48 flex flex-col items-center justify-center space-y-2 text-rose-400 text-xs">

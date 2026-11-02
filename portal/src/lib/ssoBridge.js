@@ -8,7 +8,7 @@ import { buildDataScopeFilter } from "./rbac.js";
  */
 
 const SECRET = process.env.CRM_JWT_SECRET || "ADDP_CRM_DEFAULT_DEV_SECRET_2026";
-const JAVIS_INTERNAL_URL = process.env.JAVIS_API_URL || "http://127.0.0.1:8000";
+const JAVIS_INTERNAL_URL = process.env.JAVIS_API_URL || "http://127.0.0.1:7777";
 
 export function issueSsoBridgePayload(staffOrCode) {
   const staff =
