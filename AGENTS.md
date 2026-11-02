@@ -16,7 +16,7 @@
 
 ---
 
-## 2. 10 ĐIỀU LUẬT BẮT BUỘC CHO AI AGENT (AI EXECUTION RULES)
+## 2. 11 ĐIỀU LUẬT BẮT BUỘC CHO AI AGENT (AI EXECUTION RULES)
 
 ### Điều 1: Quy trình Nhận việc & Khóa nhiệm vụ (Task Locking)
 1. Trước khi bắt đầu code, AI phải đọc file `TASKS.md` để xác định mã công việc (`WBS-01` $\rightarrow$ `WBS-50`) đang được giao cho nhân sự hiện tại (**Dev 1** hoặc **Dev 2**).
@@ -74,3 +74,15 @@ Một đầu việc `WBS-XX` chỉ được chuyển sang trạng thái `[x] Ho�
   1. Tạo file báo cáo ngày tại `reports/daily/YYYY-MM-DD.md`.
   2. Cập nhật trạng thái và số giờ thực tế vào file `TASKS.md` và bảng **Google Sheets** theo dõi dự án.
   3. Commit và push lên GitHub để Quản lý kiểm tra.
+
+### Điều 11: Luật Tính Xác Thực Của Dữ Liệu & Nghiêm Cấm Số Liệu Ảo (Data Authenticity & Anti-Hallucination Rule)
+- **TUYỆT ĐỐI KHÔNG TỰ TẠO SỐ LIỆU GIẢ, SỐ LIỆU ẢO KHÔNG CÓ TÍNH XÁC THỰC.**
+- Mọi dữ liệu về Khách hàng, Bệnh lý, Đơn hàng, Tồn kho, Giá vốn, Lãi/Lỗ, Doanh số và Hội thoại đa kênh khi lưu trữ, tính toán hoặc hiển thị **BẮT BUỘC** phải có nguồn gốc xác thực rõ ràng:
+  1. Trích xuất trực tiếp từ các CSDL và dự án thực tế đang vận hành của công ty (`C:\QuanlyKH`, `C:\AH-Trabi\quan-ly-kho`, `C:\AdsTiktok`, `C:\ADDP`).
+  2. Hoặc nhận từ API / Webhook thời gian thực của 7 nền tảng kết nối (Website Magento 2.4.8, Fanpage Facebook, Zalo Cá Nhân, Zalo OA, TikTok Shop, Shopee, KiotViet).
+  3. Hoặc do Quản lý / Developer cung cấp và xác nhận qua file cấu hình hoặc văn bản chính thức.
+- **Nghiêm cấm hành vi tự bịa đặt, suy diễn số liệu doanh thu, lợi nhuận, chi phí quảng cáo hoặc tạo danh sách khách hàng hư cấu** gây sai lệch bức tranh kinh doanh và vận hành của công ty.
+- Trong quá trình phát triển (Dev) hoặc chạy Seed khởi tạo khung Database kỹ thuật (`WBS-10`):
+  - Phải kế thừa chính xác từ mẫu dữ liệu nghiệp vụ của dự án gốc (`C:\QuanlyKH\src\app\api\seed\route.js`), gắn nhãn minh bạch `[MẪU THỬ NGHIỆM KỸ THUẬT - DEV ONLY]`.
+  - Khi đưa hệ thống vào môi trường nội bộ thực tế (`https://crm.addp.vn`), toàn bộ số liệu phải được kết nối đồng bộ trực tiếp từ Database MySQL `addp_crm` và các Webhook sàn, đảm bảo chuẩn xác 100%.
+
