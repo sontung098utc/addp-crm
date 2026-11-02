@@ -19,8 +19,8 @@
 
 | Trạng thái | Mã WBS | Lịch (Tuần - Thứ) | Phụ trách | Giờ công | Ngày công | Đầu việc chi tiết | Nguồn kế thừa / File tham chiếu |
 | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |
-| `[ ]` | **WBS-01** | Tuần 1 - Thứ 2 | Dev 1 + AI | **8h** | **1.0 ngày** | Cấu hình Server công ty, trỏ domain `crm.addp.vn`, cài đặt Nginx Reverse Proxy + SSL HTTPS, Docker Compose (MySQL 8, Redis, FastAPI, Next.js) | `c:\addp-crm\docker-compose.yml` |
-| `[ ]` | **WBS-02** | Tuần 1 - Thứ 2 | Dev 2 + AI | **8h** | **1.0 ngày** | Khởi tạo GitHub Monorepo (`addp-crm`), thiết lập nhánh `main`/`develop`, cấu trúc thư mục `portal/`, `server/`, `connectors/` và cấu hình bộ khung Next.js | `C:\QuanlyKH` + `GITHUB_WORKFLOW.md` |
+| `[x]` | **WBS-01** | Tuần 1 - Thứ 2 | Dev 1 + AI | **8h** | **1.0 ngày** | Cấu hình Server công ty, trỏ domain `crm.addp.vn`, cài đặt Nginx Reverse Proxy + SSL HTTPS, Docker Compose (MySQL 8, Redis, FastAPI, Next.js) | `c:\addp-crm\docker-compose.yml` |
+| `[x]` | **WBS-02** | Tuần 1 - Thứ 2 | Dev 2 + AI | **8h** | **1.0 ngày** | Khởi tạo GitHub Monorepo (`addp-crm`), thiết lập nhánh `main`/`develop`, cấu trúc thư mục `portal/`, `server/`, `connectors/` và cấu hình bộ khung Next.js | `C:\QuanlyKH` + `GITHUB_WORKFLOW.md` |
 | `[ ]` | **WBS-03** | Tuần 1 - Thứ 3, 4 | Dev 1 + AI | **12h** | **1.5 ngày** | Thiết kế & Migrate Database MySQL hợp nhất (`addp_crm`) phần 1: Bảng `Staff`, `Role`, `Permission`, `ChannelAccount`, `Customer`, `CustomerTag`, `CarePlan`, `Interaction`, `Task` | `C:\QuanlyKH\prisma\schema.prisma` |
 | `[ ]` | **WBS-04** | Tuần 1 - Thứ 4, 5 | Dev 1 + AI | **12h** | **1.5 ngày** | Thiết kế & Migrate Database MySQL hợp nhất (`addp_crm`) phần 2: Bảng `Order`, `OrderItem`, `Product`, `SkuMapping`, `ComboFormula`, `InventoryLog`, `Conversation`, `Message` | `C:\AH-Trabi\quan-ly-kho\index.php` + `C:\AdsTiktok` |
 | `[ ]` | **WBS-05** | Tuần 1 - Thứ 3, 4 | Dev 2 + AI | **12h** | **1.5 ngày** | Xây dựng UI Layout tổng thể của `crm.addp.vn`: Sidebar điều hướng đa phân hệ, Header thông báo thời gian thực, Giao diện Đăng nhập & Đổi mật khẩu | `C:\QuanlyKH\src\app\components\Sidebar.js` |

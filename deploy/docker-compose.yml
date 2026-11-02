@@ -1,0 +1,151 @@
+# ============================================================================
+# ADDP OMNICHANNEL AI CRM - DOCKER COMPOSE CHO SERVER CÔNG TY (https://crm.addp.vn)
+# WBS-01 | Dev 1 + AI
+#
+# Thành phần (Phương án A - AGENTS.md mục 1):
+#   nginx    : Reverse proxy + SSL (Let's Encrypt) - cổng 80/443 duy nhất mở ra Internet
+#   certbot  : Xin + tự gia hạn chứng chỉ SSL cho crm.addp.vn
+#   mysql    : MySQL 8.0 - CSDL trung tâm `addp_crm`
+#   redis    : Hàng đợi SmartBroadcastQueue, rate-limit chống khóa Zalo, cache
+#   javis    : Omnichannel & AI Gateway (Python FastAPI - thư mục server/ của repo)
+#   portal   : CRM Portal (Next.js - thư mục portal/)
+#
+# Chạy (trên server, trong thư mục deploy/):
+#   cp .env.example .env    # rồi điền mật khẩu thật - KHÔNG commit .env (AGENTS.md Điều 5)
+#   bash scripts/init-ssl.sh   # lần đầu: xin chứng chỉ SSL
+#   docker compose up -d --build
+#
+# Chỉ nginx mở cổng ra ngoài. MySQL/Redis/Javis/Portal chỉ nằm trong mạng nội bộ `crm_net`;
+# riêng Javis dashboard và MySQL có bind 127.0.0.1 để quản trị qua SSH tunnel.
+# ============================================================================
+name: addp-crm
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: crm-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    depends_on:
+      - portal
+      - javis
+    networks: [crm_net]
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: crm-certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    # Tự kiểm tra gia hạn mỗi 12 giờ (Let's Encrypt cấp chứng chỉ 90 ngày).
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"
+    networks: [crm_net]
+
+  mysql:
+    image: mysql:8.0
+    container_name: crm-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+07:00
+      - --max-connections=300
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Thiếu MYSQL_ROOT_PASSWORD trong .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-addp_crm}
+      MYSQL_USER: ${MYSQL_USER:-addp_crm}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Thiếu MYSQL_PASSWORD trong .env}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:3306:3306"   # chỉ cho SSH tunnel / công cụ quản trị trên chính server
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks: [crm_net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: crm-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Thiếu REDIS_PASSWORD trong .env}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [crm_net]
+
+  javis:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: crm-javis
+    restart: unless-stopped
+    environment:
+      JAVIS_ADMIN_USER: ${JAVIS_ADMIN_USER:-}
+      JAVIS_ADMIN_PASSWORD: ${JAVIS_ADMIN_PASSWORD:-}
+      TZ: Asia/Ho_Chi_Minh
+      # Kết nối dùng chung cho các module CRM viết thêm trong server/ (WBS-09, WBS-35...)
+      CRM_DATABASE_URL: mysql://${MYSQL_USER:-addp_crm}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-addp_crm}
+      CRM_REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CRM_JWT_SECRET: ${CRM_JWT_SECRET:?Thiếu CRM_JWT_SECRET trong .env}
+      CRM_PUBLIC_URL: https://${CRM_DOMAIN:-crm.addp.vn}
+    ports:
+      - "127.0.0.1:7777:7777"   # Dashboard Javis cho quản trị viên qua SSH tunnel
+    volumes:
+      - javis-data:/data
+      - javis-brains:/brains
+      - claude-auth:/home/javis/.claude
+      - codex-auth:/home/javis/.codex
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [crm_net]
+
+  portal:
+    build:
+      context: ../portal
+      dockerfile: Dockerfile
+    container_name: crm-portal
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Ho_Chi_Minh
+      DATABASE_URL: mysql://${MYSQL_USER:-addp_crm}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-addp_crm}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CRM_JWT_SECRET: ${CRM_JWT_SECRET}
+      JAVIS_INTERNAL_URL: http://javis:7777
+      NEXT_PUBLIC_SITE_URL: https://${CRM_DOMAIN:-crm.addp.vn}
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [crm_net]
+
+networks:
+  crm_net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  javis-data:
+  javis-brains:
+  claude-auth:
+  codex-auth:
