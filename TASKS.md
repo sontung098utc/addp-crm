@@ -27,8 +27,8 @@
 | `[x]` | **WBS-06** | Tuần 1 - Thứ 5 | Dev 1 + AI | **8h** | **1.0 ngày** | Xây dựng Backend Middleware Phân quyền đa cấp (RBAC): `ADMIN`, `SALE_LEADER`, `SALE`, `CSKH`, `KHO`, `KE_TOAN` và lọc dữ liệu theo `staffId` | `C:\AH-Trabi\quan-ly-kho\users_management_view.php` |
 | `[x]` | **WBS-07** | Tuần 1 - Thứ 4, 5 | Dev 2 + AI | **12h** | **1.5 ngày** | Xây dựng Giao diện Quản lý Nhân sự & Phân quyền: Tạo/sửa tài khoản nhân viên, gắn Role, cài đặt chỉ tiêu KPI (`kpi`, `dailyCareTarget`, `dailyMsgTarget`) | `C:\QuanlyKH\src\app\settings\StaffManager.js` |
 | `[x]` | **WBS-08** | Tuần 1 - Thứ 6 | Dev 2 + AI | **8h** | **1.0 ngày** | Xây dựng Giao diện Ma trận Phân quyền Kênh: Gán nhân viên Sale nào được phép xem/trả lời Fanpage nào, nick Zalo nào, gian hàng Shopee/TikTok nào | Mới + `C:\QuanlyKH\src\app\settings` |
-| `[ ]` | **WBS-09** | Tuần 1 - Thứ 7 | Dev 1 + AI | **8h** | **1.0 ngày** | Xây dựng Cầu nối xác thực SSO/JWT giữa Next.js Portal (`portal/`) và Javis OS FastAPI (`server/`) để dùng chung phiên đăng nhập trên `crm.addp.vn` | `c:\addp-crm\server\main.py` |
-| `[ ]` | **WBS-10** | Tuần 1 - Thứ 7 | Dev 2 + AI | **8h** | **1.0 ngày** | Kiểm thử tích hợp Giai đoạn 1 (Auth, RBAC, MySQL Schema), viết script Seed dữ liệu mẫu và nghiệm thu Tuần 1 | `C:\QuanlyKH\src\app\api\seed\route.js` |
+| `[x]` | **WBS-09** | Tuần 1 - Thứ 7 | Dev 1 + AI | **8h** | **1.0 ngày** | Xây dựng Cầu nối xác thực SSO/JWT giữa Next.js Portal (`portal/`) và Javis OS FastAPI (`server/`) để dùng chung phiên đăng nhập trên `crm.addp.vn` | `c:\addp-crm\server\main.py` |
+| `[x]` | **WBS-10** | Tuần 1 - Thứ 7 | Dev 2 + AI | **8h** | **1.0 ngày** | Kiểm thử tích hợp Giai đoạn 1 (Auth, RBAC, MySQL Schema), viết script Seed dữ liệu mẫu và nghiệm thu Tuần 1 | `C:\QuanlyKH\src\app\api\seed\route.js` |
 
 ---
 

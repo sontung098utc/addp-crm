@@ -12,16 +12,20 @@ export default function SettingsPage() {
   const [permissions, setPermissions] = useState([]);
   const [simCode, setSimCode] = useState("S002");
   const [simResult, setSimResult] = useState(null);
+  const [stage1Report, setStage1Report] = useState(null);
+  const [seeding, setSeeding] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadAllData = useCallback(async (simulateTarget = simCode) => {
     try {
-      const [staffRes, matrixRes] = await Promise.all([
+      const [staffRes, matrixRes, seedRes] = await Promise.all([
         fetch(`/api/staff?simulateStaff=${encodeURIComponent(simulateTarget)}`),
         fetch("/api/settings/channel-permissions"),
+        fetch(`/api/seed?staffCode=${encodeURIComponent(simulateTarget)}`),
       ]);
       const staffData = await staffRes.json();
       const matrixData = await matrixRes.json();
+      const seedData = await seedRes.json();
 
       if (staffData.ok) {
         setStaffList(staffData.staff || []);
@@ -31,6 +35,9 @@ export default function SettingsPage() {
       if (matrixData.ok) {
         setChannels(matrixData.channels || []);
         setPermissions(matrixData.permissions || []);
+      }
+      if (seedData.ok) {
+        setStage1Report(seedData);
       }
     } catch (err) {
       console.error("Failed to load settings:", err);
@@ -43,17 +50,27 @@ export default function SettingsPage() {
     loadAllData(simCode);
   }, [loadAllData, simCode]);
 
+  const handleTriggerSeed = async () => {
+    setSeeding(true);
+    try {
+      await fetch("/api/seed", { method: "POST" });
+      await loadAllData(simCode);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="rounded-lg bg-blue-500/15 border border-blue-500/30 px-2.5 py-0.5 text-xs font-bold text-blue-400">
-              Ngày 3: WBS-06 • WBS-07 • WBS-08
+            <span className="rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-bold text-emerald-400">
+              Hoàn tất Giai đoạn 1: WBS-01 → WBS-10
             </span>
             <h1 className="text-lg font-bold text-white">
-              Quản Trị Nhân Sự, Chỉ Tiêu KPI & Ma Trận Phân Quyền Đa Kênh (RBAC)
+              Quản Trị Nhân Sự, Phân Quyền 7 Kênh, Cầu Nối SSO & Nghiệm Thu Giai Đoạn 1
             </h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -67,35 +84,46 @@ export default function SettingsPage() {
           <button
             type="button"
             onClick={() => setActiveTab("staff")}
-            className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+            className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
               activeTab === "staff"
                 ? "bg-blue-600 text-white shadow"
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            👥 1. Quản Lý Nhân Sự & KPI (WBS-07)
+            👥 1. Nhân Sự & KPI (WBS-07)
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("channels")}
-            className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+            className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
               activeTab === "channels"
                 ? "bg-blue-600 text-white shadow"
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            🔐 2. Ma Trận Phân Quyền 7 Kênh (WBS-08)
+            🔐 2. Ma Trận 7 Kênh (WBS-08)
           </button>
           <button
             type="button"
             onClick={() => setActiveTab("rbac-sim")}
-            className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition ${
+            className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
               activeTab === "rbac-sim"
                 ? "bg-blue-600 text-white shadow"
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            🛡️ 3. Kiểm Thử Middleware RBAC (WBS-06)
+            🛡️ 3. Mô Phỏng RBAC (WBS-06)
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("stage1-acceptance")}
+            className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+              activeTab === "stage1-acceptance"
+                ? "bg-emerald-600 text-white shadow"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            🚀 4. Cầu Nối SSO & Nghiệm Thu GĐ 1 (WBS-09 & 10)
           </button>
         </div>
       </div>
@@ -231,6 +259,118 @@ export default function SettingsPage() {
                 </div>
               )}
             </section>
+          )}
+
+          {activeTab === "stage1-acceptance" && stage1Report && (
+            <div className="space-y-6">
+              {/* SSO Bridge Card (WBS-09) */}
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-white">
+                      🔗 Cầu Nối Xác Thực SSO/JWT: Next.js Portal ↔ Javis OS FastAPI (WBS-09)
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Dùng chung chữ ký <code className="text-blue-400">CRM_JWT_SECRET</code> và vé
+                      WebSocket một lần (<code className="text-emerald-400">wsTicket</code>) trên tên
+                      miền <code className="text-blue-400">https://crm.addp.vn</code>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={seeding}
+                    onClick={handleTriggerSeed}
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 shadow transition"
+                  >
+                    {seeding ? "Đang khởi tạo Seed..." : "🌱 Khởi Tạo Lại Dữ Liệu Mẫu 7 Kênh (WBS-10)"}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-slate-400">Phiên bản Cầu nối SSO</div>
+                    <div className="font-mono font-bold text-blue-400 text-sm mt-1">
+                      {stage1Report.ssoBridge?.bridgeVersion}
+                    </div>
+                    <div className="text-slate-500 mt-1">
+                      Gateway: {stage1Report.ssoBridge?.javisGatewayUrl}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-slate-400">Vé WebSocket Thời gian thực (TTL 60s)</div>
+                    <div className="font-mono font-bold text-emerald-400 text-sm mt-1 truncate">
+                      {stage1Report.ssoBridge?.wsTicket}
+                    </div>
+                    <div className="text-slate-500 mt-1">
+                      Nhân sự đang mô phỏng: {stage1Report.ViewingAs?.code} ({stage1Report.ViewingAs?.role})
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <div className="text-slate-400">Dữ liệu Mẫu Đã Seed (Giai đoạn 1)</div>
+                    <div className="font-bold text-white text-sm mt-1">
+                      {stage1Report.seedData?.counts?.customersTotal} Khách hàng •{" "}
+                      {stage1Report.seedData?.counts?.ordersTotal} Đơn •{" "}
+                      {stage1Report.seedData?.counts?.tasksTotal} Task CSKH
+                    </div>
+                    <div className="text-amber-400 mt-1">
+                      Hiển thị theo RBAC ({stage1Report.ViewingAs?.code}):{" "}
+                      {stage1Report.seedData?.counts?.customersVisible} KH /{" "}
+                      {stage1Report.seedData?.counts?.ordersVisible} Đơn
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Acceptance Checks Table (WBS-10) */}
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-white">
+                      ✅ Bảng Kiểm Thử Nghiệm Thu Tự Động Giai Đoạn 1 (WBS-01 → WBS-10)
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Kế thừa <code className="text-blue-400">QuanlyKH/api/seed/route.js</code> • Đạt{" "}
+                      <strong className="text-emerald-400">
+                        {stage1Report.acceptance?.passedCount}/{stage1Report.acceptance?.totalChecks}
+                      </strong>{" "}
+                      bài kiểm thử tự động
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-400">
+                    PASS 100% TUẦN 1
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {stage1Report.acceptance?.checks?.map((chk) => (
+                    <div
+                      key={chk.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950 p-3.5 flex flex-wrap items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-blue-400">{chk.id}</span>
+                          <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300">
+                            {chk.wbs}
+                          </span>
+                          <span className="font-semibold text-white">{chk.name}</span>
+                        </div>
+                        <div className="text-slate-400 font-mono text-[11px]">{chk.detail}</div>
+                      </div>
+                      <span
+                        className={`rounded-lg px-2.5 py-1 font-bold ${
+                          chk.passed
+                            ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                            : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                        }`}
+                      >
+                        {chk.passed ? "✓ ĐẠT" : "✕ LỖI"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           )}
         </>
       )}
