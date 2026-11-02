@@ -239,3 +239,20 @@ export function guardApiRequest(cookieStore, headers, options = {}) {
   const scope = buildDataScopeFilter(staff, resourceType);
   return { ok: true, staff, scope };
 }
+
+/**
+ * Kiểm tra nhân viên hiện tại có quyền xem dữ liệu của targetStaffId hay không
+ * @param {object} staff
+ * @param {number|string} targetStaffId
+ * @returns {boolean}
+ */
+export function canAccessStaffData(staff, targetStaffId) {
+  if (!staff) return false;
+  if (staff.role === "ADMIN" || staff.role === "KE_TOAN" || staff.role === "KHO") return true;
+  if (!targetStaffId) return true; // Chưa gán ai thì ai cũng xem được để nhận khách
+  if (staff.role === "SALE_LEADER") {
+    const teamMembers = listAllStaff().filter((s) => s.teamName === staff.teamName || s.id === staff.id);
+    return teamMembers.some((m) => m.id === Number(targetStaffId));
+  }
+  return Number(staff.id) === Number(targetStaffId);
+}

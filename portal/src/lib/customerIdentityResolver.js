@@ -1,0 +1,333 @@
+/**
+ * ADDP Omnichannel AI CRM — Engine Gộp Khách Hàng 360 (CustomerIdentityResolver) (WBS-25)
+ * Kế thừa từ C:\QuanlyKH & C:\AH-Trabi\quan-ly-kho\khach_hang_view.php
+ *
+ * Nhiệm vụ cốt lõi:
+ * 1. Bắt SĐT tự động trong tin nhắn chat, ghi chú, đơn hàng sàn thương mại điện tử bằng regex chuẩn Việt Nam.
+ * 2. Luôn chuẩn hóa SĐT qua normalizePhone() (Điều 3 AGENTS.md: 10 chữ số bắt đầu bằng 0).
+ * 3. Hợp nhất danh tính khách hàng từ 7 kênh: Zalo Cá Nhân, Zalo OA, Fanpage Facebook, TikTok Shop, Shopee, KiotViet, Magento 2.4.8
+ *    về 1 hồ sơ Khách Hàng 360 duy nhất, tránh phân mảnh lịch sử đơn hàng và hội thoại.
+ * 4. Tự động tính thứ hạng VIP (calculateVipLevel) khi có phát sinh đơn hàng mới.
+ */
+
+import { normalizePhone, isValidVietnamPhone } from "./phone.js";
+import { calculateVipLevel } from "./customerTiers.js";
+import { routeLeadToStaff } from "./leadRouting.js";
+
+// Khởi tạo kho dữ liệu khách hàng mẫu (Kế thừa từ seedData)
+let dynamicCustomersStore = [
+  {
+    id: 1001,
+    code: "KH001",
+    fullName: "Nguyễn Văn Tuấn",
+    phone: "0901234567",
+    age: 54,
+    gender: "Nam",
+    province: "Hà Nội",
+    address: "Số 45 Ngõ 12 Đội Cấn, Ba Đình, Hà Nội",
+    pathology: "Tiểu đường tuýp 2 (5 năm), tê bì chân tay, mờ mắt nhẹ",
+    initialGlucose: 8.5,
+    currentGlucose: 6.8,
+    weeklyFeedback: "Tuần 1 giảm tiểu đêm từ 4 lần xuống 1 lần, ngủ sâu giấc hơn. Khách khen vị sữa thanh mát dễ uống.",
+    feedbackRating: "GOOD",
+    source: "FACEBOOK",
+    channelLabel: "Fanpage FB",
+    tags: ["Tiểu đường Tuýp 2", "Khách VIP", "Đang dùng Liệu trình"],
+    staffId: 3,
+    staffName: "Trần Thu Hà",
+    staffCode: "S002",
+    totalOrders: 3,
+    totalSpent: 2850000,
+    vipLevel: "REPEAT_2",
+    vipLabel: "Tái Mua Lần 2",
+    status: "Đang chăm sóc",
+    careStatus: "Đang chăm sóc",
+    zaloUid: null,
+    facebookUrl: "https://facebook.com/tuan.nguyen.123",
+    lastOrderDate: "2026-10-28",
+    createdAt: "2026-09-15T08:00:00Z",
+  },
+  {
+    id: 1002,
+    code: "KH002",
+    fullName: "Trần Thị Cúc",
+    phone: "0987111222",
+    age: 48,
+    gender: "Nữ",
+    province: "Hải Phòng",
+    address: "Số 88 Lê Hồng Phong, Ngô Quyền, Hải Phòng",
+    pathology: "Mỡ máu cao, men gan tăng nhẹ, hay đầy hơi khó tiêu",
+    initialGlucose: 6.4,
+    currentGlucose: 5.9,
+    weeklyFeedback: "Dùng trà Mát gan + Sữa hạt Glucare thấy nhẹ bụng, hết táo bón.",
+    feedbackRating: "GOOD",
+    source: "ZALO_PERSONAL",
+    channelLabel: "Zalo Cá Nhân",
+    tags: ["Mỡ máu & Gan", "Tái mua lần 2"],
+    staffId: 3,
+    staffName: "Trần Thu Hà",
+    staffCode: "S002",
+    totalOrders: 2,
+    totalSpent: 1680000,
+    vipLevel: "REPEAT_2",
+    vipLabel: "Tái Mua Lần 2",
+    status: "Tiềm năng",
+    careStatus: "Đang chăm sóc",
+    zaloUid: "725339239447272343",
+    facebookUrl: null,
+    lastOrderDate: "2026-10-25",
+    createdAt: "2026-10-01T09:30:00Z",
+  },
+  {
+    id: 1003,
+    code: "KH003",
+    fullName: "Lê Hoàng Phúc",
+    phone: "0933444555",
+    age: 62,
+    gender: "Nam",
+    province: "TP. Hồ Chí Minh",
+    address: "124/8 Nguyễn Trãi, Quận 1, TP.HCM",
+    pathology: "Tiểu đường tuýp 2 (10 năm) + Huyết áp cao, chỉ số dao động thất thường",
+    initialGlucose: 10.8,
+    currentGlucose: 7.9,
+    weeklyFeedback: "Đường huyết sáng lúc đói hạ ổn định từ 10.8 xuống 7.9, cần nhắc tái mua ngày thứ 20.",
+    feedbackRating: "GOOD",
+    source: "MAGENTO",
+    channelLabel: "Website Magento 2.4.8",
+    tags: ["Tiểu đường Tuýp 2", "Đang dùng Combo", "Cần CSKH Đặc biệt"],
+    staffId: 2,
+    staffName: "Nguyễn Minh Tuấn",
+    staffCode: "S001",
+    totalOrders: 4,
+    totalSpent: 4200000,
+    vipLevel: "LOYAL_3",
+    vipLabel: "Khách Thân Thiết",
+    status: "Đã chốt",
+    careStatus: "Đang chăm sóc",
+    zaloUid: null,
+    facebookUrl: null,
+    lastOrderDate: "2026-10-20",
+    createdAt: "2026-08-10T14:15:00Z",
+  },
+  {
+    id: 1004,
+    code: "KH004",
+    fullName: "Phạm Thị Ngọc Ánh",
+    phone: "0915888999",
+    age: 57,
+    gender: "Nữ",
+    province: "Đà Nẵng",
+    address: "Tổ 15 Phường Hòa Cường Bắc, Hải Châu, Đà Nẵng",
+    pathology: "Tiền tiểu đường, mất ngủ kinh niên, hay mỏi vai gáy",
+    initialGlucose: 7.3,
+    currentGlucose: 6.2,
+    weeklyFeedback: "Khách đặt qua TikTok Shop, đã kết bạn Zalo CSKH để theo dõi đường huyết.",
+    feedbackRating: "GOOD",
+    source: "TIKTOK_SHOP",
+    channelLabel: "TikTok Shop",
+    tags: ["Khách Mới", "TikTok GMV Max"],
+    staffId: 4,
+    staffName: "Lê Thị Mai",
+    staffCode: "CS01",
+    totalOrders: 1,
+    totalSpent: 950000,
+    vipLevel: "NEW",
+    vipLabel: "Khách Mới",
+    status: "Cần chăm tiếp",
+    careStatus: "Đang chăm sóc",
+    zaloUid: null,
+    facebookUrl: null,
+    lastOrderDate: "2026-10-30",
+    createdAt: "2026-10-30T10:00:00Z",
+  },
+  {
+    id: 1005,
+    code: "KH005",
+    fullName: "Đỗ Văn Bình",
+    phone: "0972666777",
+    age: 65,
+    gender: "Nam",
+    province: "Bắc Ninh",
+    address: "Khu Phố Mới, P. Đông Ngàn, TX. Từ Sơn, Bắc Ninh",
+    pathology: "Tiểu đường tuýp 2 lâu năm, đang dùng kèm thuốc Tây, mỡ máu độ 2",
+    initialGlucose: 11.4,
+    currentGlucose: 8.6,
+    weeklyFeedback: "Mua tại quầy KiotViet, đồng bộ tự động về CRM để nhắc lịch đo đường huyết.",
+    feedbackRating: "GOOD",
+    source: "KIOTVIET",
+    channelLabel: "KiotViet POS",
+    tags: ["Tiểu đường Tuýp 2", "Khách VIP", "Tại quầy KiotViet"],
+    staffId: 3,
+    staffName: "Trần Thu Hà",
+    staffCode: "S002",
+    totalOrders: 5,
+    totalSpent: 12500000,
+    vipLevel: "VIP_5",
+    vipLabel: "Khách VIP",
+    status: "Đã chốt",
+    careStatus: "Đang chăm sóc",
+    zaloUid: null,
+    facebookUrl: null,
+    lastOrderDate: "2026-10-15",
+    createdAt: "2026-07-01T11:20:00Z",
+  },
+];
+
+/**
+ * Trích xuất danh sách số điện thoại Việt Nam từ chuỗi văn bản (tin nhắn chat, bình luận, ghi chú)
+ * @param {string} text
+ * @returns {string[]} Danh sách SĐT đã chuẩn hóa qua normalizePhone()
+ */
+export function extractPhoneNumbersFromText(text) {
+  if (!text || typeof text !== "string") return [];
+  // Bắt các định dạng: 0912345678, +84912345678, 84912345678, 0912.345.678, 0912 345 678
+  const phoneRegex = /(?:\+84|84|0)[35789](?:[\s.-]?\d){8}\b/g;
+  const matches = text.match(phoneRegex) || [];
+  const validPhones = new Set();
+
+  for (const m of matches) {
+    const normalized = normalizePhone(m);
+    if (isValidVietnamPhone(normalized)) {
+      validPhones.add(normalized);
+    }
+  }
+
+  return Array.from(validPhones);
+}
+
+/**
+ * Tìm kiếm hồ sơ Khách hàng 360 theo Số Điện Thoại
+ * @param {string} rawPhone
+ * @returns {object | null}
+ */
+export function findCustomerByPhone(rawPhone) {
+  const normalized = normalizePhone(rawPhone);
+  if (!normalized) return null;
+  return dynamicCustomersStore.find((c) => c.phone === normalized) || null;
+}
+
+/**
+ * Tìm kiếm hoặc Gộp danh tính khách hàng từ các kênh (Customer 360 Resolver)
+ * @param {object} input
+ * @param {string} [input.phone] - Số điện thoại khách
+ * @param {string} [input.fullName] - Tên khách hàng
+ * @param {string} [input.source] - Nền tảng tiếp nhận (ZALO_PERSONAL, FACEBOOK, SHOPEE, TIKTOK,...)
+ * @param {string} [input.zaloUid] - User ID Zalo (nếu có)
+ * @param {string} [input.facebookId] - Facebook PSID (nếu có)
+ * @param {number} [input.staffId] - Staff ID chỉ định
+ * @returns {Promise<{customer: object, isNew: boolean, matchMethod: string}>}
+ */
+export async function resolveCustomerIdentity(input = {}) {
+  const normalizedPhone = normalizePhone(input.phone);
+
+  // 1. Tìm theo SĐT (Khóa định danh chính theo Điều 3 AGENTS.md)
+  if (normalizedPhone) {
+    const existing = dynamicCustomersStore.find((c) => c.phone === normalizedPhone);
+    if (existing) {
+      // Cập nhật thêm UID nếu chưa có
+      if (input.zaloUid && !existing.zaloUid) existing.zaloUid = input.zaloUid;
+      if (input.facebookUrl && !existing.facebookUrl) existing.facebookUrl = input.facebookUrl;
+      return { customer: existing, isNew: false, matchMethod: "PHONE" };
+    }
+  }
+
+  // 2. Tìm theo Zalo UID nếu có
+  if (input.zaloUid) {
+    const existingByZalo = dynamicCustomersStore.find((c) => c.zaloUid === input.zaloUid);
+    if (existingByZalo) {
+      if (normalizedPhone && !existingByZalo.phone) existingByZalo.phone = normalizedPhone;
+      return { customer: existingByZalo, isNew: false, matchMethod: "ZALO_UID" };
+    }
+  }
+
+  // 3. Nếu chưa tồn tại, tạo mới hồ sơ Khách hàng 360 & phân bổ Sale tự động
+  const routing = await routeLeadToStaff({
+    channelAccountId: input.channelAccountId,
+    preferredStaffId: input.staffId,
+  });
+
+  const nextId = dynamicCustomersStore.length > 0 ? Math.max(...dynamicCustomersStore.map((c) => c.id)) + 1 : 1001;
+  const newCode = `KH${String(nextId).slice(-3).padStart(3, "0")}`;
+  const vipCalc = calculateVipLevel(0, 0);
+
+  const newCustomer = {
+    id: nextId,
+    code: newCode,
+    fullName: input.fullName || "Khách hàng mới",
+    phone: normalizedPhone || `09${Math.floor(10000000 + Math.random() * 90000000)}`,
+    age: input.age || null,
+    gender: input.gender || "Chưa rõ",
+    province: input.province || "Chưa cập nhật",
+    address: input.address || "",
+    pathology: input.pathology || "Cần tư vấn bệnh lý",
+    initialGlucose: input.initialGlucose || null,
+    currentGlucose: input.currentGlucose || null,
+    weeklyFeedback: "Vừa tiếp nhận qua kênh " + (input.source || "Trực tiếp"),
+    feedbackRating: "NONE",
+    source: input.source || "OTHER",
+    channelLabel: input.channelLabel || input.source || "Trực tiếp",
+    tags: ["Khách Mới", input.source || "Tư vấn"],
+    staffId: routing.staffId,
+    staffName: routing.staffName,
+    staffCode: routing.staffCode,
+    totalOrders: 0,
+    totalSpent: 0,
+    vipLevel: vipCalc.code,
+    vipLabel: vipCalc.label,
+    status: "Tiềm năng",
+    careStatus: "Đang chăm sóc",
+    zaloUid: input.zaloUid || null,
+    facebookUrl: input.facebookUrl || null,
+    lastOrderDate: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  dynamicCustomersStore.unshift(newCustomer);
+
+  return { customer: newCustomer, isNew: true, matchMethod: "CREATED_NEW" };
+}
+
+/**
+ * Lấy toàn bộ danh sách khách hàng 360
+ */
+export function getAllCustomers() {
+  return dynamicCustomersStore;
+}
+
+/**
+ * Lấy thông tin chi tiết một khách hàng theo ID
+ * @param {number|string} id
+ */
+export function getCustomerById(id) {
+  const numId = Number(id);
+  return dynamicCustomersStore.find((c) => c.id === numId) || null;
+}
+
+/**
+ * Cập nhật thông tin khách hàng 360
+ * @param {number|string} id
+ * @param {object} updates
+ */
+export function updateCustomer(id, updates = {}) {
+  const numId = Number(id);
+  const index = dynamicCustomersStore.findIndex((c) => c.id === numId);
+  if (index === -1) return null;
+
+  const current = dynamicCustomersStore[index];
+  const updated = {
+    ...current,
+    ...updates,
+    phone: updates.phone ? normalizePhone(updates.phone) : current.phone,
+    updatedAt: new Date().toISOString(),
+  };
+
+  // Cập nhật lại VIP level nếu có thay đổi về đơn hàng
+  if (updates.totalOrders !== undefined || updates.totalSpent !== undefined) {
+    const vip = calculateVipLevel(updated.totalOrders, updated.totalSpent);
+    updated.vipLevel = vip.code;
+    updated.vipLabel = vip.label;
+  }
+
+  dynamicCustomersStore[index] = updated;
+  return updated;
+}

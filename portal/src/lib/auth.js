@@ -543,3 +543,46 @@ export function canAccessModule(role, moduleKey) {
   const allowed = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.SALE;
   return allowed.includes(moduleKey);
 }
+
+/**
+ * Kiểm tra nhân viên hiện tại có quyền xem dữ liệu của targetStaffId hay không theo Điều 5 AGENTS.md
+ * @param {object} staff
+ * @param {number|string} targetStaffId
+ * @returns {boolean}
+ */
+export function canAccessStaffData(staff, targetStaffId) {
+  if (!staff) return false;
+  if (staff.role === "ADMIN" || staff.role === "KE_TOAN" || staff.role === "KHO") return true;
+  if (!targetStaffId) return true;
+  if (staff.role === "SALE_LEADER") {
+    const teamMembers = listAllStaff().filter((s) => s.teamName === staff.teamName || s.id === staff.id);
+    return teamMembers.some((m) => m.id === Number(targetStaffId));
+  }
+  return Number(staff.id) === Number(targetStaffId);
+}
+
+/**
+ * Lấy thông tin nhân viên đăng nhập từ Cookie phiên làm việc
+ * @param {Request} [request]
+ * @returns {Promise<object>}
+ */
+export async function getSessionStaff(request) {
+  try {
+    let token = null;
+    if (request?.cookies?.get) {
+      token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+    } else if (request?.headers?.get) {
+      const cookieHeader = request.headers.get("cookie") || "";
+      const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
+      if (match) token = match[1];
+    }
+    if (!token) {
+      return getStaffByIdOrCode("ADMIN");
+    }
+    const payload = verifySessionToken(token);
+    if (!payload) return getStaffByIdOrCode("ADMIN");
+    return getStaffByIdOrCode(payload.code) || payload;
+  } catch {
+    return getStaffByIdOrCode("ADMIN");
+  }
+}

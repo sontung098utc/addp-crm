@@ -15,7 +15,8 @@ export default function LiveZaloInbox() {
   const [loadingConv, setLoadingConv] = useState(true);
   const [activeConv, setActiveConv] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("all"); // 'all' | 'unread' | 'zalo' | 'fb'
+  const [activeTab, setActiveTab] = useState("all"); // 'all' | 'need_human' | 'ai_handling' | 'unread'
+  const [channelFilter, setChannelFilter] = useState("ALL"); // 'ALL' | 'ZALO_PERSONAL' | 'ZALO_OA' | 'FACEBOOK'
 
   // Tin nhắn của cuộc trò chuyện đang chọn
   const [messages, setMessages] = useState([]);
@@ -187,11 +188,25 @@ export default function LiveZaloInbox() {
     const matchSearch =
       (c.name && c.name.toLowerCase().includes(q)) ||
       (c.lastMessage && c.lastMessage.toLowerCase().includes(q)) ||
+      (c.phone && c.phone.includes(q)) ||
       (c.id && c.id.includes(q));
 
-    if (activeTab === "unread") return matchSearch && c.unread > 0;
-    if (activeTab === "zalo") return matchSearch && c.channel === "ZALO_PERSONAL";
-    return matchSearch;
+    if (!matchSearch) return false;
+
+    // Lọc theo Kênh
+    if (channelFilter !== "ALL") {
+      if (channelFilter === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
+      if (channelFilter === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
+      if (channelFilter === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
+    }
+
+    // Lọc theo Trạng thái (WBS-23)
+    if (activeTab === "unread") return c.unread > 0;
+    if (activeTab === "need_human") return c.handlerState === "NEED_HUMAN" || c.needsHuman;
+    if (activeTab === "ai_handling") return c.handlerState === "AI_HANDLING" || c.isAiHandling;
+    if (activeTab === "human_handling") return c.handlerState === "HUMAN_HANDLING";
+
+    return true;
   });
 
   return (
@@ -247,31 +262,76 @@ export default function LiveZaloInbox() {
               <span className="absolute left-2.5 top-2 text-slate-500 text-xs">🔍</span>
             </div>
 
-            {/* Tabs phân loại: Ưu tiên / Phân loại */}
-            <div className="flex items-center gap-1 text-[11px] font-medium text-slate-400 border-b border-slate-800/80 pb-1">
+            {/* Tabs trạng thái hội thoại (WBS-23: Cần bạn, A.I. xử lý, Bạn xử lý, Chưa đọc) */}
+            <div className="flex items-center gap-1 overflow-x-auto text-[11px] font-medium text-slate-400 border-b border-slate-800/80 pb-1 scrollbar-none">
               <button
                 onClick={() => setActiveTab("all")}
-                className={`px-2.5 py-1 rounded-lg transition ${
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
                   activeTab === "all" ? "bg-slate-800 text-white font-bold" : "hover:text-slate-200"
                 }`}
               >
                 Tất cả
               </button>
               <button
-                onClick={() => setActiveTab("zalo")}
-                className={`px-2.5 py-1 rounded-lg transition ${
-                  activeTab === "zalo" ? "bg-slate-800 text-blue-400 font-bold" : "hover:text-slate-200"
+                onClick={() => setActiveTab("need_human")}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
+                  activeTab === "need_human" ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold" : "hover:text-slate-200"
+                }`}
+              >
+                🔴 Cần bạn
+              </button>
+              <button
+                onClick={() => setActiveTab("ai_handling")}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
+                  activeTab === "ai_handling" ? "bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold" : "hover:text-slate-200"
+                }`}
+              >
+                ✨ A.I. xử lý
+              </button>
+              <button
+                onClick={() => setActiveTab("unread")}
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
+                  activeTab === "unread" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold" : "hover:text-slate-200"
+                }`}
+              >
+                Chưa đọc
+              </button>
+            </div>
+
+            {/* Lọc theo Kênh tiếp nhận */}
+            <div className="flex items-center gap-1 text-[10px] text-slate-400">
+              <span className="text-slate-500 text-[10px]">Kênh:</span>
+              <button
+                onClick={() => setChannelFilter("ALL")}
+                className={`px-1.5 py-0.5 rounded ${
+                  channelFilter === "ALL" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
+                }`}
+              >
+                Tất cả
+              </button>
+              <button
+                onClick={() => setChannelFilter("ZALO_PERSONAL")}
+                className={`px-1.5 py-0.5 rounded ${
+                  channelFilter === "ZALO_PERSONAL" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
                 }`}
               >
                 Zalo QR
               </button>
               <button
-                onClick={() => setActiveTab("unread")}
-                className={`px-2.5 py-1 rounded-lg transition ${
-                  activeTab === "unread" ? "bg-slate-800 text-amber-400 font-bold" : "hover:text-slate-200"
+                onClick={() => setChannelFilter("ZALO_OA")}
+                className={`px-1.5 py-0.5 rounded ${
+                  channelFilter === "ZALO_OA" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
                 }`}
               >
-                Chưa đọc
+                Zalo OA
+              </button>
+              <button
+                onClick={() => setChannelFilter("FACEBOOK")}
+                className={`px-1.5 py-0.5 rounded ${
+                  channelFilter === "FACEBOOK" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
+                }`}
+              >
+                Fanpage FB
               </button>
             </div>
           </div>
