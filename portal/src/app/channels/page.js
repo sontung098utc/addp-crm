@@ -476,15 +476,6 @@ export default function ChannelsPage() {
                   </div>
                 </div>
               )}
-                          ...newForm,
-                          config: { ...newForm.config, appId: e.target.value },
-                        })
-                      }
-                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
-                    />
-                  </div>
-                </div>
-              )}
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
