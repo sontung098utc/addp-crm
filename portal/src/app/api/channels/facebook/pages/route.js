@@ -3,8 +3,10 @@ import { createChannelAccount } from "../../../../../lib/connectionHub.js";
 
 /**
  * ADDP Omnichannel AI CRM — API Quét và Kết Nối Fanpage Facebook 1-Click (WBS-16 & WBS-17)
- * 1. POST { action: "scan", userToken }: Quét toàn bộ Fanpage người dùng đang làm Quản trị viên
- * 2. POST { action: "connect", pages }: Tự động lưu các Page đã chọn vào hệ thống ConnectionHub
+ * Xử lý thông minh:
+ * - Tự động nhận diện nếu người dùng dán Page Access Token (trả về Trang ngay lập tức)
+ * - Tự động nhận diện nếu người dùng dán User Access Token (quét /me/accounts)
+ * - Nếu thiếu quyền pages_show_list: trả về hướng dẫn chi tiết bằng tiếng Việt
  */
 
 export async function POST(request) {
@@ -12,38 +14,108 @@ export async function POST(request) {
     const body = await request.json();
     const action = body.action || "scan";
 
-    // 1. Quét danh sách Fanpage từ User Access Token
+    // 1. Quét danh sách Fanpage từ Access Token
     if (action === "scan") {
-      const userToken = body.userToken ? String(body.userToken).trim() : "";
-      if (!userToken) {
+      const rawToken = body.userToken ? String(body.userToken).trim() : "";
+      const cleanToken = rawToken.replace(/^["']|["']$/g, "").trim();
+
+      if (!cleanToken) {
         return NextResponse.json(
-          { error: "Vui lòng cung cấp mã truy cập Facebook (User Access Token)." },
+          { error: "Vui lòng cung cấp mã truy cập Facebook (Access Token)." },
           { status: 400 }
         );
       }
 
-      // Gọi Meta Graph API: /me/accounts
-      const url = `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,category,access_token,picture{url}&limit=50&access_token=${encodeURIComponent(userToken)}`;
-      const res = await fetch(url);
-      const data = await res.json();
+      // Bước 1: Kiểm tra danh tính của Token qua endpoint /me
+      const meUrl = `https://graph.facebook.com/v19.0/me?fields=id,name,category,picture{url}&access_token=${encodeURIComponent(cleanToken)}`;
+      const meRes = await fetch(meUrl);
+      const meData = await meRes.json();
 
-      if (data.error) {
+      if (meData.error) {
+        if (meData.error.code === 190) {
+          return NextResponse.json(
+            {
+              ok: false,
+              error: "Mã Access Token không hợp lệ hoặc đã hết hạn. Vui lòng bấm 'Generate Access Token' lại trên Graph API Explorer.",
+            },
+            { status: 400 }
+          );
+        }
         return NextResponse.json(
           {
             ok: false,
-            error: `Lỗi từ Facebook: ${data.error.message} (Mã lỗi: ${data.error.code})`,
+            error: `Lỗi từ Facebook: ${meData.error.message} (Mã: ${meData.error.code})`,
           },
           { status: 400 }
         );
       }
 
-      const rawPages = Array.isArray(data.data) ? data.data : [];
+      // TRƯỜNG HỢP A: Token đã là Page Access Token trực tiếp (có trường category)
+      if (meData.category) {
+        const singlePage = {
+          id: meData.id,
+          name: meData.name,
+          category: meData.category,
+          avatar: meData.picture?.data?.url || "",
+          accessToken: cleanToken,
+        };
+
+        return NextResponse.json({
+          ok: true,
+          total: 1,
+          isPageToken: true,
+          message: `Đã nhận diện thành công Fanpage: ${meData.name}!`,
+          pages: [singlePage],
+        });
+      }
+
+      // TRƯỜNG HỢP B: Token là User Access Token -> Quét danh sách các Fanpage (/me/accounts)
+      const accountsUrl = `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,category,access_token,picture{url}&limit=100&access_token=${encodeURIComponent(cleanToken)}`;
+      const accRes = await fetch(accountsUrl);
+      const accData = await accRes.json();
+
+      if (accData.error) {
+        // Lỗi #100: Tried accessing nonexisting field (accounts)
+        // Nguyên nhân: Token chưa tick chọn quyền `pages_show_list`
+        if (accData.error.code === 100 || (accData.error.message && accData.error.message.includes("accounts"))) {
+          return NextResponse.json(
+            {
+              ok: false,
+              code: "MISSING_PAGES_PERMISSION",
+              error:
+                "Token người dùng này chưa được cấp quyền xem Trang ('pages_show_list').\n\nCách xử lý rất đơn giản:\n1. Tại Graph API Explorer, bấm nút 'Add a Permission' -> chọn 'Events Groups Pages' -> tick chọn: pages_show_list, pages_read_engagement.\n2. Bấm nút xanh 'Generate Access Token' lại rồi copy dán vào đây.\n3. HOẶC tại mục 'User or Page', chọn trực tiếp tên Trang của bạn (VD: Glucare PLUS, Dược Phẩm ADDP) để lấy mã Token Trang.",
+            },
+            { status: 400 }
+          );
+        }
+
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Lỗi từ Facebook: ${accData.error.message} (Mã: ${accData.error.code})`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const rawPages = Array.isArray(accData.data) ? accData.data : [];
+      if (rawPages.length === 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Không tìm thấy Fanpage nào mà tài khoản này làm Quản trị viên. Hãy kiểm tra bạn đã đăng nhập đúng nick Facebook quản lý Trang chưa.",
+          },
+          { status: 400 }
+        );
+      }
+
       const pages = rawPages.map((p) => ({
         id: p.id,
         name: p.name,
         category: p.category || "Fanpage Doanh Nghiệp",
         avatar: p.picture?.data?.url || "",
-        accessToken: p.access_token,
+        accessToken: p.access_token || cleanToken,
       }));
 
       return NextResponse.json({

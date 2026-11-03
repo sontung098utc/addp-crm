@@ -154,7 +154,7 @@ export default function FacebookConnectModal({ isOpen, onClose, onConnected }) {
         </div>
 
         {errorMsg && (
-          <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+          <div className="p-3.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-xs whitespace-pre-line leading-relaxed">
             {errorMsg}
           </div>
         )}
@@ -241,11 +241,25 @@ export default function FacebookConnectModal({ isOpen, onClose, onConnected }) {
               <div className="space-y-4">
                 <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 space-y-2 text-xs text-blue-200">
                   <div className="font-bold text-white flex items-center gap-1.5">
-                    <span>💡 Cách quét danh sách Trang trong 15 giây (Không cần tạo App):</span>
+                    <span>💡 2 Cách lấy Access Token trên Graph Explorer:</span>
                   </div>
-                  <p>1. Bấm mở: <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer" className="text-cyan-300 underline font-semibold">Facebook Graph Explorer ↗</a></p>
-                  <p>2. Bấm nút <strong>&quot;Generate Access Token&quot;</strong> rồi copy mã dán vào bên dưới.</p>
-                  <p>3. Hệ thống sẽ tự động liệt kê toàn bộ Fanpage để bạn tick chọn!</p>
+                  <div className="space-y-1.5 text-[11px] leading-relaxed">
+                    <p>
+                      • <strong className="text-cyan-300">Cách 1 (Nhanh nhất - Lấy trực tiếp Token Trang):</strong> Mở{" "}
+                      <a
+                        href="https://developers.facebook.com/tools/explorer/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-cyan-300 underline font-semibold"
+                      >
+                        Facebook Graph Explorer ↗
+                      </a>
+                      , tại mục <strong>&quot;User or Page&quot;</strong> (ở cột bên phải), chọn trực tiếp tên Fanpage của bạn (VD: <em>Glucare PLUS</em> hoặc <em>Dược Phẩm ADDP</em>) → Bấm <strong>&quot;Generate Access Token&quot;</strong> → Copy dán vào đây là hệ thống tự nhận Trang ngay!
+                    </p>
+                    <p>
+                      • <strong className="text-cyan-300">Cách 2 (Quét toàn bộ danh sách Trang):</strong> Nếu chọn &quot;User Token&quot;, tại khung <strong>Permissions</strong> bên phải, bấm <strong>Add a Permission</strong> → chọn <strong>Events Groups Pages</strong> → tick chọn: <code className="bg-blue-900/60 px-1 py-0.5 rounded text-white font-mono">pages_show_list</code> và <code className="bg-blue-900/60 px-1 py-0.5 rounded text-white font-mono">pages_read_engagement</code> → rồi bấm <strong>&quot;Generate Access Token&quot;</strong>.
+                    </p>
+                  </div>
                 </div>
 
                 <div>
