@@ -53,12 +53,12 @@ export const ROLE_METADATA = {
  * Ma trận phân quyền truy cập Module theo Điều 5 - AGENTS.md
  */
 export const ROLE_PERMISSIONS = {
-  ADMIN: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "channels", "reports", "settings"],
-  SALE_LEADER: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "channels", "reports"],
-  SALE: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders"],
+  ADMIN: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings"],
+  SALE_LEADER: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports"],
+  SALE: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory"],
   CSKH: ["dashboard", "inbox", "customers", "work-tracking", "broadcast"],
-  KHO: ["dashboard", "orders", "reports"],
-  KE_TOAN: ["dashboard", "orders", "reports"],
+  KHO: ["dashboard", "orders", "inventory", "reports"],
+  KE_TOAN: ["dashboard", "orders", "inventory", "reports"],
 };
 
 export function hashPassword(plainPassword) {
