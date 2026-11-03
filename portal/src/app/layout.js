@@ -28,10 +28,14 @@ const EXTENSION_CLEANUP_SCRIPT = `
       window.addEventListener('error', function(event) {
         var fn = event.filename || '';
         var msg = event.message || '';
+        var stack = (event.error && (event.error.stack || event.error.message)) || '';
         if (
           fn.indexOf('chrome-extension://') !== -1 ||
           fn.indexOf('moz-extension://') !== -1 ||
+          stack.indexOf('chrome-extension://') !== -1 ||
+          stack.indexOf('moz-extension://') !== -1 ||
           msg.indexOf('M_ID') !== -1 ||
+          stack.indexOf('M_ID') !== -1 ||
           msg.indexOf('bis_') !== -1
         ) {
           event.stopImmediatePropagation();

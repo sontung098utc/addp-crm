@@ -267,7 +267,7 @@ export default function OrdersClient() {
                     <td className="px-4 py-3">{getStatusBadge(o.status)}</td>
                     <td className="px-4 py-3 text-slate-300">{o.staffName || "Chưa gán"}</td>
                     <td className="px-4 py-3 text-slate-400 text-[11px]">
-                      {new Date(o.createdAt).toLocaleDateString("vi-VN")}
+                      {o.createdAt ? new Date(o.createdAt).toLocaleDateString("vi-VN") : "Hôm nay"}
                     </td>
                   </tr>
                 ))
