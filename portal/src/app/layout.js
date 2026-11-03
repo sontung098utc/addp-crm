@@ -19,10 +19,42 @@ export const metadata = {
 };
 
 // Script dọn sạch các thuộc tính lạ do Chrome Extension (Bitdefender bis_skin_checked, PhoSEO, v.v.)
-// tự ý chèn vào DOM trước khi React 19 Hydrate, ngăn chặn triệt để lỗi Hydration Mismatch.
+// và chặn các ngoại lệ Runtime do Extension bên thứ 3 (như Urban VPN M_ID) làm kích hoạt Next.js Error Overlay.
 const EXTENSION_CLEANUP_SCRIPT = `
 (function() {
   try {
+    // 1. Chặn ngoại lệ Runtime từ Chrome Extension (Urban VPN, AdBlock,...)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('error', function(event) {
+        var fn = event.filename || '';
+        var msg = event.message || '';
+        if (
+          fn.indexOf('chrome-extension://') !== -1 ||
+          fn.indexOf('moz-extension://') !== -1 ||
+          msg.indexOf('M_ID') !== -1 ||
+          msg.indexOf('bis_') !== -1
+        ) {
+          event.stopImmediatePropagation();
+          event.preventDefault();
+          return true;
+        }
+      }, true);
+
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var str = (reason && (reason.stack || reason.message || String(reason))) || '';
+        if (
+          str.indexOf('chrome-extension://') !== -1 ||
+          str.indexOf('moz-extension://') !== -1 ||
+          str.indexOf('M_ID') !== -1
+        ) {
+          event.stopImmediatePropagation();
+          event.preventDefault();
+        }
+      }, true);
+    }
+
+    // 2. Dọn sạch thuộc tính lạ chèn vào DOM trước khi React Hydrate
     var cleanAttrs = function(root) {
       if (!root || !root.querySelectorAll) return;
       var els = root.querySelectorAll('[bis_skin_checked],[bis_register],[data-phoseo-extension]');
