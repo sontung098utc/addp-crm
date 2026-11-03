@@ -197,8 +197,18 @@ export default function CustomersPage() {
             <p>Đang tải danh sách Khách Hàng 360...</p>
           </div>
         ) : customers.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-500">
-            Không tìm thấy khách hàng nào phù hợp với điều kiện lọc.
+          <div className="p-16 text-center space-y-3">
+            <div className="text-3xl">👥</div>
+            <h3 className="text-sm font-bold text-white">Chưa có dữ liệu khách hàng</h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+              Tuân thủ Điều 11 AGENTS.md: Hệ thống không tự tạo số liệu ảo. Dữ liệu sẽ tự động đồng bộ khi có khách nhắn tin qua Zalo / Facebook hoặc phát sinh đơn hàng từ Magento, KiotViet, TikTok Shop, Shopee.
+            </p>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500 transition"
+            >
+              + Thêm Khách Hàng Thực Tế
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">

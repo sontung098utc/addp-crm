@@ -257,8 +257,12 @@ export default function WorkTrackingPage() {
             <p>Đang tải bảng công việc chăm sóc...</p>
           </div>
         ) : filteredTasks.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-500">
-            Không có công việc chăm sóc nào trong mục này. Tuyệt vời! Bạn đã hoàn thành chỉ tiêu.
+          <div className="p-16 text-center space-y-3">
+            <div className="text-3xl">📋</div>
+            <h3 className="text-sm font-bold text-white">Chưa có công việc chăm sóc</h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+              Lộ trình chăm sóc 7 mốc vàng (Ngày 1, 3, 7, 14, 21, 1/2 và 2/3 liệu trình) sẽ tự động được kích hoạt ngay khi có đơn hàng thực tế được giao thành công tới khách hàng.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">

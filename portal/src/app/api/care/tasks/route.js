@@ -8,9 +8,13 @@ import { filterRecordsByRbac } from "@/lib/rbac";
 let dynamicTasksStore = [];
 
 function initializeTasksIfNeeded() {
+  const customers = getAllCustomers();
+  if (customers.length === 0) {
+    dynamicTasksStore = [];
+    return;
+  }
   if (dynamicTasksStore.length > 0) return;
 
-  const customers = getAllCustomers();
   const today = new Date();
 
   customers.forEach((c) => {

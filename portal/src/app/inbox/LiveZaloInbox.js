@@ -13,6 +13,7 @@ import Link from "next/link";
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [loadingConv, setLoadingConv] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeConv, setActiveConv] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all"); // 'all' | 'need_human' | 'ai_handling' | 'unread'
@@ -41,49 +42,75 @@ export default function LiveZaloInbox() {
     scrollToBottom();
   }, [messages]);
 
-  // 1. Tải danh sách cuộc hội thoại thực tế (Tối ưu: chỉ tải conversations trước để trang hiện tức thì)
-  useEffect(() => {
-    async function loadConversations() {
-      try {
-        setLoadingConv(true);
-        const resConv = await fetch("/api/channels/zalo/conversations");
-        const dataConv = await resConv.json();
+  // 1. Tải danh sách cuộc hội thoại thực tế
+  // Tối ưu hóa: Dùng sessionStorage để chuyển qua lại giữa các tab tức thì (0ms lag)
+  const loadConversations = async (showLoading = true, forceRefresh = false) => {
+    try {
+      if (showLoading) setLoadingConv(true);
+      else setIsRefreshing(true);
 
-        let list = [];
-        if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
-          list = dataConv.conversations;
-        } else {
-          // Dự phòng nếu chưa có tin nhắn gần đây thì mới tải danh bạ
-          const resContacts = await fetch("/api/channels/zalo/contacts");
-          const dataContacts = await resContacts.json();
-          if (dataContacts.ok && Array.isArray(dataContacts.contacts)) {
-            list = dataContacts.contacts.map((c) => ({
-              id: c.userId,
-              name: c.name,
-              phone: c.phone,
-              avatar: c.avatar,
-              lastMessage: "Đã kết nối qua Zalo Cá Nhân",
-              lastActive: "Gần đây",
-              channel: "ZALO_PERSONAL",
-              channelLabel: "Zalo Cá Nhân",
-            }));
-          }
-        }
+      const url = `/api/channels/zalo/conversations${forceRefresh ? "?refresh=1" : ""}`;
+      const resConv = await fetch(url);
+      const dataConv = await resConv.json();
 
-        setConversations(list);
-        if (list.length > 0) {
-          setActiveConv(list[0]);
+      let list = [];
+      if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
+        list = dataConv.conversations;
+      } else {
+        const resContacts = await fetch("/api/channels/zalo/contacts");
+        const dataContacts = await resContacts.json();
+        if (dataContacts.ok && Array.isArray(dataContacts.contacts)) {
+          list = dataContacts.contacts.map((c, idx) => ({
+            id: c.userId,
+            name: c.name,
+            phone: c.phone,
+            avatar: c.avatar,
+            lastMessage: "Đã kết nối qua Zalo Cá Nhân",
+            lastActive: "Gần đây",
+            rawIndex: idx,
+            channel: "ZALO_PERSONAL",
+            channelLabel: "Zalo Cá Nhân",
+          }));
         }
-      } catch (err) {
-        console.error("Lỗi tải hội thoại:", err);
-      } finally {
-        setLoadingConv(false);
       }
+
+      if (list.length > 0) {
+        setConversations(list);
+        try {
+          sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
+        } catch {}
+        setActiveConv((prev) => {
+          if (prev && list.some((c) => c.id === prev.id)) return prev;
+          return list[0];
+        });
+      }
+    } catch (err) {
+      console.error("Lỗi tải hội thoại:", err);
+    } finally {
+      setLoadingConv(false);
+      setIsRefreshing(false);
     }
-    loadConversations();
+  };
+
+  useEffect(() => {
+    let hasLocal = false;
+    try {
+      const cached = sessionStorage.getItem("addp_inbox_conversations");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setConversations(parsed);
+          setActiveConv(parsed[0]);
+          setLoadingConv(false);
+          hasLocal = true;
+        }
+      }
+    } catch {}
+
+    loadConversations(!hasLocal);
   }, []);
 
-  // 2. Tải lịch sử tin nhắn khi đổi người chat
+  // 2. Tải lịch sử tin nhắn khi đổi người chat (Tuyệt đối không chèn tin nhắn giả)
   useEffect(() => {
     if (!activeConv?.id) return;
 
@@ -95,17 +122,8 @@ export default function LiveZaloInbox() {
         if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
           setMessages(data.messages);
         } else {
-          // Khởi tạo tin nhắn chào mẫu nếu thread mới
-          setMessages([
-            {
-              id: "init_1",
-              text: `Chào ${activeConv.name}, em là Dược sĩ bên ADDP hỗ trợ mình kiểm soát đường huyết ạ!`,
-              isMe: true,
-              senderName: "Sơn Tùng",
-              time: "15:20",
-              date: "Hôm nay",
-            },
-          ]);
+          // Xóa bỏ hoàn toàn nội dung nhắn tin gợi ý, chỉ để lại danh sách tin thật
+          setMessages([]);
         }
       } catch {
         setMessages([]);
@@ -241,13 +259,25 @@ export default function LiveZaloInbox() {
                 </div>
               </div>
 
-              <Link
-                href="/channels"
-                title="Quản lý kênh kết nối"
-                className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition"
-              >
-                ⚙️
-              </Link>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => loadConversations(false, true)}
+                  title="Làm mới danh sách hội thoại từ Zalo"
+                  className={`rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-xs text-slate-300 hover:text-white transition ${
+                    isRefreshing ? "animate-spin text-blue-400" : ""
+                  }`}
+                >
+                  🔄
+                </button>
+                <Link
+                  href="/channels"
+                  title="Quản lý kênh kết nối"
+                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition"
+                >
+                  ⚙️
+                </Link>
+              </div>
             </div>
 
             {/* Ô tìm kiếm hội thoại */}
@@ -482,6 +512,14 @@ export default function LiveZaloInbox() {
                   <div className="p-8 text-center text-xs text-slate-500">
                     Đang nạp lịch sử tin nhắn...
                   </div>
+                ) : messages.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500 text-xs space-y-2">
+                    <div className="text-3xl">💬</div>
+                    <p className="font-semibold text-slate-300">Cuộc trò chuyện với {activeConv.name}</p>
+                    <p className="text-[11px] text-slate-500 max-w-sm">
+                      Chưa có tin nhắn trong phiên này. Hãy soạn tin nhắn bên dưới để gửi tin trực tiếp từ tài khoản Zalo Sơn Tùng.
+                    </p>
+                  </div>
                 ) : (
                   messages.map((m) => {
                     const isMe = m.isMe;
@@ -528,50 +566,11 @@ export default function LiveZaloInbox() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Composer (Thanh công cụ & Ô nhập tin nhắn) */}
+              {/* Message Composer (Ô nhập tin nhắn & Gửi) */}
               <div className="border-t border-slate-800 bg-slate-900/80 p-3 space-y-2 flex-shrink-0">
-                {/* Thanh công cụ kịch bản nhanh */}
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
-                    <span className="text-[11px] text-slate-400 font-semibold mr-1">⚡ Mẫu:</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInputMessage(
-                          `Dạ em chào ${activeConv.name}, em là Dược sĩ bên ADDP hỗ trợ mình đây ạ!`
-                        )
-                      }
-                      className="rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 px-2 py-0.5 border border-slate-700/80 transition"
-                    >
-                      👋 Lời chào
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInputMessage(
-                          `Dạ ${activeConv.name} ơi, hôm nay đường huyết buổi sáng đo được bao nhiêu rồi ạ?`
-                        )
-                      }
-                      className="rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 px-2 py-0.5 border border-slate-700/80 transition"
-                    >
-                      🩸 Hỏi đường huyết
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setInputMessage(
-                          `Dạ hôm nay là ngày thứ 3 dùng sữa Glucare Plus, ${activeConv.name} uống thấy vị thế nào ạ?`
-                        )
-                      }
-                      className="rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-300 px-2 py-0.5 border border-slate-700/80 transition"
-                    >
-                      🥛 Chăm sóc Ngày 3
-                    </button>
-                  </div>
-
-                  <div className="text-[10px] text-slate-500 font-medium">
-                    Enter để gửi • Shift+Enter xuống dòng
-                  </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                  <span>Nhắn tin trực tiếp qua <strong>Zalo Cá Nhân (Sơn Tùng)</strong></span>
+                  <span>Enter để gửi • Shift+Enter xuống dòng</span>
                 </div>
 
                 {/* Khung nhập tin nhắn */}
@@ -582,7 +581,7 @@ export default function LiveZaloInbox() {
                       value={inputMessage}
                       onChange={(e) => setInputMessage(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder={`Nhập @, tin nhắn gửi tới ${activeConv.name}...`}
+                      placeholder={`Nhập tin nhắn gửi tới ${activeConv.name}...`}
                       className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none"
                     />
                   </div>
@@ -632,7 +631,7 @@ export default function LiveZaloInbox() {
               )}
               <div>
                 <h4 className="font-bold text-sm text-white">{activeConv.name}</h4>
-                <p className="text-xs text-slate-400">{activeConv.phone || `ID: ${activeConv.id}`}</p>
+                <p className="text-xs text-slate-400">{activeConv.phone || `Zalo ID: ${activeConv.id}`}</p>
               </div>
 
               {/* Action buttons */}
@@ -654,87 +653,54 @@ export default function LiveZaloInbox() {
                 <Link
                   href="/customers"
                   className="p-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-xs text-blue-300 hover:bg-blue-600/30 transition"
-                  title="Mở hồ sơ chi tiết"
+                  title="Mở hồ sơ khách hàng 360"
                 >
-                  👤 Chi Tiết
+                  👤 Hồ Sơ 360
                 </Link>
               </div>
             </div>
 
-            {/* Hồ sơ sức khỏe & Bệnh lý (Customer 360) */}
+            {/* Thông tin hồ sơ thực tế (Tuân thủ Điều 11 AGENTS.md: không tạo dữ liệu giả) */}
             <div className="space-y-2.5">
               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Hồ Sơ Bệnh Lý & CRM 360
+                Định Danh Khách Hàng 360
               </h5>
               <div className="space-y-1.5 text-xs">
                 <div className="flex items-center justify-between text-slate-300">
-                  <span className="text-slate-400">Nguồn khách:</span>
+                  <span className="text-slate-400">Nguồn tiếp nhận:</span>
                   <span className="font-semibold text-blue-400">Zalo Cá Nhân</span>
                 </div>
                 <div className="flex items-center justify-between text-slate-300">
-                  <span className="text-slate-400">Sale phụ trách:</span>
+                  <span className="text-slate-400">Tài khoản Zalo:</span>
                   <span className="font-semibold text-white">Sơn Tùng</span>
                 </div>
                 <div className="flex items-center justify-between text-slate-300">
-                  <span className="text-slate-400">Tình trạng:</span>
-                  <span className="rounded bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold">
-                    Đang Chăm Sóc
+                  <span className="text-slate-400">Trạng thái CRM:</span>
+                  <span className="rounded bg-slate-800 text-slate-300 px-1.5 py-0.5 text-[10px] font-medium border border-slate-700">
+                    Khách Zalo trực tiếp
                   </span>
                 </div>
               </div>
 
-              {/* Thẻ Tags bệnh lý */}
-              <div className="pt-1">
-                <span className="text-[10px] text-slate-400 block mb-1">Thẻ phân loại:</span>
-                <div className="flex flex-wrap gap-1">
-                  <span className="rounded-md bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 text-[10px] text-cyan-300 font-medium">
-                    Tiểu đường Tuyp 2
-                  </span>
-                  <span className="rounded-md bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[10px] text-amber-300 font-medium">
-                    Mỡ máu
-                  </span>
-                  <span className="rounded-md bg-purple-500/10 border border-purple-500/30 px-2 py-0.5 text-[10px] text-purple-300 font-medium">
-                    Khách VIP
-                  </span>
-                </div>
+              <div className="pt-2">
+                <Link
+                  href="/customers"
+                  className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
+                >
+                  + Tạo Hồ Sơ Khách Hàng 360
+                </Link>
               </div>
             </div>
 
-            {/* Lộ trình chăm sóc Ngày 1-3-7-14-21 */}
-            <div className="space-y-2 border-t border-slate-800 pt-3 text-xs">
-              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Lộ Trình Chăm Sóc Glucare
-              </h5>
-              <div className="space-y-1 text-[11px]">
-                <div className="flex items-center justify-between text-emerald-400">
-                  <span>✓ Ngày 1: Hướng dẫn mở hộp & uống</span>
-                  <span className="text-[10px]">Đã gửi</span>
-                </div>
-                <div className="flex items-center justify-between text-blue-400 font-semibold bg-blue-950/40 p-1.5 rounded-lg border border-blue-500/30">
-                  <span>► Ngày 3: Kiểm tra vị & đường huyết</span>
-                  <span className="text-[10px]">Hôm nay</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>○ Ngày 7: Đánh giá thể trạng</span>
-                  <span className="text-[10px]">Chờ</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>○ Ngày 14: Đo lại chỉ số</span>
-                  <span className="text-[10px]">Chờ</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Ghi chú nội bộ cho Sale */}
+            {/* Ghi chú tư vấn thực tế */}
             <div className="space-y-2 border-t border-slate-800 pt-3 text-xs">
               <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 Ghi Chú Tư Vấn
               </h5>
               <textarea
-                rows={3}
-                placeholder="Nhập ghi chú bệnh lý, dặn dò uống sữa..."
-                defaultValue="Khách uống 2 ly mỗi ngày sau ăn sáng và chiều. Đang theo dõi chỉ số đường huyết tuần 1."
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2 text-xs text-slate-300 focus:border-blue-500 focus:outline-none"
+                rows={4}
+                placeholder="Nhập ghi chú tư vấn thực tế dành cho khách hàng này..."
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-xs text-slate-300 placeholder-slate-600 focus:border-blue-500 focus:outline-none resize-none"
               />
             </div>
           </div>
