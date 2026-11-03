@@ -88,7 +88,9 @@ export default function LiveZaloInbox() {
           sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
         } catch {}
         setActiveConv((prev) => {
-          if (prev && list.some((c) => c.id === prev.id)) return prev;
+          if (prev && list.some((c) => c.id === prev.id)) {
+            return list.find((c) => c.id === prev.id) || prev;
+          }
           return list[0];
         });
       }
@@ -456,9 +458,16 @@ export default function LiveZaloInbox() {
                     {/* Tên & Tin nhắn gần nhất */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="font-semibold text-xs text-white truncate">
-                          {conv.name}
-                        </span>
+                        <div className="flex items-center gap-1 min-w-0">
+                          {conv.type === "GROUP" && (
+                            <span className="rounded bg-indigo-500/20 text-indigo-400 text-[9px] font-semibold px-1 py-0.2 flex-shrink-0">
+                              Nhóm
+                            </span>
+                          )}
+                          <span className="font-semibold text-xs text-white truncate">
+                            {conv.name}
+                          </span>
+                        </div>
                         <span className="text-[10px] text-slate-500 flex-shrink-0 ml-1">
                           {conv.lastActive}
                         </span>
@@ -561,7 +570,7 @@ export default function LiveZaloInbox() {
                 {/* Dấu mốc ngày tháng */}
                 <div className="flex justify-center">
                   <span className="rounded-full bg-slate-800/80 px-3 py-1 text-[11px] text-slate-400 font-medium border border-slate-700/60">
-                    Hôm nay, 02/11/2026
+                    {messages[0]?.date ? `Ngày ${messages[0].date}` : "Hôm nay"}
                   </span>
                 </div>
 
@@ -580,6 +589,8 @@ export default function LiveZaloInbox() {
                 ) : (
                   messages.map((m) => {
                     const isMe = m.isMe;
+                    const isPhoto = m.type === "chat.photo" || (m.text && typeof m.text === "string" && m.text.startsWith("http") && (m.text.includes(".jpg") || m.text.includes(".png") || m.text.includes("zdn.vn")));
+
                     return (
                       <div
                         key={m.id}
@@ -587,7 +598,7 @@ export default function LiveZaloInbox() {
                       >
                         {!isMe && (
                           <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 flex-shrink-0">
-                            {activeConv.name.slice(0, 1)}
+                            {m.senderName ? m.senderName.slice(0, 1).toUpperCase() : activeConv.name.slice(0, 1)}
                           </div>
                         )}
 
@@ -598,7 +609,25 @@ export default function LiveZaloInbox() {
                               : "bg-slate-800/90 text-slate-100 rounded-bl-none border border-slate-700/60"
                           }`}
                         >
-                          <p className="text-xs leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                          {!isMe && activeConv.type === "GROUP" && m.senderName && (
+                            <p className="text-[10px] font-semibold text-blue-400 mb-1">
+                              {m.senderName}
+                            </p>
+                          )}
+
+                          {isPhoto ? (
+                            <a href={m.text} target="_blank" rel="noreferrer" className="block my-1">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={m.text}
+                                alt="Ảnh Zalo"
+                                className="max-h-56 rounded-lg object-contain border border-slate-700 hover:opacity-90 transition"
+                              />
+                            </a>
+                          ) : (
+                            <p className="text-xs leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                          )}
+
                           <div
                             className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
                               isMe ? "text-blue-200" : "text-slate-400"
