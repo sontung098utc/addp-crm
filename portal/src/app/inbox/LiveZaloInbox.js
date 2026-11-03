@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import QuickOrderModal from "../components/QuickOrderModal";
 
 /**
  * ADDP Omnichannel AI CRM — Hộp Thư Hội Thoại Hợp Nhất 3 Cột Chuẩn Zalo / Messenger (WBS-21 -> WBS-25)
@@ -30,6 +31,13 @@ export default function LiveZaloInbox() {
 
   // Thông báo nhanh
   const [toast, setToast] = useState(null);
+
+  // WBS-32 & WBS-33: Chế độ AI & Trạng thái A.I. Soạn
+  const [aiMode, setAiMode] = useState("HUMAN_ONLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
+  const [aiComposing, setAiComposing] = useState(false);
+
+  // WBS-39: Lên đơn hàng nhanh trong chat
+  const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -198,6 +206,42 @@ export default function LiveZaloInbox() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    }
+  };
+
+  // WBS-33: Gọi AI Assistant tư vấn dựa trên Second Brain
+  const handleAiCompose = async () => {
+    if (!activeConv) return;
+    try {
+      setAiComposing(true);
+      const lastCustMsg = [...messages].reverse().find((m) => !m.isMe);
+      const res = await fetch("/api/ai/compose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: aiMode === "AUTO_REPLY" ? "AUTO_REPLY" : "DRAFT_ONLY",
+          customerMessage: lastCustMsg ? lastCustMsg.text : inputMessage,
+          draftIdea: inputMessage,
+          customerName: activeConv.name,
+          channel: "ZALO_PERSONAL",
+        }),
+      });
+      const data = await res.json();
+      const replyContent = data.replyText || data.reply;
+      if (data.ok && replyContent) {
+        setInputMessage(replyContent);
+        setToast({ type: "success", text: "✨ A.I. đã soạn xong lời tư vấn chuyên sâu!" });
+        setTimeout(() => setToast(null), 3000);
+      } else {
+        setToast({ type: "error", text: data.error || "Không thể soạn tin tự động." });
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch (err) {
+      console.error("Lỗi AI Compose:", err);
+      setToast({ type: "error", text: "Lỗi kết nối tới AI Assistant." });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setAiComposing(false);
     }
   };
 
@@ -468,8 +512,21 @@ export default function LiveZaloInbox() {
                   </div>
                 </div>
 
-                {/* Các nút gọi / đóng mở side panel */}
-                <div className="flex items-center gap-1.5">
+                {/* WBS-32 & WBS-33: Bộ chuyển 3 chế độ AI & Các nút công cụ */}
+                <div className="flex items-center gap-2">
+                  <div className="hidden sm:flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800">
+                    <span className="text-[11px] text-slate-400 font-medium">Trực:</span>
+                    <select
+                      value={aiMode}
+                      onChange={(e) => setAiMode(e.target.value)}
+                      className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer"
+                    >
+                      <option value="HUMAN_ONLY" className="bg-slate-900 text-slate-200">👤 Nhân viên trực</option>
+                      <option value="DRAFT_ONLY" className="bg-slate-900 text-amber-300">📝 A.I. Soạn nháp</option>
+                      <option value="AUTO_REPLY" className="bg-slate-900 text-emerald-400">🤖 A.I. Tự động 24/7</option>
+                    </select>
+                  </div>
+
                   <button
                     type="button"
                     title="Gọi thoại Zalo"
@@ -586,6 +643,26 @@ export default function LiveZaloInbox() {
                     />
                   </div>
 
+                  {/* WBS-33: Nút ✨ A.I. Soạn */}
+                  <button
+                    type="button"
+                    onClick={handleAiCompose}
+                    disabled={aiComposing || sending}
+                    title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
+                    className="h-11 px-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition flex-shrink-0 shadow-md shadow-purple-950/40"
+                  >
+                    {aiComposing ? (
+                      <>
+                        <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span className="hidden sm:inline">Đang soạn...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>✨ A.I. Soạn</span>
+                      </>
+                    )}
+                  </button>
+
                   <button
                     type="submit"
                     disabled={sending || !inputMessage.trim()}
@@ -682,7 +759,15 @@ export default function LiveZaloInbox() {
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-2 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => setIsOrderModalOpen(true)}
+                  className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
+                >
+                  <span>🛒 Lên Đơn Hàng Nhanh</span>
+                  <span className="text-[10px] bg-emerald-700 px-1.5 py-0.2 rounded font-mono">WBS-39</span>
+                </button>
                 <Link
                   href="/customers"
                   className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
@@ -706,6 +791,17 @@ export default function LiveZaloInbox() {
           </div>
         )}
       </div>
+
+      {/* Modal Lên đơn hàng nhanh (WBS-39) */}
+      <QuickOrderModal
+        isOpen={isOrderModalOpen}
+        onClose={() => setIsOrderModalOpen(false)}
+        customer={activeConv}
+        onSuccess={(order) => {
+          setToast({ type: "success", text: `Đã tạo đơn hàng ${order.orderCode} thành công!` });
+          setTimeout(() => setToast(null), 3000);
+        }}
+      />
     </div>
   );
 }

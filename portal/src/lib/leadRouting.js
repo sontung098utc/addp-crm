@@ -92,3 +92,16 @@ export async function routeLeadToStaff({ customer = null, channelAccountId = nul
     reason: `Phân bổ tự động Round-Robin tới ${routedStaff.name} (${routedStaff.code})`,
   };
 }
+
+export function assignLeadToStaff(params = {}) {
+  const allStaff = listAllStaff().filter((s) => s.isActive);
+  const salesAndCskh = allStaff.filter((s) => s.role === "SALE" || s.role === "CSKH" || s.role === "SALE_LEADER");
+  const selectedIndex = roundRobinIndex % (salesAndCskh.length || 1);
+  roundRobinIndex = (roundRobinIndex + 1) % 1000000;
+  const staff = salesAndCskh[selectedIndex] || allStaff[0] || { id: 1, name: "Trần Thu Hà", code: "S002" };
+  return {
+    id: staff.id,
+    name: staff.name,
+    code: staff.code,
+  };
+}

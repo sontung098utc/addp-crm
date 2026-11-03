@@ -11,6 +11,7 @@
  */
 
 import { normalizePhone, isValidVietnamPhone } from "./phone.js";
+export { normalizePhone, isValidVietnamPhone };
 import { calculateVipLevel } from "./customerTiers.js";
 import { routeLeadToStaff } from "./leadRouting.js";
 

@@ -1,12 +1,14 @@
-import ModulePreviewView from "../components/ModulePreviewView";
+import OrdersClient from "./OrdersClient";
+
+export const metadata = {
+  title: "Quản Lý Đơn Hàng Đa Nền Tảng | ADDP CRM",
+  description: "Quản lý đơn hàng tập trung từ Magento 2.4.8, KiotViet, TikTok Shop, Shopee và Hộp thư Zalo",
+};
 
 export default function OrdersPage() {
   return (
-    <ModulePreviewView
-      moduleKey="orders"
-      title="Quản Lý Đơn Hàng Đa Sàn & Tách Mã Combo Tự Động"
-      wbsBadge="Đơn Hàng & Kho"
-      subtitle="Tập trung đơn từ Shopee, TikTok Shop, KiotViet, Magento; giải mã công thức Combo xuất kho chính xác"
-    />
+    <div className="p-6 max-w-7xl mx-auto">
+      <OrdersClient />
+    </div>
   );
 }

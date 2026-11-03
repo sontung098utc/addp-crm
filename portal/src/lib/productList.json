@@ -1,0 +1,86 @@
+[
+  {
+    "id": "p1",
+    "name": "Sữa hạt Glucare Plus (Lon 800g)",
+    "price": 259000,
+    "sku": "GLUCARE-LON-800",
+    "unit": "Lon"
+  },
+  {
+    "id": "p2",
+    "name": "Sữa hạt Glucare Plus (Hộp 400g)",
+    "price": 259000,
+    "sku": "GLUCARE-HOP-400",
+    "unit": "Hộp"
+  },
+  {
+    "id": "p3",
+    "name": "Addp Viên An Đường (Hộp 60 viên)",
+    "price": 485000,
+    "sku": "ADDP-VAD-60",
+    "unit": "Hộp"
+  },
+  {
+    "id": "p4",
+    "name": "Sữa tiểu đường Glusure (Lon 850g)",
+    "price": 450000,
+    "sku": "GLUSURE-LON-850",
+    "unit": "Lon"
+  },
+  {
+    "id": "p5",
+    "name": "Sữa Canxi tiểu đường (Hộp 900g)",
+    "price": 450000,
+    "sku": "CANXI-TDUONG-900",
+    "unit": "Hộp"
+  },
+  {
+    "id": "p6",
+    "name": "Sữa Non tiểu đường Glusure Gold (Lon 800g)",
+    "price": 595000,
+    "sku": "GLUSURE-GOLD-800",
+    "unit": "Lon"
+  },
+  {
+    "id": "p7",
+    "name": "Đông trùng hạ thảo Tây Tạng",
+    "price": 995000,
+    "sku": "DTHT-TAYTANG",
+    "unit": "Hộp"
+  },
+  {
+    "id": "p8",
+    "name": "Sủi mát gan thanh nhiệt Dovital",
+    "price": 65000,
+    "sku": "DOVITAL-SUI",
+    "unit": "Tuýp"
+  },
+  {
+    "id": "p9",
+    "name": "Viên dinh dưỡng Hải Châu",
+    "price": 99000,
+    "sku": "DD-HAICHAU",
+    "unit": "Hộp"
+  },
+  {
+    "id": "p10",
+    "name": "Vitamin 3B Bổ Thần Kinh",
+    "price": 250000,
+    "sku": "VIT-3B",
+    "unit": "Hộp"
+  },
+  {
+    "id": "combo1",
+    "name": "Combo 2 Lon Glucare Plus (Tặng 1 Sủi Dovital)",
+    "price": 518000,
+    "sku": "COMBO-2GLU-1DOV",
+    "unit": "Combo"
+  },
+  {
+    "id": "combo2",
+    "name": "Combo Liệu Trình 3 Tháng (4 Lon Glucare + 2 Viên An Đường)",
+    "price": 1850000,
+    "sku": "COMBO-LT3M-GLU-VAD",
+    "unit": "Combo"
+  }
+]

@@ -1,49 +1,54 @@
 import { NextResponse } from "next/server";
-import { normalizePhone } from "../../../../lib/phone.js";
+import {
+  processMagentoFormSubmission,
+  processMagentoOrderWebhook,
+} from "@/lib/magentoConnector";
+
+export const dynamic = "force-dynamic";
 
 /**
- * ADDP Omnichannel AI CRM — Magento 2.4.8 Webhook Gateway (WBS-20)
- * Kế thừa từ C:\ADDP\CustomForm & C:\ADDP Minigame
- * Tiếp nhận Lead từ form đăng ký tư vấn, minigame nhận quà và đơn hàng website addp.vn.
- * Tuân thủ Điều 6 (Bất đồng bộ không làm chậm TTFB website chính) & Điều 3 (normalizePhone).
+ * Webhook nhận dữ liệu tự động từ Magento 2.4.8 (WBS-37)
+ * Nhận cả Form Lead từ Addp_CustomForm và Đơn hàng Magento
  */
-
-export async function POST(request) {
+export async function POST(req) {
   try {
-    const body = await request.json();
+    const payload = await req.json();
 
-    const leadSource = body.source || "MAGENTO_CUSTOM_FORM";
-    const customerName = body.fullname || body.name || body.customer_name || "Khách Website ADDP";
-    const rawPhone = body.telephone || body.phone || body.contact_phone;
-    const note = body.comment || body.message || body.health_note || "";
-    const bloodSugar = body.blood_sugar || body.initial_glucose || "";
+    // Xác định loại sự kiện
+    const eventType = (
+      payload.event ||
+      payload.event_type ||
+      (payload.increment_id ? "order_created" : "form_submission")
+    ).toLowerCase();
 
-    if (!rawPhone) {
-      return NextResponse.json({ ok: false, error: "Thiếu số điện thoại khách hàng." }, { status: 400 });
+    let result = null;
+
+    if (eventType.includes("order") || payload.increment_id) {
+      result = await processMagentoOrderWebhook(payload);
+    } else {
+      result = await processMagentoFormSubmission(payload);
     }
-
-    const cleanPhone = normalizePhone(rawPhone);
-
-    const leadData = {
-      id: `lead_magento_${Date.now()}`,
-      name: customerName,
-      phone: cleanPhone,
-      source: leadSource,
-      note,
-      bloodSugar,
-      receivedAt: new Date().toISOString(),
-      status: "CHỜ_SALE_LIÊN_HỆ",
-    };
-
-    console.log(`[MAGENTO_WEBHOOK] Nhận Lead mới từ https://addp.vn: ${customerName} (${cleanPhone}) - Đường huyết: ${bloodSugar || "Chưa rõ"}`);
 
     return NextResponse.json({
       ok: true,
-      message: `Đã tiếp nhận Lead '${customerName}' từ website Magento 2.4.8 thành công!`,
-      lead: leadData,
+      message: "Đồng bộ từ Magento 2.4.8 thành công",
+      data: result,
     });
-  } catch (error) {
-    console.error("[MAGENTO_WEBHOOK_ERROR]", error);
-    return NextResponse.json({ error: "Lỗi hệ thống khi tiếp nhận lead từ Magento." }, { status: 500 });
+  } catch (err) {
+    console.error("Lỗi Webhook Magento 2.4.8:", err);
+    return NextResponse.json(
+      { ok: false, error: err.message || "Lỗi xử lý webhook Magento" },
+      { status: 400 }
+    );
   }
+}
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    service: "ADDP CRM Magento 2.4.8 Webhook Gateway",
+    status: "READY",
+    acceptedEvents: ["form_submission", "order_created", "cart_abandoned"],
+    docs: "Gửi POST JSON kèm phone, name, items hoặc message để đồng bộ",
+  });
 }

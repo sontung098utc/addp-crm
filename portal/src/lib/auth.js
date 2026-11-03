@@ -586,3 +586,7 @@ export async function getSessionStaff(request) {
     return getStaffByIdOrCode("ADMIN");
   }
 }
+
+export async function getCurrentStaff(request) {
+  return getSessionStaff(request);
+}

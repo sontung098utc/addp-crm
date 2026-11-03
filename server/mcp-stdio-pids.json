@@ -1,1 +1,1 @@
-{}
+{"c410a43af8db": {"pid": 4544, "args": ["-y", "--prefer-offline", "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.9.0", "mcp", "start"], "server_pid": 28068, "server_start": "", "owner": "9261990159d54b218a4dc2004e25aa83", "ts": 1793687736.1130383}}

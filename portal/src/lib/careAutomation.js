@@ -109,3 +109,10 @@ export function buildCareSchedule({
 
   return tasks.sort((a, b) => a.offsetDays - b.offsetDays);
 }
+
+/**
+ * Tương thích ngược với các module gọi generateCareTasks
+ */
+export function generateCareTasks(params) {
+  return buildCareSchedule(params);
+}
