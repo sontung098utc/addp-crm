@@ -589,7 +589,21 @@ export default function LiveZaloInbox() {
                 ) : (
                   messages.map((m) => {
                     const isMe = m.isMe;
-                    const isPhoto = m.type === "chat.photo" || (m.text && typeof m.text === "string" && m.text.startsWith("http") && (m.text.includes(".jpg") || m.text.includes(".png") || m.text.includes("zdn.vn")));
+                    const rawUrl = m.url || m.thumb || m.mediaUrl || "";
+                    const hasValidUrl =
+                      typeof rawUrl === "string" &&
+                      (rawUrl.startsWith("http://") ||
+                        rawUrl.startsWith("https://") ||
+                        rawUrl.startsWith("data:"));
+                    const textIsUrl =
+                      typeof m.text === "string" &&
+                      (m.text.startsWith("http://") || m.text.startsWith("https://")) &&
+                      (m.text.includes(".jpg") ||
+                        m.text.includes(".png") ||
+                        m.text.includes(".webp") ||
+                        m.text.includes("zdn.vn"));
+                    const photoUrl = hasValidUrl ? rawUrl : textIsUrl ? m.text : null;
+                    const isPhoto = Boolean(photoUrl);
 
                     return (
                       <div
@@ -616,14 +630,19 @@ export default function LiveZaloInbox() {
                           )}
 
                           {isPhoto ? (
-                            <a href={m.text} target="_blank" rel="noreferrer" className="block my-1">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={m.text}
-                                alt="Ảnh Zalo"
-                                className="max-h-56 rounded-lg object-contain border border-slate-700 hover:opacity-90 transition"
-                              />
-                            </a>
+                            <div className="my-1">
+                              <a href={photoUrl} target="_blank" rel="noreferrer" className="block">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={photoUrl}
+                                  alt="Ảnh tin nhắn"
+                                  className="max-h-56 rounded-lg object-contain border border-slate-700 hover:opacity-90 transition"
+                                />
+                              </a>
+                              {m.text && m.text !== photoUrl && (
+                                <p className="text-xs leading-relaxed mt-1.5 whitespace-pre-wrap">{m.text}</p>
+                              )}
+                            </div>
                           ) : (
                             <p className="text-xs leading-relaxed whitespace-pre-wrap">{m.text}</p>
                           )}
