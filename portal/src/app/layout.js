@@ -61,48 +61,18 @@ const EXTENSION_CLEANUP_SCRIPT = `
     return false;
   };
 
-  // 1. TẦNG 1: Chặn trên console.error và console.warn bằng Property Interceptor
+  // 1. TẦNG 1: Chặn trên console.error và console.warn
   var nativeError = console.error;
-  var currentErrorHandler = nativeError;
-  var createErrorFilter = function(fn) {
-    return function() {
-      if (shouldIgnore(arguments)) return;
-      return fn.apply(console, arguments);
-    };
+  console.error = function() {
+    if (shouldIgnore(arguments)) return;
+    return nativeError.apply(console, arguments);
   };
-  currentErrorHandler = createErrorFilter(nativeError);
-
-  try {
-    Object.defineProperty(console, 'error', {
-      configurable: true,
-      enumerable: true,
-      get: function() { return currentErrorHandler; },
-      set: function(newFn) { currentErrorHandler = createErrorFilter(newFn); }
-    });
-  } catch (e) {
-    console.error = currentErrorHandler;
-  }
 
   var nativeWarn = console.warn;
-  var currentWarnHandler = nativeWarn;
-  var createWarnFilter = function(fn) {
-    return function() {
-      if (shouldIgnore(arguments)) return;
-      return fn.apply(console, arguments);
-    };
+  console.warn = function() {
+    if (shouldIgnore(arguments)) return;
+    return nativeWarn.apply(console, arguments);
   };
-  currentWarnHandler = createWarnFilter(nativeWarn);
-
-  try {
-    Object.defineProperty(console, 'warn', {
-      configurable: true,
-      enumerable: true,
-      get: function() { return currentWarnHandler; },
-      set: function(newFn) { currentWarnHandler = createWarnFilter(newFn); }
-    });
-  } catch (e) {
-    console.warn = currentWarnHandler;
-  }
 
   // 2. TẦNG 2: Chặn ngoại lệ Runtime từ Extension (Urban VPN, AdBlock,...)
   window.addEventListener('error', function(event) {
