@@ -6,13 +6,13 @@ import { canAccessModule } from "@/lib/auth";
 
 const MENU_ITEMS = [
   { key: "dashboard", name: "Tổng quan CRM", href: "/", icon: "📊", badge: null },
-  { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: "💬", badge: "4 cần xử lý" },
+  { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: "💬", badge: "4" },
   { key: "customers", name: "Khách hàng 360", href: "/customers", icon: "👥", badge: null },
-  { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: "📋", badge: "7 hôm nay" },
+  { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: "📋", badge: "7" },
   { key: "broadcast", name: "AI & Gửi Hàng loạt", href: "/broadcast", icon: "🤖", badge: null },
   { key: "orders", name: "Đơn hàng Đa sàn", href: "/orders", icon: "📑", badge: null },
   { key: "inventory", name: "Kho Combo & SKU", href: "/inventory", icon: "📦", badge: null },
-  { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: "🌐", badge: "7 nền tảng" },
+  { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: "🌐", badge: "7" },
   { key: "reports", name: "Báo cáo BI & Lãi/Lỗ", href: "/reports", icon: "📈", badge: null },
   { key: "settings", name: "Nhân sự & Phân quyền", href: "/settings", icon: "⚙️", badge: null },
 ];

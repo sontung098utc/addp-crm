@@ -219,7 +219,11 @@ export default function ReportsClient({
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
             <span>Tổng GMV: {metrics.gmv.toLocaleString("vi-VN")} đ</span>
-            <span className="text-emerald-400 font-semibold">{metrics.successRatePct}% thành công</span>
+            <span className="text-emerald-400 font-semibold">
+              {metrics.successfulOrders > 0
+                ? `${metrics.successRatePct}% thành công`
+                : `${metrics.totalOrders} đơn đang xử lý`}
+            </span>
           </div>
         </div>
 
@@ -261,10 +265,10 @@ export default function ReportsClient({
             <span className="text-rose-400 text-base">📉</span>
           </div>
           <div className="text-2xl font-black text-rose-400 tracking-tight">
-            {(finance.platformFees + finance.affiliateCommissions + finance.shippingLoss).toLocaleString("vi-VN")} đ
+            {(finance.platformFees + finance.affiliateCommissions + finance.codFees + finance.shippingLoss).toLocaleString("vi-VN")} đ
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
-            <span>Phí sàn: {finance.platformFees.toLocaleString("vi-VN")} đ</span>
+            <span>Phí sàn & thu hộ: {(finance.platformFees + finance.codFees).toLocaleString("vi-VN")} đ</span>
             <span className="text-rose-400 font-semibold">{metrics.returnRatePct}% hoàn</span>
           </div>
         </div>

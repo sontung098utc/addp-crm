@@ -9,7 +9,13 @@ export default function AppShell({ children }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/login";
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState({
+    id: "staff_admin",
+    name: "Quản Trị Viên ADDP",
+    code: "ADMIN",
+    role: "ADMIN",
+    roleLabel: "Quản trị viên (Toàn quyền)",
+  });
 
   useEffect(() => {
     if (isLoginPage) return;
