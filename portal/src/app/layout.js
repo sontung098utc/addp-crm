@@ -80,9 +80,25 @@ const EXTENSION_CLEANUP_SCRIPT = `
       });
     };
     cleanAttrs(document);
-    var obs = new MutationObserver(function() { cleanAttrs(document); });
+    var isCleaning = false;
+    var obs = new MutationObserver(function(mutations) {
+      if (isCleaning) return;
+      var hasTargetAttr = false;
+      for (var i = 0; i < mutations.length; i++) {
+        var a = mutations[i].attributeName;
+        if (a && (a.indexOf('bis_') === 0 || a === 'data-phoseo-extension')) {
+          hasTargetAttr = true;
+          break;
+        }
+      }
+      if (hasTargetAttr) {
+        isCleaning = true;
+        cleanAttrs(document);
+        isCleaning = false;
+      }
+    });
     obs.observe(document.documentElement, { attributes: true, subtree: true });
-    setTimeout(function() { obs.disconnect(); }, 4000);
+    setTimeout(function() { obs.disconnect(); }, 2000);
   } catch (e) {}
 })();
 `;
