@@ -7,13 +7,13 @@ import FacebookConnectModal from "./FacebookConnectModal";
 
 const PLATFORM_TABS = [
   { id: "ALL", label: "Tất Cả Kênh", icon: "🌐" },
-  { id: "ZALO_PERSONAL", label: "Zalo Cá Nhân (QR)", icon: "📱", badge: "Multi-QR" },
-  { id: "FACEBOOK", label: "Fanpage Facebook", icon: "💬", badge: "Graph API" },
-  { id: "ZALO_OA", label: "Zalo OA", icon: "📢", badge: "ZNS" },
+  { id: "ZALO_PERSONAL", label: "Zalo Cá Nhân (QR)", icon: "💬", badge: "Multi-QR" },
+  { id: "FACEBOOK", label: "Fanpage Facebook", icon: "📘", badge: "Graph API" },
+  { id: "ZALO_OA", label: "Zalo OA", icon: "🏢", badge: "ZNS" },
   { id: "TIKTOK_SHOP", label: "TikTok Shop", icon: "🎵", badge: "GMV Max" },
-  { id: "SHOPEE", label: "Shopee", icon: "🧡", badge: "Open API v2" },
-  { id: "KIOTVIET", label: "KiotViet", icon: "🏭", badge: "POS" },
-  { id: "MAGENTO", label: "Website ADDP", icon: "🛒", badge: "Magento 2.4.8" },
+  { id: "SHOPEE", label: "Shopee", icon: "🛒", badge: "Open API v2" },
+  { id: "KIOTVIET", label: "KiotViet", icon: "🏬", badge: "POS" },
+  { id: "MAGENTO", label: "Website ADDP", icon: "⚡", badge: "Magento 2.4.8" },
 ];
 
 export default function ChannelsPage() {
@@ -26,14 +26,21 @@ export default function ChannelsPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [testingId, setTestingId] = useState(null);
   const [banner, setBanner] = useState(null);
+  const [copiedText, setCopiedText] = useState(null);
 
   // Form thêm tài khoản mới
   const [newForm, setNewForm] = useState({
-    platform: "ZALO_PERSONAL",
+    platform: "TIKTOK_SHOP",
     name: "",
     externalId: "",
     config: {},
   });
+
+  const copyToClipboard = (text, label) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(label);
+    setTimeout(() => setCopiedText(null), 2000);
+  };
 
   const loadChannels = useCallback(async () => {
     try {
@@ -102,7 +109,7 @@ export default function ChannelsPage() {
       if (res.ok) {
         setBanner({ type: "success", text: data.message });
         setIsAddModalOpen(false);
-        setNewForm({ platform: "ZALO_PERSONAL", name: "", externalId: "", config: {} });
+        setNewForm({ platform: "TIKTOK_SHOP", name: "", externalId: "", config: {} });
         loadChannels();
       } else {
         setBanner({ type: "error", text: data.error || "Không thể thêm kênh." });
@@ -117,6 +124,44 @@ export default function ChannelsPage() {
       ? channels
       : channels.filter((c) => c.platform === activeTab);
 
+  const getWebhookInfo = (platform) => {
+    switch (platform) {
+      case "FACEBOOK":
+        return {
+          url: "https://crm.addp.vn/api/webhooks/facebook",
+          verifyToken: "addp_crm_fb_webhook_secret_2026",
+          note: "Nhận tin nhắn & Tự ẩn SĐT",
+        };
+      case "TIKTOK_SHOP":
+        return {
+          url: "https://crm.addp.vn/api/webhooks/tiktok",
+          note: "Đồng bộ đơn hàng & tách Combo",
+        };
+      case "SHOPEE":
+        return {
+          url: "https://crm.addp.vn/api/webhooks/shopee",
+          note: "Đồng bộ đơn hàng Open API v2",
+        };
+      case "KIOTVIET":
+        return {
+          url: "https://crm.addp.vn/api/webhooks/kiotviet",
+          note: "Webhook tạo hóa đơn POS",
+        };
+      case "MAGENTO":
+        return {
+          url: "https://crm.addp.vn/api/webhooks/magento",
+          note: "Webhook Lead Form & Giỏ hàng",
+        };
+      case "ZALO_OA":
+        return {
+          url: "https://crm.addp.vn/api/webhooks/zalo-oa",
+          note: "Webhook tương tác người dùng ZNS",
+        };
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -124,7 +169,7 @@ export default function ChannelsPage() {
         <div>
           <div className="flex items-center gap-2">
             <span className="rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-0.5 text-xs font-bold text-cyan-400">
-              Giai Đoạn 2: WBS-11 • WBS-12 • WBS-13 • WBS-14
+              Giai Đoạn 2: WBS-11 → WBS-20
             </span>
             <h1 className="text-lg font-bold text-white">
               Trung Tâm Kết Nối Đa Kênh & Quản Lý Đa Tài Khoản (ConnectionHub)
@@ -148,20 +193,21 @@ export default function ChannelsPage() {
             onClick={() => setIsZaloQrOpen(true)}
             className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
           >
-            <span>📱</span> Quét Mã QR Zalo Cá Nhân
+            <span>💬</span> Quét Mã QR Zalo Cá Nhân
           </button>
           <button
             type="button"
+            data-open-add-channel="true"
             onClick={() => setIsAddModalOpen(true)}
-            className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
+            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
           >
-            <span>+</span> Thêm Kênh / Gian Hàng
+            <span>+</span> Thêm Gian Hàng / Kênh
           </button>
           <Link
             href="/settings"
-            className="rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold px-3.5 py-2.5 transition"
+            className="rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold px-3.5 py-2.5 transition"
           >
-            🔐 Ma Trận Phân Quyền Kênh
+            ⚙️ Phân Quyền Kênh
           </Link>
         </div>
       </div>
@@ -175,62 +221,66 @@ export default function ChannelsPage() {
           }`}
         >
           <span>{banner.text}</span>
-          <button onClick={() => setBanner(null)} className="text-slate-400 hover:text-white ml-4">
+          <button onClick={() => setBanner(null)} className="text-xs font-bold px-1">
             ✕
           </button>
         </div>
       )}
 
-      {/* KPI Overview Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="text-xs font-medium text-slate-400">Tổng Tài Khoản Đang Quản Lý</div>
+          <div className="text-xs font-medium text-slate-400">Tổng Số Kênh Hoạt Động</div>
           <div className="text-2xl font-bold text-white mt-1">{channels.length} Kênh</div>
-          <div className="text-xs text-blue-400 mt-2">Bao gồm 7 nền tảng bán hàng & CSKH</div>
+          <div className="text-xs text-blue-400 mt-2">Bao gồm 7 nền tảng bán hàng &amp; CSKH</div>
         </div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
           <div className="text-xs font-medium text-slate-400">Zalo Cá Nhân (Multi-Account)</div>
           <div className="text-2xl font-bold text-cyan-400 mt-1">
             {channels.filter((c) => c.platform === "ZALO_PERSONAL").length} Nick QR
           </div>
-          <div className="text-xs text-slate-400 mt-2">Mỗi tài khoản 1 thư mục phiên cô lập</div>
+          <div className="text-xs text-slate-400 mt-2">Bảo vệ nick (Anti-Ban 45–120s)</div>
         </div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="text-xs font-medium text-slate-400">Bảo Vệ Tài Khoản (Anti-Ban)</div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">45s – 120s</div>
-          <div className="text-xs text-slate-400 mt-2">Giới hạn ≤ 70 tin/nick/ngày (Điều 4)</div>
+          <div className="text-xs font-medium text-slate-400">Fanpage Facebook &amp; Zalo OA</div>
+          <div className="text-2xl font-bold text-blue-400 mt-1">
+            {channels.filter((c) => c.platform === "FACEBOOK" || c.platform === "ZALO_OA").length} Trang
+          </div>
+          <div className="text-xs text-slate-400 mt-2">Tự động ẩn bình luận chứa SĐT</div>
         </div>
         <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
-          <div className="text-xs font-medium text-slate-400">Định Danh Khách Hàng</div>
-          <div className="text-2xl font-bold text-purple-400 mt-1">10 Chữ Số</div>
-          <div className="text-xs text-slate-400 mt-2">Gộp hội thoại & đơn theo normalizePhone</div>
+          <div className="text-xs font-medium text-slate-400">Gian Hàng Sàn &amp; KiotViet</div>
+          <div className="text-2xl font-bold text-amber-400 mt-1">
+            {channels.filter((c) => ["TIKTOK_SHOP", "SHOPEE", "KIOTVIET", "MAGENTO"].includes(c.platform)).length} Điểm Bán
+          </div>
+          <div className="text-xs text-slate-400 mt-2">Tách công thức Combo tự động</div>
         </div>
       </div>
 
-      {/* Platform Navigation Tabs (Kế thừa từ channels_view.php) */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
-        {PLATFORM_TABS.map((tab) => {
+      {/* Tabs Phân Loại Kênh */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+        {PLATFORM_TABS.map((t) => {
           const count =
-            tab.id === "ALL"
+            t.id === "ALL"
               ? channels.length
-              : channels.filter((c) => c.platform === tab.id).length;
-          const active = activeTab === tab.id;
+              : channels.filter((c) => c.platform === t.id).length;
           return (
             <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`rounded-xl px-3.5 py-2 text-xs font-semibold flex items-center gap-1.5 transition ${
-                active
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
+                activeTab === t.id
                   ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                  : "bg-slate-900 border border-slate-800 text-slate-300 hover:border-slate-700"
+                  : "bg-slate-900/80 text-slate-400 hover:text-white hover:bg-slate-800"
               }`}
             >
-              <span>{tab.icon}</span>
-              <span>{tab.label}</span>
+              <span>{t.icon}</span>
+              <span>{t.label}</span>
               <span
-                className={`ml-1 rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
-                  active ? "bg-white/20 text-white" : "bg-slate-800 text-slate-400"
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  activeTab === t.id
+                    ? "bg-white/20 text-white"
+                    : "bg-slate-800 text-slate-400"
                 }`}
               >
                 {count}
@@ -240,17 +290,17 @@ export default function ChannelsPage() {
         })}
       </div>
 
-      {/* Channels List */}
+      {/* Danh sách Channel Cards */}
       {loading ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-12 text-center text-xs text-slate-400">
-          Đang tải danh sách tài khoản kênh...
+        <div className="py-20 text-center text-slate-500 text-sm">
+          Đang tải danh sách kết nối kênh...
         </div>
       ) : filteredChannels.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/30 p-12 text-center space-y-3">
-          <div className="text-2xl">🔌</div>
-          <div className="text-sm font-bold text-white">Chưa Có Tài Khoản Nào Cho Kênh Này</div>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto">
-            Bấm nút &ldquo;Thêm Kênh / Gian Hàng&rdquo; hoặc &ldquo;Quét Mã QR Zalo&rdquo; để bắt đầu kết nối.
+        <div className="rounded-2xl border border-dashed border-slate-800 p-12 text-center space-y-3">
+          <div className="text-4xl">🔌</div>
+          <div className="text-white font-bold text-sm">Chưa có kênh nào thuộc danh mục này</div>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            Bấm nút &quot;Thêm Gian Hàng / Kênh&quot; ở góc trên để cấu hình tài khoản hoặc tích hợp Webhook.
           </p>
         </div>
       ) : (
@@ -258,6 +308,7 @@ export default function ChannelsPage() {
           {filteredChannels.map((ch) => {
             const meta = platforms[ch.platform] || {};
             const isTesting = testingId === ch.id;
+            const webhook = getWebhookInfo(ch.platform);
 
             return (
               <div
@@ -288,7 +339,7 @@ export default function ChannelsPage() {
 
                   <p className="text-xs text-slate-400 line-clamp-2">{meta.desc}</p>
 
-                  <div className="rounded-xl bg-slate-950 p-3 space-y-1 text-[11px]">
+                  <div className="rounded-xl bg-slate-950 p-3 space-y-1.5 text-[11px]">
                     <div className="flex justify-between text-slate-400">
                       <span>Trạng thái:</span>
                       <span className="text-slate-200 font-medium">{ch.statusLabel}</span>
@@ -299,6 +350,18 @@ export default function ChannelsPage() {
                         {ch.assignedStaffCodes?.join(", ") || "ADMIN"}
                       </span>
                     </div>
+                    {webhook && (
+                      <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2">
+                        <span className="text-slate-400 truncate text-[10px]">Webhook: {webhook.note}</span>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(webhook.url, ch.id)}
+                          className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono font-semibold"
+                        >
+                          {copiedText === ch.id ? "✓ Đã chép URL" : "Sao chép Webhook"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -309,7 +372,7 @@ export default function ChannelsPage() {
                     onClick={() => handleTestHealth(ch.id)}
                     className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold py-2 transition"
                   >
-                    {isTesting ? "Đang kiểm tra..." : "⚡ Kiểm Tra Kết Nối"}
+                    {isTesting ? "Đang kiểm tra..." : "✓ Kiểm Tra Kết Nối"}
                   </button>
                   {ch.platform === "FACEBOOK" && (
                     <button
@@ -327,7 +390,7 @@ export default function ChannelsPage() {
                           href="/inbox"
                           className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-3 py-2 transition flex items-center gap-1"
                         >
-                          💬 Vào Nhắn Tin
+                          💬 Vào Hộp Thư
                         </Link>
                       )}
                       <button
@@ -353,23 +416,27 @@ export default function ChannelsPage() {
         </div>
       )}
 
-      {/* Modal Thêm Tài Khoản Kênh Mới */}
+      {/* Modal Thêm Kênh Mới */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">Thêm Kênh / Gian Hàng Mới (WBS-11)</h3>
+                <h3 className="text-base font-bold text-white">Thêm Gian Hàng / Kênh Mới (WBS-11 & 18 & 20)</h3>
                 <p className="text-xs text-slate-400">
                   Lưu trữ mã hóa Token an toàn bằng AES-256-GCM
                 </p>
               </div>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button
+                data-modal-close="add"
+                onClick={() => setIsAddModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreateChannel} className="space-y-3 text-xs">
+            <form onSubmit={handleCreateChannel} className="space-y-3.5 text-xs">
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Chọn Nền Tảng</label>
                 <select
@@ -387,78 +454,261 @@ export default function ChannelsPage() {
 
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">
-                  Tên Nhận Diện Tài Khoản (VD: Fanpage Sữa Hạt, Zalo Bác Sĩ...) *
+                  Tên Nhận Diện Tài Khoản / Gian Hàng *
                 </label>
                 <input
                   required
                   value={newForm.name}
                   onChange={(e) => setNewForm({ ...newForm, name: e.target.value })}
-                  placeholder="VD: Fanpage ADDP Đông Trùng Hạ Thảo"
+                  placeholder="VD: TikTok Shop Dược Phẩm ADDP, Shopee Glucare PLUS..."
                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white"
                 />
               </div>
 
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">
-                  Mã ID Đối Tác / Page ID / Shop ID
+                  Mã ID Định Danh (Shop ID / Page ID / POS ID) *
                 </label>
                 <input
+                  required
                   value={newForm.externalId}
                   onChange={(e) => setNewForm({ ...newForm, externalId: e.target.value })}
-                  placeholder="VD: fb_page_10293 hoặc shop_shopee_8899"
+                  placeholder="VD: vn_shop_8899 hoặc shop_shopee_10293"
                   className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
                 />
               </div>
 
-              {/* Dynamic fields based on platform */}
+              {/* DYNAMIC FORM FIELDS THEO TỪNG NỀN TẢNG */}
+              {newForm.platform === "TIKTOK_SHOP" && (
+                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-amber-300">
+                    <span>🎵 Cấu hình TikTok Shop Open API (WBS-18)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-400 text-[11px] mb-1">App Key</label>
+                      <input
+                        placeholder="6b8a..."
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, appKey: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-[11px] mb-1">App Secret</label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, appSecret: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[11px] mb-1">Refresh Token (Làm mới định kỳ)</label>
+                    <input
+                      placeholder="Nhập Refresh Token gian hàng..."
+                      onChange={(e) =>
+                        setNewForm({
+                          ...newForm,
+                          config: { ...newForm.config, refreshToken: e.target.value },
+                        })
+                      }
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                    />
+                  </div>
+                  <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[11px] text-amber-200">
+                    Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/tiktok</code>
+                  </div>
+                </div>
+              )}
+
+              {newForm.platform === "SHOPEE" && (
+                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-orange-400">
+                    <span>🛒 Cấu hình Shopee Open API v2 (WBS-18)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-400 text-[11px] mb-1">Partner ID</label>
+                      <input
+                        placeholder="2004812"
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, partnerId: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-[11px] mb-1">Partner Key</label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, partnerKey: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[11px] mb-1">Refresh Token Shopee</label>
+                    <input
+                      placeholder="Nhập Refresh Token..."
+                      onChange={(e) =>
+                        setNewForm({
+                          ...newForm,
+                          config: { ...newForm.config, refreshToken: e.target.value },
+                        })
+                      }
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                    />
+                  </div>
+                  <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-2 text-[11px] text-orange-200">
+                    Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/shopee</code>
+                  </div>
+                </div>
+              )}
+
+              {newForm.platform === "KIOTVIET" && (
+                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-blue-400">
+                    <span>🏬 Cấu hình KiotViet POS &amp; Kho Hàng (WBS-20)</span>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[11px] mb-1">Tên Gian Hàng KiotViet (Retailer)</label>
+                    <input
+                      placeholder="addpvn"
+                      onChange={(e) =>
+                        setNewForm({
+                          ...newForm,
+                          config: { ...newForm.config, retailer: e.target.value },
+                        })
+                      }
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white text-xs"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-slate-400 text-[11px] mb-1">Client ID</label>
+                      <input
+                        placeholder="4829..."
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, clientId: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-[11px] mb-1">Secret Key</label>
+                      <input
+                        type="password"
+                        placeholder="••••••••"
+                        onChange={(e) =>
+                          setNewForm({
+                            ...newForm,
+                            config: { ...newForm.config, clientSecret: e.target.value },
+                          })
+                        }
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-2 text-[11px] text-blue-200">
+                    Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/kiotviet</code>
+                  </div>
+                </div>
+              )}
+
               {newForm.platform === "MAGENTO" && (
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Domain Website Magento 2.4.8</label>
-                  <input
-                    value={newForm.config.domain || "https://addp.vn"}
-                    onChange={(e) =>
-                      setNewForm({
-                        ...newForm,
-                        config: { ...newForm.config, domain: e.target.value },
-                      })
-                    }
-                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white"
-                  />
+                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-orange-400">
+                    <span>⚡ Cấu hình Website Magento 2.4.8 (WBS-20)</span>
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[11px] mb-1">Domain Website Magento</label>
+                    <input
+                      defaultValue="https://addp.vn"
+                      onChange={(e) =>
+                        setNewForm({
+                          ...newForm,
+                          config: { ...newForm.config, domain: e.target.value },
+                        })
+                      }
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 text-[11px] mb-1">REST API Bearer Token</label>
+                    <input
+                      type="password"
+                      placeholder="Nhập Token Magento..."
+                      onChange={(e) =>
+                        setNewForm({
+                          ...newForm,
+                          config: { ...newForm.config, apiToken: e.target.value },
+                        })
+                      }
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                    />
+                  </div>
+                  <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-2 text-[11px] text-orange-200">
+                    Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/magento</code>
+                  </div>
                 </div>
               )}
 
               {newForm.platform === "FACEBOOK" && (
-                <div className="space-y-3">
+                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-blue-400">
+                    <span>📘 Kết Nối Fanpage Facebook (WBS-16 &amp; 17)</span>
+                  </div>
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Page Access Token (Long-lived)</label>
+                    <label className="block text-slate-400 text-[11px] mb-1">Page Access Token</label>
                     <input
                       type="password"
-                      placeholder="EAA..."
+                      placeholder="Dán mã EAAPZB..."
                       onChange={(e) =>
                         setNewForm({
                           ...newForm,
                           config: { ...newForm.config, pageAccessToken: e.target.value },
                         })
                       }
-                      className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
                     />
                   </div>
-                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 space-y-1.5 text-[11px] text-blue-200">
-                    <div className="font-bold text-white flex items-center gap-1.5">
-                      <span>📘 Webhook Meta Graph API (WBS-16 & 17)</span>
-                    </div>
-                    <p>• Callback URL: <code className="bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/facebook</code></p>
-                    <p>• Verify Token: <code className="bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 font-mono">addp_crm_fb_webhook_secret_2026</code></p>
-                    <p className="text-emerald-400 font-semibold">✓ Đã bật tự động ẩn bình luận chứa SĐT khách hàng (Chống cướp khách)</p>
-                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    💡 Hoặc sử dụng nút <strong className="text-blue-400">&quot;Kết Nối Fanpage 1-Click&quot;</strong> ở ngoài để chọn trực quan.
+                  </p>
                 </div>
               )}
 
               {newForm.platform === "ZALO_OA" && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-sky-400">
+                    <span>🏢 Cấu hình Zalo Official Account Open API v3 (WBS-15 &amp; 17)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-slate-300 font-semibold mb-1">OA ID</label>
+                      <label className="block text-slate-400 text-[11px] mb-1">OA ID</label>
                       <input
                         placeholder="1829..."
                         onChange={(e) =>
@@ -467,11 +717,11 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, oaId: e.target.value },
                           })
                         }
-                        className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-300 font-semibold mb-1">App ID</label>
+                      <label className="block text-slate-400 text-[11px] mb-1">App ID</label>
                       <input
                         placeholder="2938..."
                         onChange={(e) =>
@@ -480,17 +730,12 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, appId: e.target.value },
                           })
                         }
-                        className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
                       />
                     </div>
                   </div>
-                  <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 space-y-1.5 text-[11px] text-sky-200">
-                    <div className="font-bold text-white flex items-center gap-1.5">
-                      <span>🏢 Webhook Zalo OA Open API v3 (WBS-15 & 17)</span>
-                    </div>
-                    <p>• Webhook URL: <code className="bg-slate-900 px-1.5 py-0.5 rounded text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/zalo-oa</code></p>
-                    <p>• Sự kiện đã kích hoạt: <span className="text-white">user_send_text, user_send_image, user_submit_info, follow</span></p>
-                    <p className="text-emerald-400 font-semibold">✓ Hỗ trợ CSKH tự động ZNS và xoay vòng Refresh Token</p>
+                  <div className="rounded-lg bg-sky-500/10 border border-sky-500/20 p-2 text-[11px] text-sky-200">
+                    Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/zalo-oa</code>
                   </div>
                 </div>
               )}

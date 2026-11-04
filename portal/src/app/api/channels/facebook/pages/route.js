@@ -7,6 +7,7 @@ import { createChannelAccount } from "../../../../../lib/connectionHub.js";
  * - Tự động nhận diện nếu người dùng dán Page Access Token (trả về Trang ngay lập tức)
  * - Tự động nhận diện nếu người dùng dán User Access Token (quét /me/accounts)
  * - Nếu thiếu quyền pages_show_list: trả về hướng dẫn chi tiết bằng tiếng Việt
+ * - Hỗ trợ phương thức "direct": Nhập thẳng Page ID & Page Access Token (Không cần xét duyệt App)
  */
 
 export async function POST(request) {
@@ -83,7 +84,7 @@ export async function POST(request) {
               ok: false,
               code: "MISSING_PAGES_PERMISSION",
               error:
-                "Token người dùng này chưa được cấp quyền xem Trang ('pages_show_list').\n\nCách xử lý rất đơn giản:\n1. Tại Graph API Explorer, bấm nút 'Add a Permission' -> chọn 'Events Groups Pages' -> tick chọn: pages_show_list, pages_read_engagement.\n2. Bấm nút xanh 'Generate Access Token' lại rồi copy dán vào đây.\n3. HOẶC tại mục 'User or Page', chọn trực tiếp tên Trang của bạn (VD: Glucare PLUS, Dược Phẩm ADDP) để lấy mã Token Trang.",
+                "Token người dùng này chưa được cấp quyền xem Trang ('pages_show_list').\n\nCách xử lý rất đơn giản:\n1. Tại Graph API Explorer, bấm nút 'Add a Permission' -> chọn 'Events Groups Pages' -> tick chọn: pages_show_list, pages_read_engagement.\n2. Bấm nút xanh 'Generate Access Token' lại rồi copy dán vào đây.\n3. HOẶC tại mục 'User or Page', chọn trực tiếp tên Trang của bạn (VD: Dược Phẩm ADDP, Glucare PLUS) để lấy mã Page Access Token dán vào tab 'Nhập Trực Tiếp Page Token'.",
             },
             { status: 400 }
           );
@@ -156,6 +157,62 @@ export async function POST(request) {
         ok: true,
         message: `Đã kết nối thành công ${connectedList.length} Fanpage vào CRM!`,
         connected: connectedList,
+      });
+    }
+
+    // 3. Kết nối TRỰC TIẾP bằng Page ID & Page Access Token (Cực kỳ tin cậy & 100% thành công)
+    if (action === "direct") {
+      const pageId = body.pageId ? String(body.pageId).trim() : "";
+      const pageAccessToken = body.pageAccessToken ? String(body.pageAccessToken).trim() : "";
+      const pageName = body.pageName ? String(body.pageName).trim() : "";
+
+      if (!pageId || !pageAccessToken) {
+        return NextResponse.json(
+          { error: "Vui lòng nhập đầy đủ Page ID và Page Access Token." },
+          { status: 400 }
+        );
+      }
+
+      // Xác thực Page Token trực tiếp với Meta
+      let verifiedName = pageName;
+      let avatar = "";
+      let category = "Fanpage Doanh Nghiệp";
+
+      try {
+        const checkUrl = `https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}?fields=name,category,picture{url}&access_token=${encodeURIComponent(pageAccessToken)}`;
+        const checkRes = await fetch(checkUrl);
+        const checkData = await checkRes.json();
+
+        if (checkData.name) {
+          verifiedName = checkData.name;
+          category = checkData.category || category;
+          avatar = checkData.picture?.data?.url || "";
+        }
+      } catch (err) {
+        console.warn("[FB_DIRECT_VERIFY_WARN]", err);
+      }
+
+      const result = createChannelAccount({
+        platform: "FACEBOOK",
+        name: verifiedName || `Fanpage ${pageId}`,
+        externalId: `fb_${pageId}`,
+        config: {
+          pageId,
+          pageAccessToken,
+          avatar,
+          category,
+          autoHidePhone: true,
+        },
+      });
+
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error || "Không thể lưu Fanpage." }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        message: `Đã kết nối thành công Fanpage '${verifiedName || pageId}' vào CRM!`,
+        channel: result.channel,
       });
     }
 

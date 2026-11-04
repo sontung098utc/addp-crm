@@ -226,3 +226,5 @@ deploy/.env
 deploy/certbot/
 portal/node_modules/
 portal/.next/
+portal/config/
+scratch/

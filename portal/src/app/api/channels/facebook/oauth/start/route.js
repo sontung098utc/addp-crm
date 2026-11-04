@@ -1,17 +1,24 @@
 import { NextResponse } from "next/server";
+import { getMetaConfig, saveMetaConfig } from "@/lib/metaConfig.js";
 
 /**
  * ADDP Omnichannel AI CRM — Bắt đầu luồng Meta Official OAuth Dialog (WBS-16 & 17)
- * Mở cửa sổ cấp quyền chính thức của Facebook y hệt ảnh người dùng gửi:
+ * Mở cửa sổ cấp quyền chính thức của Facebook:
  * facebook.com/dialog/oauth?client_id=...&redirect_uri=...&scope=...
  */
-
-const DEFAULT_APP_ID = process.env.FB_APP_ID || "102938475610293"; // Placeholder nếu chưa cấu hình
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
-    const appId = searchParams.get("appId") || DEFAULT_APP_ID;
+    const passedAppId = searchParams.get("appId");
+    const passedAppSecret = searchParams.get("appSecret");
+
+    if (passedAppId || passedAppSecret) {
+      saveMetaConfig({ appId: passedAppId, appSecret: passedAppSecret });
+    }
+
+    const config = getMetaConfig();
+    const appId = config.appId;
     const reqOrigin = request.headers.get("origin") || request.nextUrl.origin || "http://localhost:3005";
     const redirectUri = `${reqOrigin}/api/channels/facebook/oauth/callback`;
 
@@ -42,5 +49,16 @@ export async function GET(request) {
   } catch (error) {
     console.error("[FB_OAUTH_START_ERROR]", error);
     return NextResponse.json({ error: "Lỗi khởi tạo luồng OAuth Facebook." }, { status: 500 });
+  }
+}
+
+export async function POST(request) {
+  try {
+    const body = await request.json();
+    const { appId, appSecret, verifyToken } = body;
+    const res = saveMetaConfig({ appId, appSecret, verifyToken });
+    return NextResponse.json(res);
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 }
