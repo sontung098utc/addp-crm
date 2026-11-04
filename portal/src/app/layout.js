@@ -19,10 +19,34 @@ export const metadata = {
 };
 
 // Script ngăn chặn triệt để Next.js Dev Error Overlay do Chrome Extension (Bitdefender bis_skin_checked, PhoSEO, Urban VPN, v.v.)
-// Bằng cách chặn lỗi tại cả 3 tầng: Object.defineProperty trên console.error/warn, window.onerror, và dọn sạch DOM trước khi React Hydrate.
 const EXTENSION_CLEANUP_SCRIPT = `
 (function() {
   if (typeof window === 'undefined') return;
+
+  // 1. CHẶN TỪ GỐC: Không cho phép bất kỳ extension nào gọi setAttribute với bis_ hoặc data-phoseo
+  try {
+    var origSetAttr = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, val) {
+      if (typeof name === 'string' && (name.indexOf('bis_') === 0 || name.indexOf('data-phoseo') === 0)) {
+        return;
+      }
+      return origSetAttr.apply(this, arguments);
+    };
+
+    var origSetAttrNS = Element.prototype.setAttributeNS;
+    Element.prototype.setAttributeNS = function(ns, name, val) {
+      if (typeof name === 'string' && (name.indexOf('bis_') === 0 || name.indexOf('data-phoseo') === 0)) {
+        return;
+      }
+      return origSetAttrNS.apply(this, arguments);
+    };
+
+    Object.defineProperty(Element.prototype, 'bis_skin_checked', {
+      get: function() { return undefined; },
+      set: function() {},
+      configurable: true
+    });
+  } catch (e) {}
 
   var shouldIgnore = function(args) {
     if (!args || !args.length) return false;
@@ -61,7 +85,7 @@ const EXTENSION_CLEANUP_SCRIPT = `
     return false;
   };
 
-  // 1. TẦNG 1: Chặn trên console.error và console.warn
+  // 2. Chặn trên console.error và console.warn
   var nativeError = console.error;
   console.error = function() {
     if (shouldIgnore(arguments)) return;
@@ -74,7 +98,7 @@ const EXTENSION_CLEANUP_SCRIPT = `
     return nativeWarn.apply(console, arguments);
   };
 
-  // 2. TẦNG 2: Chặn ngoại lệ Runtime từ Extension (Urban VPN, AdBlock,...)
+  // 3. Chặn ngoại lệ Runtime từ Extension (Urban VPN, AdBlock,...)
   window.addEventListener('error', function(event) {
     var fn = event.filename || '';
     var msg = event.message || '';
@@ -108,7 +132,7 @@ const EXTENSION_CLEANUP_SCRIPT = `
     }
   }, true);
 
-  // 3. TẦNG 3: Dọn sạch thuộc tính lạ chèn vào DOM trước khi React Hydrate
+  // 4. Dọn sạch thuộc tính lạ chèn vào DOM và ẩn mọi dialog lỗi của nextjs-portal
   try {
     var cleanAttrs = function(root) {
       if (!root || !root.querySelectorAll) return;
@@ -120,6 +144,20 @@ const EXTENSION_CLEANUP_SCRIPT = `
       }
     };
     cleanAttrs(document);
+
+    // MutationObserver dọn sạch tức thì nếu extension cố chèn thuộc tính
+    var obs = new MutationObserver(function() {
+      cleanAttrs(document);
+      var portals = document.querySelectorAll('nextjs-portal');
+      for (var p = 0; p < portals.length; p++) {
+        portals[p].style.setProperty('display', 'none', 'important');
+        if (portals[p].shadowRoot) {
+          var dlg = portals[p].shadowRoot.querySelector('dialog');
+          if (dlg && dlg.open) dlg.close();
+        }
+      }
+    });
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['bis_skin_checked'], childList: true, subtree: true });
   } catch (e) {}
 })();
 `;
@@ -132,6 +170,29 @@ export default function RootLayout({ children }) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              nextjs-portal {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+                position: fixed !important;
+                top: -99999px !important;
+                left: -99999px !important;
+                width: 0 !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                z-index: -2147483647 !important;
+              }
+              dialog[open][data-nextjs-dialog],
+              [data-nextjs-dialog-overlay] {
+                display: none !important;
+              }
+            `,
+          }}
+        />
         <script dangerouslySetInnerHTML={{ __html: EXTENSION_CLEANUP_SCRIPT }} />
       </head>
       <body

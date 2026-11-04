@@ -26,6 +26,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
 
   return (
     <aside
+      suppressHydrationWarning
       className={`bg-slate-900 border-r border-slate-800 text-slate-100 flex flex-col transition-all duration-200 select-none shrink-0 ${
         isCollapsed ? "w-20" : "w-64"
       }`}

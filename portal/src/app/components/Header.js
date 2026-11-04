@@ -70,7 +70,7 @@ export default function Header({ currentUser }) {
 
   return (
     <>
-      <header className="h-16 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between gap-4 shrink-0">
+      <header suppressHydrationWarning className="h-16 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between gap-4 shrink-0">
         {/* Trạng thái các kênh */}
         <div className="flex items-center gap-3 overflow-x-auto">
           <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">

@@ -34,15 +34,15 @@ export default function AppShell({ children }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-950 text-slate-100">
+    <div suppressHydrationWarning className="min-h-screen flex bg-slate-950 text-slate-100">
       <Sidebar
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
         currentUser={currentUser}
       />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div suppressHydrationWarning className="flex-1 flex flex-col min-w-0">
         <Header currentUser={currentUser} />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main suppressHydrationWarning className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
   );

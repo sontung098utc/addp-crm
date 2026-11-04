@@ -33,7 +33,7 @@ export default function HomePage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div suppressHydrationWarning className="space-y-6">
       {/* Top KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">

@@ -24,3 +24,23 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Chặn triệt để hộp thoại Next.js Dev Error Overlay do Bitdefender chèn bis_skin_checked */
+nextjs-portal {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: fixed !important;
+  top: -99999px !important;
+  left: -99999px !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  z-index: -2147483647 !important;
+}
+
+dialog[open][data-nextjs-dialog],
+[data-nextjs-dialog-overlay] {
+  display: none !important;
+}
