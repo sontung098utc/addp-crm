@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { normalizePhone } from "../../../../lib/phone.js";
+import { normalizePhone } from "@/lib/phone.js";
+import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
 
 /**
- * ADDP Omnichannel AI CRM — Zalo Official Account (OA) Webhook (WBS-15)
+ * ADDP Omnichannel AI CRM — Zalo Official Account (OA) Webhook (WBS-15 & WBS-21)
  * Tiếp nhận sự kiện tương tác từ Zalo Open API v3:
  * - user_send_text, user_send_image: Khách chat với OA
  * - user_submit_info: Khách đồng ý cung cấp SĐT thật cho OA
@@ -28,7 +29,7 @@ export async function POST(request) {
     const event = await request.json();
     const eventName = event.event_name;
     const oaId = event.oa_id;
-    const userId = event.user_id_by_app;
+    const userId = event.user_id_by_app || event.user_id;
     const timestamp = event.timestamp || Date.now();
 
     console.log(`[ZALO_OA_WEBHOOK] Nhận sự kiện '${eventName}' từ User ${userId} trên OA ${oaId}`);
@@ -37,6 +38,17 @@ export async function POST(request) {
       case "user_send_text": {
         const text = event.message?.text || "";
         console.log(`[ZALO_OA_MESSAGE] Khách nhắn tới OA: "${text}"`);
+        await addUnifiedMessage({
+          channel: "ZALO_OA",
+          channelId: oaId,
+          channelName: "Zalo Official Account",
+          threadId: String(userId),
+          senderId: String(userId),
+          senderName: `Khách Zalo OA (${String(userId).slice(-4)})`,
+          text,
+          isMe: false,
+          timestamp,
+        });
         break;
       }
 
@@ -46,12 +58,34 @@ export async function POST(request) {
         if (rawPhone) {
           const phone = normalizePhone(rawPhone);
           console.log(`[ZALO_OA_LEAD] Khách ${name} cấp SĐT thật qua Zalo OA: ${phone}`);
+          await addUnifiedMessage({
+            channel: "ZALO_OA",
+            channelId: oaId,
+            channelName: "Zalo Official Account",
+            threadId: String(userId),
+            senderId: String(userId),
+            senderName: name || `Khách ${phone}`,
+            text: `[Đã cấp SĐT]: ${phone}`,
+            isMe: false,
+            timestamp,
+          });
         }
         break;
       }
 
       case "follow": {
         console.log(`[ZALO_OA_FOLLOW] Khách ${userId} vừa quan tâm OA ${oaId}!`);
+        await addUnifiedMessage({
+          channel: "ZALO_OA",
+          channelId: oaId,
+          channelName: "Zalo Official Account",
+          threadId: String(userId),
+          senderId: String(userId),
+          senderName: `Khách OA (${String(userId).slice(-4)})`,
+          text: "[Hệ thống]: Khách hàng vừa nhấn Quan tâm Zalo OA!",
+          isMe: false,
+          timestamp,
+        });
         break;
       }
 

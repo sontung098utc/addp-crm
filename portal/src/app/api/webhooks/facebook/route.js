@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { normalizePhone } from "../../../../lib/phone.js";
+import { normalizePhone } from "@/lib/phone.js";
+import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
 
 /**
- * ADDP Omnichannel AI CRM — Facebook Webhook (WBS-16)
+ * ADDP Omnichannel AI CRM — Facebook Webhook (WBS-16 & WBS-21)
  * 1. GET: Xác thực Webhook với Meta (Hub Challenge)
  * 2. POST: Nhận tin nhắn Messenger & Bình luận Fanpage
+ *    - Tự động đẩy tin nhắn vào Unified Message Router & SSE Realtime
  *    - Tự động phát hiện SĐT và gọi Meta Graph API để ẨN COMMENT CHỨA SĐT (Chống cướp khách)
  *    - Tuân thủ Điều 3 (normalizePhone) & Điều 11 (Dữ liệu xác thực) AGENTS.md
  */
@@ -47,8 +49,22 @@ export async function POST(request) {
         for (const event of entry.messaging) {
           const senderId = event.sender?.id;
           const text = event.message?.text;
-          if (senderId && text) {
+          const isEcho = Boolean(event.message?.is_echo);
+
+          if (senderId && text && !isEcho) {
             console.log(`[FB_MESSENGER] Nhận tin nhắn từ khách ${senderId} trên Page ${pageId}: "${text}"`);
+            // Đẩy vào Router đa kênh realtime
+            await addUnifiedMessage({
+              channel: "FACEBOOK",
+              channelId: pageId,
+              channelName: "Fanpage Facebook",
+              threadId: senderId,
+              senderId,
+              senderName: `Khách FB (${senderId.slice(-4)})`,
+              text,
+              isMe: false,
+              timestamp: event.timestamp || Date.now(),
+            });
           }
         }
       }
@@ -62,8 +78,22 @@ export async function POST(request) {
               const commentId = val.comment_id;
               const commentText = val.message || "";
               const senderName = val.from?.name || "Khách FB";
+              const senderId = val.from?.id || commentId;
 
               console.log(`[FB_COMMENT] Bình luận mới từ ${senderName}: "${commentText}"`);
+
+              // Đẩy comment vào hộp thư như một cuộc hội thoại
+              await addUnifiedMessage({
+                channel: "FACEBOOK",
+                channelId: pageId,
+                channelName: "Bình luận Fanpage",
+                threadId: `post_${val.post_id || pageId}`,
+                senderId,
+                senderName,
+                text: commentText,
+                isMe: false,
+                metadata: { commentId, postId: val.post_id },
+              });
 
               // Kiểm tra xem comment có chứa số điện thoại không (Regex VN 10 số)
               const phoneMatch = commentText.match(/(0|\+?84)(3|5|7|8|9)[0-9]{8}/);

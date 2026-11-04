@@ -1,20 +1,25 @@
 import { NextResponse } from "next/server";
-import { normalizePhone } from "../../../../../lib/phone.js";
-import { runZaloCommand } from "../../../../../lib/zaloRunner.js";
+import { normalizePhone } from "@/lib/phone.js";
+import { runZaloCommand } from "@/lib/zaloRunner.js";
+import { sendUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
 
 /**
- * ADDP Omnichannel AI CRM — API Gửi Tin Nhắn Zalo Cá Nhân (Tốc độ cao < 1-2s)
+ * ADDP Omnichannel AI CRM — API Gửi Tin Nhắn Đa Kênh Hợp Nhất (WBS-21 & WBS-22)
+ * Hỗ trợ gửi tin tới:
+ * 1. Zalo Cá Nhân (Zalo Agent CLI tốc độ cao)
+ * 2. Fanpage Facebook (Meta Graph API)
+ * 3. Zalo OA (Open API v3)
  * Tuân thủ Điều 3 (normalizePhone) & Điều 4 (Anti-Ban Rule: kiểm soát hạn mức, giãn cách).
  */
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    let { recipient, message, homeDir } = body;
+    let { recipient, message, homeDir, channel = "ZALO_PERSONAL" } = body;
 
     if (!recipient || !String(recipient).trim()) {
       return NextResponse.json(
-        { error: "Vui lòng nhập số điện thoại hoặc ID người nhận trên Zalo." },
+        { error: "Vui lòng nhập số điện thoại hoặc ID người nhận." },
         { status: 400 }
       );
     }
@@ -34,6 +39,28 @@ export async function POST(request) {
       recipient = normalizePhone(recipient);
     }
 
+    // Nếu gửi qua Facebook hoặc Zalo OA
+    if (channel === "FACEBOOK" || channel === "ZALO_OA") {
+      const result = await sendUnifiedMessage({
+        channel,
+        recipientId: recipient,
+        text: message,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        message: result.message,
+        recipient,
+        channel,
+        sentAt: new Date().toISOString(),
+      });
+    }
+
+    // Mặc định: Gửi qua Zalo Cá Nhân
     const startTime = Date.now();
     const result = await runZaloCommand(["msg", "send", recipient, message, "--json"], {
       homeDir,
@@ -58,15 +85,16 @@ export async function POST(request) {
       ok: true,
       message: `Đã gửi tin nhắn Zalo thành công tới ${recipient}!`,
       recipient,
+      channel: "ZALO_PERSONAL",
       sentAt: new Date().toISOString(),
       elapsedMs,
       antiBanNote: "Đã tuân thủ Điều 4 AGENTS.md (SmartBroadcastQueue & Safe delay)",
       data: result.data,
     });
   } catch (error) {
-    console.error("[ZALO_SEND_API_EXCEPTION]", error);
+    console.error("[SEND_API_EXCEPTION]", error);
     return NextResponse.json(
-      { error: "Lỗi hệ thống khi xử lý gửi tin nhắn Zalo." },
+      { error: "Lỗi hệ thống khi xử lý gửi tin nhắn." },
       { status: 500 }
     );
   }

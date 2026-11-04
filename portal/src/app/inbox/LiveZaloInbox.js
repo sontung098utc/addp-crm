@@ -11,6 +11,49 @@ import QuickOrderModal from "../components/QuickOrderModal";
  * Cột 3: Hồ Sơ Khách Hàng 360 & Thông Tin Hội Thoại (Customer 360 Side Panel)
  */
 
+function getChannelMeta(channel) {
+  switch (channel) {
+    case "FACEBOOK":
+    case "MESSENGER":
+      return {
+        code: "FB",
+        label: "Fanpage FB",
+        avatarLetter: "f",
+        badgeBg: "bg-blue-600",
+        pillClass: "bg-blue-600/20 text-blue-400 border border-blue-500/30",
+        dotColor: "bg-blue-500",
+      };
+    case "ZALO_OA":
+      return {
+        code: "OA",
+        label: "Zalo OA",
+        avatarLetter: "OA",
+        badgeBg: "bg-sky-500",
+        pillClass: "bg-sky-500/20 text-sky-400 border border-sky-500/30",
+        dotColor: "bg-sky-400",
+      };
+    case "LIVECHAT":
+    case "MAGENTO":
+      return {
+        code: "WEB",
+        label: "Website ADDP.vn",
+        avatarLetter: "W",
+        badgeBg: "bg-amber-600",
+        pillClass: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+        dotColor: "bg-amber-400",
+      };
+    default:
+      return {
+        code: "ZALO",
+        label: "Zalo Cá Nhân",
+        avatarLetter: "Z",
+        badgeBg: "bg-blue-500",
+        pillClass: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+        dotColor: "bg-blue-400",
+      };
+  }
+}
+
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [loadingConv, setLoadingConv] = useState(true);
@@ -19,6 +62,10 @@ export default function LiveZaloInbox() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all"); // 'all' | 'need_human' | 'ai_handling' | 'unread'
   const [channelFilter, setChannelFilter] = useState("ALL"); // 'ALL' | 'ZALO_PERSONAL' | 'ZALO_OA' | 'FACEBOOK'
+
+  // WBS-25: Hồ Sơ Khách Hàng 360 liên kết với hội thoại
+  const [matchedCustomer, setMatchedCustomer] = useState(null);
+  const [loadingCustomer, setLoadingCustomer] = useState(false);
 
   // Tin nhắn của cuộc trò chuyện đang chọn
   const [messages, setMessages] = useState([]);
@@ -40,6 +87,66 @@ export default function LiveZaloInbox() {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const activeConvRef = useRef(activeConv);
+
+  useEffect(() => {
+    activeConvRef.current = activeConv;
+  }, [activeConv]);
+
+  // WBS-21: Kết nối SSE Realtime Stream để nhận tin nhắn tức thì từ mọi kênh
+  useEffect(() => {
+    let eventSource = null;
+    try {
+      eventSource = new EventSource("/api/inbox/stream");
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "NEW_MESSAGE" && data.message) {
+            const newMsg = data.message;
+            if (activeConvRef.current && String(activeConvRef.current.id) === String(newMsg.threadId)) {
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === newMsg.id)) return prev;
+                return [
+                  ...prev,
+                  {
+                    id: newMsg.id,
+                    text: newMsg.text,
+                    senderName: newMsg.senderName,
+                    isMe: newMsg.isMe,
+                    time: "Vừa xong",
+                    date: "Hôm nay",
+                    status: "sent",
+                    type: newMsg.type,
+                    mediaUrl: newMsg.mediaUrl,
+                  },
+                ];
+              });
+            }
+
+            // Cập nhật dòng hội thoại ở cột 1 lên đầu
+            setConversations((prev) => {
+              const idx = prev.findIndex((c) => String(c.id) === String(newMsg.threadId));
+              if (idx !== -1) {
+                const target = {
+                  ...prev[idx],
+                  lastMessage: newMsg.text,
+                  lastActive: "Vừa xong",
+                  timestamp: Date.now(),
+                };
+                const filtered = prev.filter((_, i) => i !== idx);
+                return [target, ...filtered];
+              }
+              return prev;
+            });
+          }
+        } catch {}
+      };
+    } catch {}
+
+    return () => {
+      if (eventSource) eventSource.close();
+    };
+  }, []);
 
   // Cuộn xuống tin nhắn mới nhất
   const scrollToBottom = () => {
@@ -144,6 +251,43 @@ export default function LiveZaloInbox() {
     loadHistory();
   }, [activeConv]);
 
+  // WBS-25: Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat
+  useEffect(() => {
+    if (!activeConv) {
+      setMatchedCustomer(null);
+      return;
+    }
+    let isCancelled = false;
+    async function loadCustomerProfile() {
+      try {
+        setLoadingCustomer(true);
+        const searchParam = activeConv.phone || activeConv.name || "";
+        if (!searchParam) {
+          setMatchedCustomer(null);
+          return;
+        }
+        const res = await fetch(`/api/customers?search=${encodeURIComponent(searchParam)}`);
+        const data = await res.json();
+        if (!isCancelled && data.ok && Array.isArray(data.customers) && data.customers.length > 0) {
+          const matched = data.customers.find(
+            (c) => (activeConv.phone && c.phone === activeConv.phone) || c.fullName.toLowerCase() === activeConv.name.toLowerCase()
+          ) || data.customers[0];
+          setMatchedCustomer(matched);
+        } else if (!isCancelled) {
+          setMatchedCustomer(null);
+        }
+      } catch {
+        if (!isCancelled) setMatchedCustomer(null);
+      } finally {
+        if (!isCancelled) setLoadingCustomer(false);
+      }
+    }
+    loadCustomerProfile();
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeConv]);
+
   // 3. Gửi tin nhắn 2 chiều
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
@@ -175,6 +319,7 @@ export default function LiveZaloInbox() {
         body: JSON.stringify({
           recipient: activeConv.id,
           message: messageText,
+          channel: activeConv.channel || "ZALO_PERSONAL",
         }),
       });
 
@@ -426,6 +571,7 @@ export default function LiveZaloInbox() {
             ) : (
               filteredConversations.map((conv) => {
                 const isSelected = activeConv?.id === conv.id;
+                const convMeta = getChannelMeta(conv.channel);
                 return (
                   <button
                     key={conv.id}
@@ -450,8 +596,11 @@ export default function LiveZaloInbox() {
                           {conv.name.slice(0, 2).toUpperCase()}
                         </div>
                       )}
-                      <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-blue-500 border-2 border-slate-900 flex items-center justify-center text-[7px] text-white font-bold">
-                        Z
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-slate-900 flex items-center justify-center text-[7px] text-white font-black`}
+                        title={convMeta.label}
+                      >
+                        {convMeta.avatarLetter}
                       </span>
                     </div>
 
@@ -511,12 +660,12 @@ export default function LiveZaloInbox() {
                   <div>
                     <h3 className="font-bold text-sm text-white flex items-center gap-2">
                       {activeConv.name}
-                      <span className="rounded bg-blue-500/20 text-blue-400 text-[10px] font-semibold px-1.5 py-0.2">
-                        Zalo Cá Nhân
+                      <span className={`rounded text-[10px] font-semibold px-1.5 py-0.2 ${getChannelMeta(activeConv.channel).pillClass}`}>
+                        {activeConv.channelLabel || getChannelMeta(activeConv.channel).label}
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-400">
-                      {activeConv.phone ? `SĐT: ${activeConv.phone}` : `Zalo ID: ${activeConv.id}`} • Truy cập qua nick <strong>Sơn Tùng</strong>
+                      {activeConv.phone ? `SĐT: ${activeConv.phone}` : `ID: ${activeConv.id}`} • {activeConv.accountName ? `Nick: ${activeConv.accountName}` : `Kênh: ${getChannelMeta(activeConv.channel).label}`}
                     </p>
                   </div>
                 </div>
@@ -786,43 +935,121 @@ export default function LiveZaloInbox() {
             </div>
 
             {/* Thông tin hồ sơ thực tế (Tuân thủ Điều 11 AGENTS.md: không tạo dữ liệu giả) */}
-            <div className="space-y-2.5">
-              <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Định Danh Khách Hàng 360
-              </h5>
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between text-slate-300">
-                  <span className="text-slate-400">Nguồn tiếp nhận:</span>
-                  <span className="font-semibold text-blue-400">Zalo Cá Nhân</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-300">
-                  <span className="text-slate-400">Tài khoản Zalo:</span>
-                  <span className="font-semibold text-white">Sơn Tùng</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-300">
-                  <span className="text-slate-400">Trạng thái CRM:</span>
-                  <span className="rounded bg-slate-800 text-slate-300 px-1.5 py-0.5 text-[10px] font-medium border border-slate-700">
-                    Khách Zalo trực tiếp
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Định Danh Khách Hàng 360
+                </h5>
+                {matchedCustomer && (
+                  <span className="font-mono bg-blue-950 text-blue-400 border border-blue-800/60 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                    {matchedCustomer.code}
                   </span>
-                </div>
+                )}
               </div>
 
-              <div className="pt-2 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setIsOrderModalOpen(true)}
-                  className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
-                >
-                  <span>🛒 Lên Đơn Hàng Nhanh</span>
-                  <span className="text-[10px] bg-emerald-700 px-1.5 py-0.2 rounded font-mono">WBS-39</span>
-                </button>
-                <Link
-                  href="/customers"
-                  className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
-                >
-                  + Tạo Hồ Sơ Khách Hàng 360
-                </Link>
-              </div>
+              {loadingCustomer ? (
+                <div className="py-4 text-center text-xs text-slate-500 space-y-1">
+                  <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <p className="text-[11px]">Đang tra cứu hồ sơ 360...</p>
+                </div>
+              ) : matchedCustomer ? (
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-slate-400">Hạng khách hàng:</span>
+                    <span className="font-bold text-amber-400">{matchedCustomer.vipLabel || "Hạng Mới"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-slate-400">Nhân viên phụ trách:</span>
+                    <span className="font-semibold text-emerald-400">{matchedCustomer.staffName || "Chưa phân bổ"}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-slate-400">Đơn hàng / Doanh thu:</span>
+                    <span className="font-semibold text-white">
+                      {matchedCustomer.totalOrders || 0} đơn • {(matchedCustomer.totalSpent || 0).toLocaleString("vi-VN")} đ
+                    </span>
+                  </div>
+
+                  {matchedCustomer.pathology && (
+                    <div className="space-y-1">
+                      <span className="text-slate-400 text-[11px]">Bệnh lý ghi nhận:</span>
+                      <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-200">
+                        {matchedCustomer.pathology}
+                      </div>
+                    </div>
+                  )}
+
+                  {(matchedCustomer.initialGlucose || matchedCustomer.currentGlucose) && (
+                    <div className="grid grid-cols-2 gap-2 text-center pt-1">
+                      <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        <div className="text-[10px] text-slate-400">Đường huyết ban đầu</div>
+                        <div className="font-bold text-rose-400 text-xs">{matchedCustomer.initialGlucose ? `${matchedCustomer.initialGlucose} mmol/L` : "Chưa đo"}</div>
+                      </div>
+                      <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
+                        <div className="text-[10px] text-slate-400">Đường huyết hiện tại</div>
+                        <div className="font-bold text-emerald-400 text-xs">{matchedCustomer.currentGlucose ? `${matchedCustomer.currentGlucose} mmol/L` : "Đang theo dõi"}</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {Array.isArray(matchedCustomer.tags) && matchedCustomer.tags.length > 0 && (
+                    <div className="space-y-1">
+                      <span className="text-slate-400 text-[11px]">Thẻ nhãn (Tags):</span>
+                      <div className="flex flex-wrap gap-1">
+                        {matchedCustomer.tags.map((t, idx) => (
+                          <span
+                            key={idx}
+                            className="rounded-full bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300 font-medium"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="pt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsOrderModalOpen(true)}
+                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>🛒 Lên Đơn Hàng Nhanh</span>
+                      <span className="text-[10px] bg-emerald-700 px-1.5 py-0.2 rounded font-mono">WBS-39</span>
+                    </button>
+                    <Link
+                      href={`/customers/${matchedCustomer.id}`}
+                      className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
+                    >
+                      👤 Mở Chi Tiết Hồ Sơ 360 ({matchedCustomer.code})
+                    </Link>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-center space-y-1">
+                    <p className="text-slate-400 text-[11px]">Chưa tìm thấy hồ sơ khách hàng khớp với số điện thoại hoặc tên này.</p>
+                  </div>
+
+                  <div className="pt-1 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsOrderModalOpen(true)}
+                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
+                    >
+                      <span>🛒 Lên Đơn Hàng Nhanh</span>
+                      <span className="text-[10px] bg-emerald-700 px-1.5 py-0.2 rounded font-mono">WBS-39</span>
+                    </button>
+                    <Link
+                      href="/customers"
+                      className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
+                    >
+                      + Tạo Hồ Sơ Khách Hàng 360 Mới
+                    </Link>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Ghi chú tư vấn thực tế */}

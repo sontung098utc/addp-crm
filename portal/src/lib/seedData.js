@@ -9,7 +9,7 @@ import { filterRecordsByRbac } from "./rbac.js";
  * Kế thừa C:\QuanlyKH\src\app\api\seed\route.js + C:\AH-Trabi\quan-ly-kho + C:\AdsTiktok
  */
 
-const INITIAL_CUSTOMERS = [
+export const INITIAL_CUSTOMERS = [
   {
     id: 1001,
     code: "KH001",

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runZaloCommand, getActiveZaloHome } from "../../../../../lib/zaloRunner.js";
+import { getOmnichannelConversations } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
 import path from "path";
 import readline from "readline";
@@ -240,11 +241,15 @@ export async function GET(request) {
       }
     }
 
+    // 4. Hợp nhất các cuộc trò chuyện từ Fanpage Facebook & Zalo OA (WBS-21)
+    const otherConversations = getOmnichannelConversations();
+    const combined = [...conversations, ...otherConversations].sort((a, b) => b.timestamp - a.timestamp);
+
     return NextResponse.json({
       ok: true,
-      total: conversations.length,
-      activeCount: activeThreads.length,
-      conversations,
+      total: combined.length,
+      activeCount: activeThreads.length + otherConversations.length,
+      conversations: combined,
     });
   } catch (error) {
     console.error("[ZALO_CONV_EXCEPTION]", error);

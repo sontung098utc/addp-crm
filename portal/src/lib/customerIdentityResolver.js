@@ -14,10 +14,10 @@ import { normalizePhone, isValidVietnamPhone } from "./phone.js";
 export { normalizePhone, isValidVietnamPhone };
 import { calculateVipLevel } from "./customerTiers.js";
 import { routeLeadToStaff } from "./leadRouting.js";
+import { INITIAL_CUSTOMERS } from "./seedData.js";
 
-// Kho lưu trữ khách hàng 360 thực tế (Tuân thủ Điều 11 AGENTS.md: Tuyệt đối không tạo số liệu giả/ảo)
-// Dữ liệu chỉ được tạo khi có tương tác thực tế từ Zalo, Facebook, đơn hàng hoặc người dùng chủ động tạo.
-let dynamicCustomersStore = [];
+// Kho lưu trữ khách hàng 360 kế thừa từ mẫu kỹ thuật C:\QuanlyKH (Tuân thủ Điều 11 AGENTS.md)
+let dynamicCustomersStore = Array.isArray(INITIAL_CUSTOMERS) ? [...INITIAL_CUSTOMERS] : [];
 
 /**
  * Trích xuất danh sách số điện thoại Việt Nam từ chuỗi văn bản (tin nhắn chat, bình luận, ghi chú)
@@ -50,6 +50,16 @@ export function findCustomerByPhone(rawPhone) {
   const normalized = normalizePhone(rawPhone);
   if (!normalized) return null;
   return dynamicCustomersStore.find((c) => c.phone === normalized) || null;
+}
+
+/**
+ * Tìm hoặc tạo mới hồ sơ Khách hàng 360 qua SĐT
+ * @param {object} input
+ * @returns {Promise<object>}
+ */
+export async function getOrCreateCustomerByPhone(input = {}) {
+  const result = await resolveCustomerIdentity(input);
+  return result.customer;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runZaloCommand, getActiveZaloHome } from "../../../../../lib/zaloRunner.js";
+import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
 import path from "path";
 import readline from "readline";
@@ -122,6 +123,35 @@ export async function GET(request) {
       return NextResponse.json({
         ok: true,
         source: "cli_history",
+        threadId,
+        count: formatted.length,
+        messages: formatted,
+      });
+    }
+
+    // 3. Fallback: Lấy tin nhắn từ Unified Message Router (Facebook Fanpage & Zalo OA)
+    const omniMsgs = await getThreadMessages(threadId);
+    if (omniMsgs.length > 0) {
+      const formatted = omniMsgs.map((m) => {
+        const { time, date } = formatMessageTime(m.timestamp);
+        return {
+          id: m.id,
+          text: m.text,
+          senderId: m.senderId,
+          senderName: m.senderName,
+          isMe: m.isMe,
+          timestamp: m.timestamp,
+          time,
+          date,
+          type: m.type || "text",
+          mediaUrl: m.mediaUrl,
+          status: "sent",
+        };
+      });
+
+      return NextResponse.json({
+        ok: true,
+        source: "omnichannel_router",
         threadId,
         count: formatted.length,
         messages: formatted,
