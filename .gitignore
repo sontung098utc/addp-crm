@@ -1,3 +1,9 @@
+# Archives & Packages
+*.zip
+*.tar.gz
+*.7z
+dist-stage/
+
 # Python
 .venv/
 __pycache__/
