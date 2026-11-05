@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useTheme } from "../components/ThemeProvider";
 
 /**
  * ADDP Omnichannel AI CRM — Sổ Tay Hướng Dẫn Sử Dụng & Vận Hành Toàn Diện
@@ -24,6 +25,7 @@ const GUIDE_TABS = [
 ];
 
 export default function GuideClient() {
+  const { theme } = useTheme();
   const [activeTab, setActiveTab] = useState("overview");
   const [copiedKey, setCopiedKey] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -39,17 +41,21 @@ export default function GuideClient() {
       {/* Tiêu đề trang & Thanh công cụ */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-2xl">📖</span>
-            <h1 className="text-xl font-bold text-white tracking-wide">
-              Sổ Tay Hướng Dẫn Sử Dụng & Vận Hành Hệ Thống ADDP CRM
-            </h1>
+          <div className="flex items-center gap-3 mb-2">
+            <img
+              src={theme === "light" ? "/addp-logo-transparent.png" : "/addp-logo-white.png"}
+              alt="ADDP Pharmacy"
+              className="h-8 w-auto object-contain"
+            />
             <span className="rounded bg-blue-500/20 text-blue-400 text-[10px] font-semibold px-2 py-0.5 border border-blue-500/30">
-              Chính Thức 2026
+              Sổ Tay Vận Hành 2026
             </span>
           </div>
-          <p className="text-xs text-slate-400">
-            Cẩm nang chuẩn hóa quy trình đăng nhập, kết nối đa kênh, tư vấn AI Dược sĩ, chăm sóc đường huyết định kỳ và quản lý kho vận trên <code>https://crm.addp.vn</code>.
+          <h1 className="text-xl font-bold text-white tracking-wide">
+            Cẩm Nang Hướng Dẫn Sử Dụng & Vận Hành Hệ Thống ADDP CRM
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Quy trình chuẩn hóa đăng nhập, kết nối đa kênh, tư vấn AI Dược sĩ, chăm sóc đường huyết định kỳ và quản lý kho vận trên <code>https://crm.addp.vn</code>.
           </p>
         </div>
 
@@ -141,7 +147,7 @@ export default function GuideClient() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
               <div className="p-4 rounded-xl bg-blue-950/20 border border-blue-900/40">
                 <h4 className="font-bold text-xs text-blue-300 mb-1 flex items-center gap-1.5">
                   <span>🎯</span> Định Danh Khách Hàng 360
@@ -166,6 +172,15 @@ export default function GuideClient() {
                 </h4>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
                   Tự động quy đổi các mã combo khuyến mại ra sản phẩm lẻ để trừ tồn kho chính xác, hạch toán giá vốn COGS và tính lãi/lỗ thực tế sau trừ phí sàn.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-900/40">
+                <h4 className="font-bold text-xs text-amber-300 mb-1 flex items-center gap-1.5">
+                  <span>☀️/🌙</span> Chế Độ Sáng / Tối (Theme Switch)
+                </h4>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Chuyển đổi 1-click giữa Giao diện Sáng trang nhã và Giao diện Tối chuyên nghiệp trên thanh Header & màn hình Đăng nhập, đồng bộ logo ADDP Pharmacy theo theme.
                 </p>
               </div>
             </div>

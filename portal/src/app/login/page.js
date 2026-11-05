@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "../components/ThemeProvider";
 
 const DEMO_ACCOUNTS = [
   { code: "ADMIN", label: "ADMIN (Toàn quyền hệ thống)", role: "Quản trị viên" },
@@ -12,6 +13,7 @@ const DEMO_ACCOUNTS = [
 
 export default function LoginPage() {
   const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
   const [username, setUsername] = useState("ADMIN");
   const [password, setPassword] = useState("123456");
   const [error, setError] = useState("");
@@ -45,17 +47,44 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 relative">
+      {/* Nút chuyển chế độ Sáng / Tối ở góc trên bên phải */}
+      <div className="absolute top-5 right-5 z-20">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          title={theme === "light" ? "Chuyển sang Chế độ Tối" : "Chuyển sang Chế độ Sáng"}
+          className="h-10 px-3.5 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-xs font-semibold flex items-center gap-2 cursor-pointer shadow-md transition-all"
+        >
+          {theme === "light" ? (
+            <>
+              <span className="text-amber-500 text-sm">☀️</span>
+              <span className="text-slate-800 font-semibold">Chế độ Sáng</span>
+            </>
+          ) : (
+            <>
+              <span className="text-indigo-400 text-sm">🌙</span>
+              <span className="text-slate-200 font-medium">Chế độ Tối</span>
+            </>
+          )}
+        </button>
+      </div>
+
       <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-8 shadow-2xl space-y-6">
-        <div className="text-center space-y-2">
-          <div className="mx-auto h-12 w-12 rounded-2xl bg-blue-600 flex items-center justify-center font-extrabold text-2xl text-white shadow-lg">
-            +
+        <div className="text-center space-y-3">
+          {/* Logo chính thức của ADDP Pharmacy */}
+          <div className="flex justify-center items-center py-1">
+            <img
+              src={theme === "light" ? "/addp-logo-transparent.png" : "/addp-logo-white.png"}
+              alt="ADDP Pharmacy"
+              className="h-14 w-auto max-w-[240px] object-contain drop-shadow-sm"
+            />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">
+          <h1 className="text-lg font-bold tracking-tight text-white">
             Hệ Thống ADDP Omnichannel AI CRM
           </h1>
           <p className="text-xs text-slate-400">
-            Đăng nhập cổng quản trị hợp nhất 7 kênh • <span className="text-emerald-400">crm.addp.vn</span>
+            Cổng quản trị hợp nhất 7 kênh • <span className="text-emerald-400 font-semibold">crm.addp.vn</span>
           </p>
         </div>
 
@@ -97,7 +126,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 py-2.5 text-sm font-bold text-white shadow transition-colors cursor-pointer"
+            className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 py-2.5 text-sm font-bold text-white shadow-md transition-colors cursor-pointer"
           >
             {isLoading ? "Đang xác thực..." : "Đăng nhập Hệ thống"}
           </button>
@@ -117,9 +146,9 @@ export default function LoginPage() {
                   setUsername(acc.code);
                   setPassword("123456");
                 }}
-                className={`text-left p-2 rounded-xl border text-xs transition-colors cursor-pointer ${
+                className={`text-left p-2.5 rounded-xl border text-xs transition-colors cursor-pointer ${
                   username === acc.code
-                    ? "bg-blue-600/20 border-blue-500 text-white"
+                    ? "bg-blue-600/20 border-blue-500 text-white ring-1 ring-blue-500"
                     : "bg-slate-800/60 border-slate-800 text-slate-300 hover:bg-slate-800"
                 }`}
               >

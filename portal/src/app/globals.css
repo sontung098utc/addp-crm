@@ -1,28 +1,220 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #020617;
+  --foreground: #f8fafc;
+  --card-bg: #0f172a;
+  --card-border: #1e293b;
+  --muted-text: #94a3b8;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html.light {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --muted-text: #64748b;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html.dark {
+  --background: #020617;
+  --foreground: #f8fafc;
+  --card-bg: #0f172a;
+  --card-border: #1e293b;
+  --muted-text: #94a3b8;
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ==========================================================================
+   CHẾ ĐỘ SÁNG (LIGHT MODE) - ĐỒNG BỘ 100% CÁC KHỐI CARD, BẢNG, TIN NHẮN
+   ========================================================================== */
+html.light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Các khối panel, container, card chính */
+html.light [class*="bg-slate-950"]:not(button):not(a):not(input) {
+  background-color: #f8fafc !important;
+}
+
+html.light [class*="bg-slate-900"]:not(button):not(a):not(input) {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+html.light [class*="bg-slate-800"]:not(button.bg-blue-600):not(a.bg-blue-600):not(button.bg-emerald-600):not(button.bg-rose-500) {
+  background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Hộp chat & tin nhắn trong Light mode */
+html.light .bg-slate-950\/60,
+html.light .bg-slate-900\/60,
+html.light .bg-slate-900\/70,
+html.light .bg-slate-900\/80,
+html.light .bg-slate-900\/90 {
+  background-color: #ffffff !important;
+}
+
+/* Đường viền chuẩn trong Light mode */
+html.light [class*="border-slate-800"],
+html.light [class*="border-slate-700"],
+html.light [class*="border-slate-600"] {
+  border-color: #e2e8f0 !important;
+}
+
+/* Typography trong Light mode */
+html.light h1,
+html.light h2,
+html.light h3,
+html.light h4,
+html.light h5,
+html.light h6 {
+  color: #0f172a !important;
+}
+
+html.light p,
+html.light label {
+  color: #334155 !important;
+}
+
+html.light .text-slate-100 {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-200 {
+  color: #1e293b !important;
+}
+
+html.light .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light .text-slate-400 {
+  color: #64748b !important;
+}
+
+/* Text white được giữ nguyên cho nút bấm, badge và thẻ có nền màu đậm */
+html.light button.bg-blue-600,
+html.light button.bg-emerald-600,
+html.light button.bg-rose-500,
+html.light button.bg-rose-600,
+html.light button.bg-indigo-600,
+html.light button.bg-purple-600,
+html.light a.bg-blue-600,
+html.light .badge-solid-white {
+  color: #ffffff !important;
+}
+
+html.light .text-white:not(button):not(button *):not(a.bg-blue-600):not(a.bg-blue-600 *):not([class*="bg-blue-600"] *):not([class*="bg-emerald-600"] *):not([class*="bg-rose-"] *):not([class*="bg-purple-"] *):not([class*="bg-amber-600"] *) {
+  color: #0f172a !important;
+}
+
+/* Inputs, Selects, Textareas trong Light mode */
+html.light input:not([type="checkbox"]):not([type="radio"]),
+html.light select,
+html.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+
+html.light input:focus,
+html.light select:focus,
+html.light textarea:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Hover States trong Light mode */
+html.light .hover\:bg-slate-800:hover,
+html.light .hover\:bg-slate-800\/80:hover {
+  background-color: #f1f5f9 !important;
+}
+
+html.light .hover\:bg-slate-700:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Sidebar & Header Shadow trong Light mode */
+html.light aside {
+  background-color: #ffffff !important;
+  border-right-color: #e2e8f0 !important;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.03);
+}
+
+html.light header {
+  background-color: #ffffff !important;
+  border-bottom-color: #e2e8f0 !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+/* Bảng dữ liệu trong Light mode */
+html.light table thead tr {
+  background-color: #f8fafc !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+}
+
+html.light table thead th {
+  color: #475569 !important;
+}
+
+html.light table tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Các thẻ màu nhấn nhẹ (Soft Tint Badges & Cards) */
+html.light [class*="bg-blue-950"] {
+  background-color: #eff6ff !important;
+  border-color: #bfdbfe !important;
+}
+html.light [class*="bg-purple-950"] {
+  background-color: #faf5ff !important;
+  border-color: #e9d5ff !important;
+}
+html.light [class*="bg-emerald-950"] {
+  background-color: #ecfdf5 !important;
+  border-color: #a7f3d0 !important;
+}
+html.light [class*="bg-amber-950"] {
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+
+/* Scrollbars đẹp mắt, mượt mà */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 9999px;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 /* Chặn triệt để hộp thoại Next.js Dev Error Overlay do Bitdefender chèn bis_skin_checked */

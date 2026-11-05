@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import AppShell from "./components/AppShell";
+import { ThemeProvider } from "./components/ThemeProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,6 +18,20 @@ export const metadata = {
   description:
     "Nền tảng hợp nhất Website Magento 2.4.8, Fanpage Facebook, Zalo Cá Nhân, Zalo OA, TikTok Shop, Shopee và KiotViet cho ADDP.",
 };
+
+// Script khởi tạo theme ngay lập tức để chống giật nháy màn hình (FOUC)
+const THEME_INIT_SCRIPT = `
+(function() {
+  try {
+    var stored = localStorage.getItem('addp_theme') || 'dark';
+    var root = document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(stored);
+    root.setAttribute('data-theme', stored);
+    root.style.colorScheme = stored;
+  } catch (e) {}
+})();
+`;
 
 // Script ngăn chặn triệt để 100% Next.js Dev Error Overlay do Chrome Extension (Bitdefender bis_skin_checked, PhoSEO, Urban VPN, v.v.)
 const EXTENSION_CLEANUP_SCRIPT = `
@@ -210,13 +225,16 @@ export default function RootLayout({ children }) {
             `,
           }}
         />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: EXTENSION_CLEANUP_SCRIPT }} />
       </head>
       <body
         suppressHydrationWarning
-        className="min-h-full flex flex-col bg-slate-950 text-slate-100"
+        className="min-h-full flex flex-col bg-slate-950 text-slate-100 transition-colors duration-150"
       >
-        <AppShell>{children}</AppShell>
+        <ThemeProvider>
+          <AppShell>{children}</AppShell>
+        </ThemeProvider>
       </body>
     </html>
   );

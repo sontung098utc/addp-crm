@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTheme } from "./ThemeProvider";
 
 const SAMPLE_NOTIFICATIONS = [
   {
@@ -30,6 +31,7 @@ const SAMPLE_NOTIFICATIONS = [
 
 export default function Header({ currentUser }) {
   const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
   const [showNotif, setShowNotif] = useState(false);
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -81,8 +83,38 @@ export default function Header({ currentUser }) {
           </span>
         </div>
 
-        {/* Khu vực Thông báo & Tài khoản Nhân viên */}
-        <div className="flex items-center gap-3">
+        {/* Khu vực Hướng dẫn, Đổi Giao diện Sáng/Tối, Thông báo & Tài khoản */}
+        <div className="flex items-center gap-2.5">
+          {/* Nút xem Hướng Dẫn Sử Dụng nhanh */}
+          <Link
+            href="/guide"
+            title="Sổ tay Hướng dẫn sử dụng ADDP CRM"
+            className="hidden lg:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium cursor-pointer transition-colors"
+          >
+            <span>📖</span>
+            <span>Hướng dẫn</span>
+          </Link>
+
+          {/* Nút chuyển đổi Giao diện Sáng / Tối (Theme Toggle) */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={theme === "light" ? "Chuyển sang Chế độ Tối (Dark mode)" : "Chuyển sang Chế độ Sáng (Light mode)"}
+            className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all duration-200 border border-slate-700/60 shadow-xs"
+          >
+            {theme === "light" ? (
+              <>
+                <span className="text-amber-500 text-sm">☀️</span>
+                <span className="text-slate-800 font-semibold hidden sm:inline">Chế độ Sáng</span>
+              </>
+            ) : (
+              <>
+                <span className="text-indigo-400 text-sm">🌙</span>
+                <span className="text-slate-200 font-medium hidden sm:inline">Chế độ Tối</span>
+              </>
+            )}
+          </button>
+
           {/* Chuông thông báo thời gian thực */}
           <div className="relative">
             <button

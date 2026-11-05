@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { canAccessModule } from "@/lib/auth";
+import { useTheme } from "./ThemeProvider";
 
 const MENU_ITEMS = [
   { key: "dashboard", name: "Tổng quan CRM", href: "/", icon: "📊", badge: null },
@@ -20,6 +21,7 @@ const MENU_ITEMS = [
 
 export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
   const pathname = usePathname();
+  const { theme } = useTheme();
   if (pathname === "/login") return null;
 
   const userRole = currentUser?.role || "ADMIN";
@@ -32,16 +34,19 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
         isCollapsed ? "w-20" : "w-64"
       }`}
     >
-      {/* Logo & Nút thu gọn */}
-      <div className="h-16 px-4 border-b border-slate-800 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3 overflow-hidden">
-          <div className="h-9 w-9 rounded-xl bg-blue-600 flex items-center justify-center font-extrabold text-white shadow shrink-0">
-            +
-          </div>
+      {/* Logo chính thức của ADDP Pharmacy & Nút thu gọn */}
+      <div className="h-16 px-4 border-b border-slate-800 flex items-center justify-between gap-2">
+        <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
+          <img
+            src={theme === "light" ? "/addp-logo-transparent.png" : "/addp-logo-white.png"}
+            alt="ADDP Pharmacy"
+            className={`${isCollapsed ? "h-6 w-auto max-w-[50px]" : "h-7 w-auto max-w-[130px]"} object-contain shrink-0`}
+          />
           {!isCollapsed && (
-            <div className="leading-tight">
-              <div className="font-bold text-sm tracking-tight text-white">ADDP CRM</div>
-              <div className="text-[11px] text-emerald-400 font-medium">crm.addp.vn</div>
+            <div className="leading-tight shrink-0 border-l border-slate-700/60 pl-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-500">
+                CRM
+              </span>
             </div>
           )}
         </Link>
@@ -49,7 +54,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
           type="button"
           onClick={() => setIsCollapsed(!isCollapsed)}
           title={isCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
-          className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs cursor-pointer"
+          className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs cursor-pointer shrink-0"
         >
           {isCollapsed ? "❯" : "❮"}
         </button>
@@ -67,7 +72,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
               title={isCollapsed ? item.name : undefined}
               className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-blue-600 text-white shadow-sm"
+                  ? "bg-blue-600 text-white shadow-sm font-semibold"
                   : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
               }`}
             >
@@ -96,10 +101,10 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
         <div className="p-3 m-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70 text-xs space-y-1.5">
           <div className="flex items-center justify-between text-slate-300 font-medium">
             <span>🛡️ Bảo vệ Zalo (Anti-Ban)</span>
-            <span className="text-emerald-400">Bật</span>
+            <span className="text-emerald-400 font-semibold">Đang bật</span>
           </div>
-          <div className="text-[11px] text-slate-400">
-            Giãn cách gửi: <strong>45–120s/tin</strong> • Định mức:{" "}
+          <div className="text-[11px] text-slate-400 leading-relaxed">
+            Giãn cách: <strong>45–120s</strong> • Hạn mức:{" "}
             <strong>{currentUser?.dailyMsgTarget || 70} tin/ngày</strong>
           </div>
         </div>
