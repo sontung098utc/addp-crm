@@ -6,7 +6,7 @@
 
 ## 1. THÔNG TIN CỐT LÕI CỦA DỰ ÁN
 
-- **Tên hệ thống:** ADDP Omnichannel AI CRM & ERP
+- **Tên hệ thống:** ADDP CRM
 - **Tên miền triển khai:** `https://crm.addp.vn` (Đặt trên Server nội bộ của Công ty)
 - **Kiến trúc kỹ thuật (Phương án A - Hybrid Micro-Modular):**
   1. **Omnichannel & AI Gateway (`server/` - Python FastAPI từ Javis OS):** Xử lý kết nối thời gian thực đa tài khoản Zalo cá nhân (`zca-js`/QR), Zalo OA, Facebook Messenger, Telegram, Kho tri thức AI (Second Brain), Bộ phán xử AI (Judge) và Hàng đợi gửi tin hàng loạt (Smart Broadcast Queue).

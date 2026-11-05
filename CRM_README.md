@@ -1,4 +1,4 @@
-# ADDP Omnichannel AI CRM — `https://crm.addp.vn`
+# ADDP CRM — `https://crm.addp.vn`
 
 > **AI Agent & Developer: đọc [AGENTS.md](AGENTS.md) và [TASKS.md](TASKS.md) TRƯỚC KHI viết code.**
 > Quy trình Git / chạy nhiều AI song song: [GITHUB_WORKFLOW.md](GITHUB_WORKFLOW.md).

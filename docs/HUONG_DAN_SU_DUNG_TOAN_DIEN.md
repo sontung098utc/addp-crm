@@ -1,4 +1,4 @@
-# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG & VẬN HÀNH HỆ THỐNG ADDP OMNICHANNEL AI CRM & ERP
+# TÀI LIỆU HƯỚNG DẪN SỬ DỤNG & VẬN HÀNH HỆ THỐNG ADDP CRM
 
 > **TÀI LIỆU CHÍNH THỨC CỦA DỰ ÁN ADDP CRM**  
 > **Áp dụng cho:** Toàn thể Cán bộ - Nhân viên Công ty Cổ phần Dược Phẩm ADDP  
@@ -21,7 +21,7 @@
 
 ## 1. TỔNG QUAN HỆ THỐNG
 
-Hệ thống **ADDP Omnichannel AI CRM & ERP** được thiết kế để giải quyết bài toán phân mảnh dữ liệu khách hàng, tin nhắn và đơn hàng từ 7 nền tảng:
+Hệ thống **ADDP CRM** được thiết kế để giải quyết bài toán phân mảnh dữ liệu khách hàng, tin nhắn và đơn hàng từ 7 nền tảng:
 - **Zalo Cá Nhân:** Kết nối nhiều tài khoản nhân viên qua quét mã QR an toàn.
 - **Zalo Official Account (OA):** Open API v3 & Tin nhắn thông báo ZNS.
 - **Fanpage Facebook:** Webhook Meta, tự động ẩn số điện thoại bình luận chống cướp khách.

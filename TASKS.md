@@ -1,4 +1,4 @@
-# TASKS.md — BẢNG NHIỆM VỤ CHI TIẾT DỰ ÁN ADDP OMNICHANNEL AI CRM (`crm.addp.vn`)
+# TASKS.md — BẢNG NHIỆM VỤ CHI TIẾT DỰ ÁN ADDP CRM (`crm.addp.vn`)
 
 > **QUY CHUẨN TÍNH GIỜ CÔNG & NGÀY CÔNG:**
 > - **1 Ngày công** = **8 giờ làm việc**

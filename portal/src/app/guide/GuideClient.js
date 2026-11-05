@@ -52,10 +52,10 @@ export default function GuideClient() {
             </span>
           </div>
           <h1 className="text-xl font-bold text-white tracking-wide">
-            Cẩm Nang Hướng Dẫn Sử Dụng & Vận Hành Hệ Thống ADDP CRM
+            Cẩm Nang Hướng Dẫn Sử Dụng & Vận Hành ADDP CRM
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Quy trình chuẩn hóa đăng nhập, kết nối đa kênh, tư vấn AI Dược sĩ, chăm sóc đường huyết định kỳ và quản lý kho vận trên <code>https://crm.addp.vn</code>.
+            Quy trình chuẩn hóa đăng nhập, kết nối đa kênh, tư vấn AI Dược sĩ, chăm sóc đường huyết định kỳ và quản lý kho vận trên ADDP CRM (<code>https://crm.addp.vn</code>).
           </p>
         </div>
 
@@ -103,10 +103,10 @@ export default function GuideClient() {
         <div className="space-y-6">
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl space-y-4">
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <span>🌟</span> Giới Thiệu Nền Tảng Hợp Nhất ADDP AI CRM & ERP
+              <span>🌟</span> Giới Thiệu Hệ Thống ADDP CRM
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Hệ thống <strong>ADDP Omnichannel AI CRM & ERP</strong> (triển khai tại địa chỉ nội bộ <code>https://crm.addp.vn</code>) là giải pháp quản trị khách hàng và thương mại đa kênh toàn diện của Công ty Cổ phần Dược Phẩm ADDP. Nền tảng hợp nhất toàn bộ dữ liệu từ <strong>7 kênh bán hàng và giao tiếp</strong>:
+              Hệ thống <strong>ADDP CRM</strong> (triển khai tại địa chỉ nội bộ <code>https://crm.addp.vn</code>) là giải pháp quản trị khách hàng và thương mại đa kênh toàn diện của Công ty Cổ phần Dược Phẩm ADDP. Nền tảng hợp nhất toàn bộ dữ liệu từ <strong>7 kênh bán hàng và giao tiếp</strong>:
             </p>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 pt-2 text-center">

@@ -80,11 +80,11 @@ export default function LoginPage() {
               className="h-14 w-auto max-w-[240px] object-contain drop-shadow-sm"
             />
           </div>
-          <h1 className="text-lg font-bold tracking-tight text-white">
-            Hệ Thống ADDP Omnichannel AI CRM
+          <h1 className="text-xl font-extrabold tracking-tight text-white">
+            ADDP CRM
           </h1>
           <p className="text-xs text-slate-400">
-            Cổng quản trị hợp nhất 7 kênh • <span className="text-emerald-400 font-semibold">crm.addp.vn</span>
+            Hệ thống quản trị hợp nhất 7 kênh • <span className="text-emerald-400 font-semibold">crm.addp.vn</span>
           </p>
         </div>
 
