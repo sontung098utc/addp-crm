@@ -53,12 +53,12 @@ export const ROLE_METADATA = {
  * Ma trận phân quyền truy cập Module theo Điều 5 - AGENTS.md
  */
 export const ROLE_PERMISSIONS = {
-  ADMIN: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings"],
-  SALE_LEADER: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports"],
-  SALE: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory"],
-  CSKH: ["dashboard", "inbox", "customers", "work-tracking", "broadcast"],
-  KHO: ["dashboard", "orders", "inventory", "reports"],
-  KE_TOAN: ["dashboard", "orders", "inventory", "reports"],
+  ADMIN: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings", "guide"],
+  SALE_LEADER: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "guide"],
+  SALE: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "orders", "inventory", "guide"],
+  CSKH: ["dashboard", "inbox", "customers", "work-tracking", "broadcast", "guide"],
+  KHO: ["dashboard", "orders", "inventory", "reports", "guide"],
+  KE_TOAN: ["dashboard", "orders", "inventory", "reports", "guide"],
 };
 
 export function hashPassword(plainPassword) {
@@ -540,6 +540,7 @@ export function verifySessionToken(token) {
 }
 
 export function canAccessModule(role, moduleKey) {
+  if (moduleKey === "guide") return true;
   const allowed = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.SALE;
   return allowed.includes(moduleKey);
 }

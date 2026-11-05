@@ -15,6 +15,7 @@ const MENU_ITEMS = [
   { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: "🌐", badge: "7" },
   { key: "reports", name: "Báo cáo BI & Lãi/Lỗ", href: "/reports", icon: "📈", badge: null },
   { key: "settings", name: "Nhân sự & Phân quyền", href: "/settings", icon: "⚙️", badge: null },
+  { key: "guide", name: "Hướng Dẫn Sử Dụng", href: "/guide", icon: "📖", badge: "Sổ tay" },
 ];
 
 export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
