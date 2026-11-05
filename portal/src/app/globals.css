@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
+
 :root {
   --background: #020617;
   --foreground: #f8fafc;
@@ -176,6 +178,41 @@ html.light table tbody tr:hover {
   background-color: #f8fafc !important;
 }
 
+html.light table tbody td {
+  color: #1e293b;
+}
+
+html.light table tbody td .text-white {
+  color: #0f172a !important;
+}
+
+html.light table tbody td .text-slate-300,
+html.light table tbody td .text-slate-400 {
+  color: #475569 !important;
+}
+
+/* Select options */
+html.light select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html.dark select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* Modals & Dialogs trong Light mode */
+html.light .fixed.inset-0 .bg-slate-900,
+html.light .fixed.inset-0 .bg-slate-950,
+html.light [role="dialog"] .bg-slate-900,
+html.light [role="dialog"] .bg-slate-950 {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2) !important;
+  color: #0f172a !important;
+}
+
 /* Các thẻ màu nhấn nhẹ (Soft Tint Badges & Cards) */
 html.light [class*="bg-blue-950"] {
   background-color: #eff6ff !important;
@@ -235,4 +272,24 @@ nextjs-portal {
 dialog[open][data-nextjs-dialog],
 [data-nextjs-dialog-overlay] {
   display: none !important;
+}
+
+/* Chat Stream Background */
+html.light .chat-stream-bg {
+  background-color: #f1f5f9 !important;
+  background-image: none !important;
+}
+
+html.dark .chat-stream-bg {
+  background: linear-gradient(to bottom, #020617, #020617, rgba(15, 23, 42, 0.4)) !important;
+}
+
+/* Modals & Dialogs in Light Mode */
+html.light .modal-content,
+html.light div[role="dialog"] > div,
+html.light .fixed.inset-0 > div > div.bg-slate-900,
+html.light .fixed.inset-0 > div > div.bg-slate-950 {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
 }

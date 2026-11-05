@@ -635,7 +635,7 @@ export default function LiveZaloInbox() {
         {/* ========================================================================= */}
         {/* CỘT 2: KHUNG CHAT 2 CHIỀU (MESSAGE STREAM & COMPOSER)                     */}
         {/* ========================================================================= */}
-        <div className="flex-1 flex flex-col bg-slate-950">
+        <div className="flex-1 flex flex-col bg-white dark:bg-slate-950">
           {activeConv ? (
             <>
               {/* Header khung chat */}
@@ -715,10 +715,10 @@ export default function LiveZaloInbox() {
               </div>
 
               {/* Message Thread Stream (Bong bóng chat 2 chiều) */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900/40">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 chat-stream-bg">
                 {/* Dấu mốc ngày tháng */}
                 <div className="flex justify-center">
-                  <span className="rounded-full bg-slate-800/80 px-3 py-1 text-[11px] text-slate-400 font-medium border border-slate-700/60">
+                  <span className="rounded-full bg-slate-200/90 dark:bg-slate-800/80 px-3 py-1 text-[11px] text-slate-600 dark:text-slate-400 font-medium border border-slate-300 dark:border-slate-700/60 shadow-xs">
                     {messages[0]?.date ? `Ngày ${messages[0].date}` : "Hôm nay"}
                   </span>
                 </div>
@@ -766,10 +766,10 @@ export default function LiveZaloInbox() {
                         )}
 
                         <div
-                          className={`max-w-[70%] rounded-2xl px-4 py-2.5 shadow-md ${
+                          className={`max-w-[70%] rounded-2xl px-4 py-2.5 shadow-sm ${
                             isMe
                               ? "bg-blue-600 text-white rounded-br-none"
-                              : "bg-slate-800/90 text-slate-100 rounded-bl-none border border-slate-700/60"
+                              : "bg-white text-slate-900 border border-slate-200 dark:bg-slate-800/90 dark:text-slate-100 rounded-bl-none dark:border-slate-700/60"
                           }`}
                         >
                           {!isMe && activeConv.type === "GROUP" && m.senderName && (

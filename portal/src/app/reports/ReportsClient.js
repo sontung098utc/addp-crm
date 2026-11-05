@@ -239,8 +239,8 @@ export default function ReportsClient({
             <h1 className="text-xl font-bold text-white tracking-wide">
               Báo Cáo Doanh Số, Lãi/Lỗ Thực Tế & Đối Soát BI
             </h1>
-            <span className="rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-semibold px-2 py-0.5 border border-emerald-500/30">
-              WBS-43 $\rightarrow$ WBS-48
+            <span className="rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold px-2 py-0.5 border border-emerald-500/30">
+              WBS-43 → WBS-48
             </span>
           </div>
           <p className="text-xs text-slate-400">
@@ -305,17 +305,17 @@ export default function ReportsClient({
       {/* 4 THẺ CHỈ SỐ TÀI CHÍNH CỐT LÕI (FINANCIAL KPI CARDS) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* THẺ 1: DOANH THU THỰC NHẬN */}
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950 p-5 shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+        <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50/70 dark:bg-gradient-to-br dark:from-blue-950/20 dark:to-slate-950 p-5 shadow-sm dark:shadow-xl relative overflow-hidden">
+          <div className="flex items-center justify-between text-blue-700 dark:text-blue-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Doanh Thu Thực Nhận</span>
-            <span className="text-blue-400 text-base">💰</span>
+            <span className="text-blue-500 dark:text-blue-400 text-base">💰</span>
           </div>
-          <div className="text-2xl font-black text-white tracking-tight">
+          <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             {formatMoney(metrics.realizedRevenue)}
           </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 border-t border-blue-200/60 dark:border-slate-800/80 pt-2.5">
             <span>Tổng GMV: {formatMoney(metrics.gmv)}</span>
-            <span className="text-emerald-400 font-semibold">
+            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
               {metrics.successfulOrders > 0
                 ? `${metrics.successRatePct}% thành công`
                 : `${metrics.totalOrders} đơn`}
@@ -324,48 +324,48 @@ export default function ReportsClient({
         </div>
 
         {/* THẺ 2: LỢI NHUẬN RÒNG THỰC TẾ (NET PROFIT) */}
-        <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/20 to-slate-950 p-5 shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between text-emerald-400 text-xs font-medium uppercase tracking-wider mb-2">
+        <div className="rounded-2xl border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/70 dark:bg-gradient-to-br dark:from-emerald-950/20 dark:to-slate-950 p-5 shadow-sm dark:shadow-xl relative overflow-hidden">
+          <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Lợi Nhuận Ròng Thực Tế</span>
-            <span className="text-emerald-400 text-base">✨</span>
+            <span className="text-emerald-500 dark:text-emerald-400 text-base">✨</span>
           </div>
-          <div className="text-2xl font-black text-emerald-400 tracking-tight">
+          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
             {finance.netProfit >= 0 ? "+" : ""}
             {formatMoney(finance.netProfit)}
           </div>
-          <div className="mt-3 flex items-center justify-between text-xs border-t border-slate-800/80 pt-2.5">
-            <span className="text-slate-400">Tỷ suất LN:</span>
-            <span className="font-bold text-emerald-300 font-mono">{finance.netMarginPct}%</span>
+          <div className="mt-3 flex items-center justify-between text-xs border-t border-emerald-200/60 dark:border-slate-800/80 pt-2.5">
+            <span className="text-slate-600 dark:text-slate-400">Tỷ suất LN:</span>
+            <span className="font-bold text-emerald-700 dark:text-emerald-300 font-mono">{finance.netMarginPct}%</span>
           </div>
         </div>
 
         {/* THẺ 3: TỔNG GIÁ VỐN HÀNG BÁN (COGS) */}
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950 p-5 shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+        <div className="rounded-2xl border border-purple-200 dark:border-purple-500/30 bg-purple-50/70 dark:bg-gradient-to-br dark:from-purple-950/20 dark:to-slate-950 p-5 shadow-sm dark:shadow-xl relative overflow-hidden">
+          <div className="flex items-center justify-between text-purple-700 dark:text-purple-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Tổng Giá Vốn (COGS)</span>
-            <span className="text-purple-400 text-base">🏷️</span>
+            <span className="text-purple-500 dark:text-purple-400 text-base">🏷️</span>
           </div>
-          <div className="text-2xl font-black text-white tracking-tight">
+          <div className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
             {formatMoney(finance.cogs)}
           </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 border-t border-purple-200/60 dark:border-slate-800/80 pt-2.5">
             <span>Tỷ trọng giá vốn:</span>
-            <span className="text-purple-300 font-mono font-semibold">{finance.cogsRatioPct}%</span>
+            <span className="text-purple-700 dark:text-purple-300 font-mono font-semibold">{finance.cogsRatioPct}%</span>
           </div>
         </div>
 
         {/* THẺ 4: TỔNG CHI PHÍ THẤT THOÁT & PHÍ SÀN */}
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/90 to-slate-950 p-5 shadow-xl relative overflow-hidden">
-          <div className="flex items-center justify-between text-slate-400 text-xs font-medium uppercase tracking-wider mb-2">
+        <div className="rounded-2xl border border-rose-200 dark:border-rose-500/30 bg-rose-50/70 dark:bg-gradient-to-br dark:from-rose-950/20 dark:to-slate-950 p-5 shadow-sm dark:shadow-xl relative overflow-hidden">
+          <div className="flex items-center justify-between text-rose-700 dark:text-rose-400 text-xs font-semibold uppercase tracking-wider mb-2">
             <span>Phí Sàn & Cước Hoàn</span>
-            <span className="text-rose-400 text-base">📉</span>
+            <span className="text-rose-500 dark:text-rose-400 text-base">📉</span>
           </div>
-          <div className="text-2xl font-black text-rose-400 tracking-tight">
+          <div className="text-2xl font-black text-rose-600 dark:text-rose-400 tracking-tight">
             {formatMoney((finance.platformFees || 0) + (finance.affiliateFees || 0) + (finance.shippingLoss || 0))}
           </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 border-t border-rose-200/60 dark:border-slate-800/80 pt-2.5">
             <span>Phí sàn & thu hộ: {formatMoney((finance.platformFees || 0) + (finance.codFees || 0))}</span>
-            <span className="text-rose-400 font-semibold">{metrics.returnRatePct}% hoàn</span>
+            <span className="text-rose-600 dark:text-rose-400 font-semibold">{metrics.returnRatePct}% hoàn</span>
           </div>
         </div>
       </div>
@@ -482,47 +482,54 @@ export default function ReportsClient({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {channelStats.map((row) => (
-                    <tr key={row.channelKey} className="hover:bg-slate-800/40 transition">
-                      <td className="p-3.5 font-bold text-white flex items-center gap-2">
-                        <span>{row.icon}</span>
-                        <span>{row.label}</span>
-                      </td>
-                      <td className="p-3.5 text-right font-mono text-slate-300">{row.totalOrders}</td>
-                      <td className="p-3.5 text-right font-mono text-emerald-400 font-semibold">{row.successfulOrders}</td>
-                      <td className="p-3.5 text-right font-mono text-white font-medium">
-                        {formatMoney(row.gmv)}
-                      </td>
-                      <td className="p-3.5 text-right font-mono text-cyan-300 font-bold">
-                        {formatMoney(row.realizedRevenue)}
-                      </td>
-                      <td className="p-3.5 text-right font-mono text-slate-400">
-                        {formatMoney(row.cogs)}
-                      </td>
-                      <td className="p-3.5 text-right font-mono text-rose-400">
-                        {formatMoney((row.platformFees || 0) + (row.codFees || 0))}
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-bold">
-                        <span className={row.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                          {row.netProfit >= 0 ? "+" : ""}
-                          {formatMoney(row.netProfit)}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-semibold">
-                        <span
-                          className={`rounded px-2 py-0.5 text-[11px] ${
-                            row.netMarginPct >= 20
-                              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                              : row.netMarginPct >= 0
-                              ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                              : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                          }`}
-                        >
-                          {row.netMarginPct}%
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {channelStats.map((row) => {
+                    const icon = row.icon || (row.channelKey === "WEBSITE_MAGENTO" ? "🌐" : row.channelKey === "TIKTOK_SHOP" ? "🎵" : row.channelKey === "SHOPEE" ? "🛍️" : row.channelKey === "KIOTVIET" ? "🏪" : row.channelKey === "ZALO_PERSONAL" ? "💬" : "📘");
+                    const label = row.label || row.name || row.channelKey;
+                    const totalOrders = row.totalOrders ?? row.orders ?? 0;
+                    const successOrders = row.successfulOrders ?? row.successOrders ?? 0;
+                    const realizedRev = row.realizedRevenue ?? row.realized ?? 0;
+                    return (
+                      <tr key={row.channelKey} className="hover:bg-slate-800/40 transition">
+                        <td className="p-3.5 font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>{icon}</span>
+                          <span>{label}</span>
+                        </td>
+                        <td className="p-3.5 text-right font-mono text-slate-700 dark:text-slate-300">{totalOrders}</td>
+                        <td className="p-3.5 text-right font-mono text-emerald-600 dark:text-emerald-400 font-semibold">{successOrders}</td>
+                        <td className="p-3.5 text-right font-mono text-slate-900 dark:text-white font-medium">
+                          {formatMoney(row.gmv)}
+                        </td>
+                        <td className="p-3.5 text-right font-mono text-cyan-700 dark:text-cyan-300 font-bold">
+                          {formatMoney(realizedRev)}
+                        </td>
+                        <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
+                          {formatMoney(row.cogs)}
+                        </td>
+                        <td className="p-3.5 text-right font-mono text-rose-600 dark:text-rose-400">
+                          {formatMoney((row.platformFees || 0) + (row.codFees || 0) + (row.fees || 0))}
+                        </td>
+                        <td className="p-3.5 text-right font-mono font-bold">
+                          <span className={row.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                            {row.netProfit >= 0 ? "+" : ""}
+                            {formatMoney(row.netProfit)}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-right font-mono font-semibold">
+                          <span
+                            className={`rounded px-2 py-0.5 text-[11px] ${
+                              row.netMarginPct >= 20
+                                ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                                : row.netMarginPct >= 0
+                                ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                                : "bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30"
+                            }`}
+                          >
+                            {row.netMarginPct}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

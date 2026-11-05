@@ -2,7 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { VIP_LEVELS } from "@/lib/customerTiers";
+import { VIP_LEVELS, calculateVipLevel } from "@/lib/customerTiers";
+
+const CHANNEL_META = {
+  FACEBOOK: { label: "Fanpage FB", icon: "📘" },
+  ZALO_PERSONAL: { label: "Zalo Cá Nhân", icon: "💬" },
+  TIKTOK_SHOP: { label: "TikTok Shop", icon: "🎵" },
+  SHOPEE: { label: "Shopee", icon: "🛍️" },
+  WEBSITE_MAGENTO: { label: "Magento 2.4.8", icon: "🌐" },
+  KIOTVIET: { label: "KiotViet POS", icon: "🏪" },
+};
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState([]);
@@ -226,7 +235,9 @@ export default function CustomersPage() {
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 {customers.map((c) => {
-                  const vipInfo = VIP_LEVELS[c.vipLevel] || VIP_LEVELS.POTENTIAL;
+                  const vipInfo = (c.vipLevel && VIP_LEVELS[c.vipLevel]) || calculateVipLevel(c.totalOrders, c.totalSpent) || VIP_LEVELS.POTENTIAL;
+                  const rawSource = c.sourceChannel || c.source || c.channel || "ZALO_PERSONAL";
+                  const ch = CHANNEL_META[rawSource] || { label: rawSource, icon: "🏷️" };
                   return (
                     <tr key={c.id} className="hover:bg-slate-800/30 transition">
                       {/* Cột Tên */}
@@ -268,7 +279,7 @@ export default function CustomersPage() {
                       {/* Cột Hạng VIP & Đơn hàng */}
                       <td className="py-3.5 px-4">
                         <span className={`inline-block rounded-md border px-2 py-0.5 text-[10px] font-bold ${vipInfo.badgeColor}`}>
-                          {c.vipLabel || vipInfo.label}
+                          {vipInfo.label}
                         </span>
                         <div className="text-[10px] text-slate-400 mt-1">
                           {c.totalOrders} đơn • {Number(c.totalSpent).toLocaleString("vi-VN")} đ
@@ -277,8 +288,9 @@ export default function CustomersPage() {
 
                       {/* Cột Nguồn Kênh */}
                       <td className="py-3.5 px-4">
-                        <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300 font-medium border border-slate-700/60">
-                          {c.channelLabel || c.source}
+                        <span className="inline-flex items-center gap-1 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 px-2 py-0.5 text-[10px] font-medium border border-slate-200 dark:border-slate-700/60">
+                          <span>{ch.icon}</span>
+                          <span>{ch.label}</span>
                         </span>
                       </td>
 
