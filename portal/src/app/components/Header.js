@@ -4,6 +4,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "./ThemeProvider";
+import {
+  Sun,
+  Moon,
+  BookOpen,
+  Bell,
+  KeyRound,
+  LogOut,
+  Radio,
+  X,
+  Lock,
+  CheckCircle2,
+  AlertTriangle,
+} from "lucide-react";
 
 const SAMPLE_NOTIFICATIONS = [
   {
@@ -72,11 +85,15 @@ export default function Header({ currentUser }) {
 
   return (
     <>
-      <header suppressHydrationWarning className="h-16 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between gap-4 shrink-0">
+      <header
+        suppressHydrationWarning
+        className="h-16 bg-slate-900/90 border-b border-slate-800 px-6 flex items-center justify-between gap-4 shrink-0 transition-colors duration-150"
+      >
         {/* Trạng thái các kênh */}
         <div className="flex items-center gap-3 overflow-x-auto">
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            ● 7 Kênh Hợp Nhất
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <span>7 Kênh Hợp Nhất</span>
           </span>
           <span className="hidden md:inline-block text-xs text-slate-400">
             Magento 2.4.8 • Fanpage FB • Zalo QR • Zalo OA • TikTok Shop • Shopee • KiotViet
@@ -91,7 +108,7 @@ export default function Header({ currentUser }) {
             title="Sổ tay Hướng dẫn sử dụng ADDP CRM"
             className="hidden lg:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium cursor-pointer transition-colors"
           >
-            <span>📖</span>
+            <BookOpen className="w-4 h-4 text-blue-400" />
             <span>Hướng dẫn</span>
           </Link>
 
@@ -104,12 +121,12 @@ export default function Header({ currentUser }) {
           >
             {theme === "light" ? (
               <>
-                <span className="text-amber-500 text-sm">☀️</span>
+                <Sun className="w-4 h-4 text-amber-500" />
                 <span className="text-slate-800 font-semibold hidden sm:inline">Chế độ Sáng</span>
               </>
             ) : (
               <>
-                <span className="text-indigo-400 text-sm">🌙</span>
+                <Moon className="w-4 h-4 text-indigo-400" />
                 <span className="text-slate-200 font-medium hidden sm:inline">Chế độ Tối</span>
               </>
             )}
@@ -120,9 +137,10 @@ export default function Header({ currentUser }) {
             <button
               type="button"
               onClick={() => setShowNotif(!showNotif)}
-              className="relative h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-2 cursor-pointer"
+              className="relative h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-2 cursor-pointer transition-colors"
             >
-              <span>🔔 Thông báo</span>
+              <Bell className="w-4 h-4 text-slate-300" />
+              <span className="hidden sm:inline">Thông báo</span>
               <span className="h-5 min-w-5 px-1 rounded-full bg-rose-500 text-white text-[11px] font-bold flex items-center justify-center">
                 2
               </span>
@@ -135,9 +153,9 @@ export default function Header({ currentUser }) {
                   <button
                     type="button"
                     onClick={() => setShowNotif(false)}
-                    className="text-xs text-slate-400 hover:text-white"
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
                   >
-                    Đóng ✕
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
                 <div className="space-y-2 max-h-72 overflow-y-auto">
@@ -179,24 +197,28 @@ export default function Header({ currentUser }) {
                   setPwdMessage({ type: "", text: "" });
                   setShowPwdModal(true);
                 }}
-                className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium cursor-pointer"
+                title="Đổi mật khẩu tài khoản"
+                className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
               >
-                🔑 Đổi MK
+                <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden md:inline">Đổi MK</span>
               </button>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="h-9 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium cursor-pointer"
+                title="Đăng xuất khỏi hệ thống"
+                className="h-9 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 cursor-pointer transition-colors"
               >
-                Đăng xuất
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">Đăng xuất</span>
               </button>
             </div>
           ) : (
             <Link
               href="/login"
-              className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center"
+              className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors"
             >
-              Đăng nhập
+              <span>Đăng nhập</span>
             </Link>
           )}
         </div>
@@ -207,31 +229,39 @@ export default function Header({ currentUser }) {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-6 shadow-2xl space-y-4 text-slate-100">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold">🔑 Đổi mật khẩu tài khoản ({currentUser?.code})</h3>
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <Lock className="w-4 h-4 text-blue-400" />
+                <span>Đổi mật khẩu tài khoản ({currentUser?.code})</span>
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowPwdModal(false)}
-                className="text-slate-400 hover:text-white text-sm"
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {pwdMessage.text && (
               <div
-                className={`p-3 rounded-xl text-xs font-medium ${
+                className={`p-3 rounded-xl text-xs flex items-center gap-2 font-medium ${
                   pwdMessage.type === "success"
-                    ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                    : "bg-rose-500/15 text-rose-300 border border-rose-500/30"
+                    ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                    : "bg-rose-500/15 border border-rose-500/30 text-rose-300"
                 }`}
               >
-                {pwdMessage.text}
+                {pwdMessage.type === "success" ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                )}
+                <span>{pwdMessage.text}</span>
               </div>
             )}
 
-            <form onSubmit={handleChangePassword} className="space-y-3">
+            <form onSubmit={handleChangePassword} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Mật khẩu hiện tại
                 </label>
                 <input
@@ -239,14 +269,14 @@ export default function Header({ currentUser }) {
                   required
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Nhập mật khẩu đang dùng (mặc định: 123456)"
+                  placeholder="Nhập mật khẩu cũ (Mặc định: 123456)"
                   className="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Mật khẩu mới (tối thiểu 6 ký tự)
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Mật khẩu mới (Tối thiểu 6 ký tự)
                 </label>
                 <input
                   type="password"
@@ -259,20 +289,20 @@ export default function Header({ currentUser }) {
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowPwdModal(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300"
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium cursor-pointer"
                 >
-                  Đóng
+                  Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={loadingPwd}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-sm cursor-pointer"
                 >
-                  {loadingPwd ? "Đang lưu..." : "Lưu mật khẩu mới"}
+                  {loadingPwd ? "Đang lưu..." : "Xác nhận đổi mật khẩu"}
                 </button>
               </div>
             </form>

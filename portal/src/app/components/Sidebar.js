@@ -4,19 +4,36 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { canAccessModule } from "@/lib/auth";
 import { useTheme } from "./ThemeProvider";
+import {
+  LayoutDashboard,
+  MessageSquare,
+  Users,
+  CalendarClock,
+  Bot,
+  Receipt,
+  PackageSearch,
+  Globe2,
+  TrendingUp,
+  ShieldCheck,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  Circle,
+} from "lucide-react";
 
 const MENU_ITEMS = [
-  { key: "dashboard", name: "Tổng quan CRM", href: "/", icon: "📊", badge: null },
-  { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: "💬", badge: "4" },
-  { key: "customers", name: "Khách hàng 360", href: "/customers", icon: "👥", badge: null },
-  { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: "📋", badge: "7" },
-  { key: "broadcast", name: "AI & Gửi Hàng loạt", href: "/broadcast", icon: "🤖", badge: null },
-  { key: "orders", name: "Đơn hàng Đa sàn", href: "/orders", icon: "📑", badge: null },
-  { key: "inventory", name: "Kho Combo & SKU", href: "/inventory", icon: "📦", badge: null },
-  { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: "🌐", badge: "7" },
-  { key: "reports", name: "Báo cáo BI & Lãi/Lỗ", href: "/reports", icon: "📈", badge: null },
-  { key: "settings", name: "Nhân sự & Phân quyền", href: "/settings", icon: "⚙️", badge: null },
-  { key: "guide", name: "Hướng Dẫn Sử Dụng", href: "/guide", icon: "📖", badge: "Sổ tay" },
+  { key: "dashboard", name: "Tổng quan CRM", href: "/", icon: LayoutDashboard, badge: null },
+  { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: MessageSquare, badge: "4" },
+  { key: "customers", name: "Khách hàng 360", href: "/customers", icon: Users, badge: null },
+  { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: CalendarClock, badge: "7" },
+  { key: "broadcast", name: "AI & Gửi Hàng loạt", href: "/broadcast", icon: Bot, badge: null },
+  { key: "orders", name: "Đơn hàng Đa sàn", href: "/orders", icon: Receipt, badge: null },
+  { key: "inventory", name: "Kho Combo & SKU", href: "/inventory", icon: PackageSearch, badge: null },
+  { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: Globe2, badge: "7" },
+  { key: "reports", name: "Báo cáo BI & Lãi/Lỗ", href: "/reports", icon: TrendingUp, badge: null },
+  { key: "settings", name: "Nhân sự & Phân quyền", href: "/settings", icon: ShieldCheck, badge: null },
+  { key: "guide", name: "Hướng Dẫn Sử Dụng", href: "/guide", icon: BookOpen, badge: "Sổ tay" },
 ];
 
 export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
@@ -36,11 +53,11 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
     >
       {/* Logo chính thức của ADDP Pharmacy & Nút thu gọn */}
       <div className="h-16 px-4 border-b border-slate-800 flex items-center justify-between gap-2">
-        <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
+        <Link href="/" className="flex items-center gap-2.5 overflow-hidden group">
           <img
             src={theme === "light" ? "/addp-logo-transparent.png" : "/addp-logo-white.png"}
             alt="ADDP Pharmacy"
-            className={`${isCollapsed ? "h-6 w-auto max-w-[50px]" : "h-7 w-auto max-w-[130px]"} object-contain shrink-0`}
+            className={`${isCollapsed ? "h-6 w-auto max-w-[50px]" : "h-7 w-auto max-w-[130px]"} object-contain shrink-0 transition-transform group-hover:scale-105`}
           />
           {!isCollapsed && (
             <div className="leading-tight shrink-0 border-l border-slate-700/60 pl-2">
@@ -54,15 +71,16 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
           type="button"
           onClick={() => setIsCollapsed(!isCollapsed)}
           title={isCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
-          className="h-7 w-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs cursor-pointer shrink-0"
+          className="h-8 w-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center text-xs cursor-pointer shrink-0 transition-colors"
         >
-          {isCollapsed ? "❯" : "❮"}
+          {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
       </div>
 
       {/* Danh sách phân hệ theo quyền RBAC */}
       <nav className="flex-1 py-4 px-2.5 space-y-1 overflow-y-auto">
         {visibleItems.map((item) => {
+          const Icon = item.icon;
           const isActive =
             pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
           return (
@@ -70,19 +88,23 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
               key={item.key}
               href={item.href}
               title={isCollapsed ? item.name : undefined}
-              className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
                 isActive
-                  ? "bg-blue-600 text-white shadow-sm font-semibold"
+                  ? "bg-blue-600 text-white shadow-sm font-semibold ring-1 ring-blue-500/50"
                   : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
               }`}
             >
               <div className="flex items-center gap-3 min-w-0">
-                <span className="text-base shrink-0">{item.icon}</span>
+                <Icon
+                  className={`w-4 h-4 shrink-0 transition-transform duration-150 group-hover:scale-110 ${
+                    isActive ? "text-white" : "text-slate-400 group-hover:text-blue-400"
+                  }`}
+                />
                 {!isCollapsed && <span className="truncate">{item.name}</span>}
               </div>
               {!isCollapsed && item.badge && (
                 <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 ${
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 transition-colors ${
                     isActive
                       ? "bg-white/20 text-white"
                       : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
@@ -98,10 +120,16 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
 
       {/* Thông tin hạn mức chống khóa Zalo ở chân Sidebar */}
       {!isCollapsed && (
-        <div className="p-3 m-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70 text-xs space-y-1.5">
+        <div className="p-3 m-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70 text-xs space-y-1.5 shadow-xs">
           <div className="flex items-center justify-between text-slate-300 font-medium">
-            <span>🛡️ Bảo vệ Zalo (Anti-Ban)</span>
-            <span className="text-emerald-400 font-semibold">Đang bật</span>
+            <span className="flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Bảo vệ Zalo (Anti-Ban)</span>
+            </span>
+            <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold text-[11px]">
+              <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
+              Bật
+            </span>
           </div>
           <div className="text-[11px] text-slate-400 leading-relaxed">
             Giãn cách: <strong>45–120s</strong> • Hạn mức:{" "}

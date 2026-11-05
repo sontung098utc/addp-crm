@@ -3,9 +3,20 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useTheme } from "../components/ThemeProvider";
+import {
+  Globe,
+  KeyRound,
+  Share2,
+  MessageSquare,
+  CalendarClock,
+  Megaphone,
+  TrendingUp,
+  Printer,
+  ArrowRight,
+} from "lucide-react";
 
 /**
- * ADDP Omnichannel AI CRM — Sổ Tay Hướng Dẫn Sử Dụng & Vận Hành Toàn Diện
+ * ADDP CRM — Sổ Tay Hướng Dẫn Sử Dụng & Vận Hành Toàn Diện
  * Tài liệu đào tạo và hướng dẫn thao tác thực tế dành cho:
  * - Nhân viên Sale / Telesale
  * - Nhân viên Chăm Sóc Khách Hàng (CSKH)
@@ -15,13 +26,13 @@ import { useTheme } from "../components/ThemeProvider";
  */
 
 const GUIDE_TABS = [
-  { key: "overview", label: "🌟 Tổng Quan Hệ Thống", icon: "🌐" },
-  { key: "login", label: "🔑 Đăng Nhập & Phân Quyền", icon: "👤" },
-  { key: "channels", label: "🔗 Kết Nối & Cấu Hình 7 Kênh", icon: "🔌" },
-  { key: "inbox-ai", label: "💬 Hộp Thư Đa Kênh & AI Soạn", icon: "🤖" },
-  { key: "work-tracking", label: "📋 Lộ Trình CSKH 1-3-7-14-21", icon: "🩺" },
-  { key: "broadcast", label: "📢 Gửi Tin Hàng Loạt & Anti-Ban", icon: "⚡" },
-  { key: "inventory-bi", label: "📦 Kho Combo & Đối Soát BI", icon: "📈" },
+  { key: "overview", label: "Tổng Quan Hệ Thống", icon: Globe },
+  { key: "login", label: "Đăng Nhập & Phân Quyền", icon: KeyRound },
+  { key: "channels", label: "Kết Nối & Cấu Hình 7 Kênh", icon: Share2 },
+  { key: "inbox-ai", label: "Hộp Thư Đa Kênh & AI Soạn", icon: MessageSquare },
+  { key: "work-tracking", label: "Lộ Trình CSKH 1-3-7-14-21", icon: CalendarClock },
+  { key: "broadcast", label: "Gửi Tin Hàng Loạt & Anti-Ban", icon: Megaphone },
+  { key: "inventory-bi", label: "Kho Combo & Đối Soát BI", icon: TrendingUp },
 ];
 
 export default function GuideClient() {
@@ -63,16 +74,16 @@ export default function GuideClient() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3 py-2 transition border border-slate-700"
+            className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2 transition border border-slate-700 cursor-pointer"
           >
-            <span>🖨️</span>
+            <Printer className="w-3.5 h-3.5" />
             <span>In Sổ Tay</span>
           </button>
           <Link
             href="/inbox"
-            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2 transition shadow shadow-blue-600/20"
+            className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3.5 py-2 transition shadow shadow-blue-600/20 cursor-pointer"
           >
-            <span>💬</span>
+            <MessageSquare className="w-3.5 h-3.5" />
             <span>Vào Hộp Thư Làm Việc</span>
           </Link>
         </div>
@@ -80,20 +91,23 @@ export default function GuideClient() {
 
       {/* Thanh điều hướng Tab chuyên đề */}
       <div className="flex border-b border-slate-800 gap-1 overflow-x-auto pb-1">
-        {GUIDE_TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={`flex items-center gap-1.5 pb-2.5 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
-              activeTab === t.key
-                ? "border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-xl"
-                : "border-transparent text-slate-400 hover:text-white hover:bg-slate-800/40 rounded-t-xl"
-            }`}
-          >
-            <span>{t.icon}</span>
-            <span>{t.label}</span>
-          </button>
-        ))}
+        {GUIDE_TABS.map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`flex items-center gap-2 pb-2.5 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap cursor-pointer ${
+                activeTab === t.key
+                  ? "border-blue-500 text-blue-400 bg-blue-500/10 rounded-t-xl"
+                  : "border-transparent text-slate-400 hover:text-white hover:bg-slate-800/40 rounded-t-xl"
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{t.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* ========================================================================= */}
