@@ -19,7 +19,9 @@ export async function GET(request) {
 
     const config = getMetaConfig();
     const appId = config.appId;
-    const reqOrigin = request.headers.get("origin") || request.nextUrl.origin || "http://localhost:3005";
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "crm.addp.vn";
+    const proto = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+    const reqOrigin = `${proto}://${host}`;
     const redirectUri = `${reqOrigin}/api/channels/facebook/oauth/callback`;
 
     // Các quyền chính thức Meta yêu cầu cho CRM/CSKH

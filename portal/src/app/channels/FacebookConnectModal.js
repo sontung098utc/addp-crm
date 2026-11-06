@@ -189,9 +189,9 @@ export default function FacebookConnectModal({ isOpen, onClose, onConnected }) {
     }
   };
 
-  const webhookUrl = "https://crm.addp.vn/api/webhooks/facebook";
+  const webhookUrl = typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/facebook` : "https://crm.addp.vn/api/webhooks/facebook";
   const webhookVerifyToken = "addp_crm_fb_webhook_secret_2026";
-  const redirectUri = "http://localhost:3005/api/channels/facebook/oauth/callback";
+  const redirectUri = typeof window !== "undefined" ? `${window.location.origin}/api/channels/facebook/oauth/callback` : "https://crm.addp.vn/api/channels/facebook/oauth/callback";
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
