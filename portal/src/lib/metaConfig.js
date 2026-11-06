@@ -8,7 +8,7 @@ export function getMetaConfig() {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
       return {
-        appId: data.appId || process.env.FB_APP_ID || "2588476418323692",
+        appId: data.appId || process.env.FB_APP_ID || "1818021756018026",
         appSecret: data.appSecret || process.env.FB_APP_SECRET || "",
         verifyToken: data.verifyToken || process.env.FB_VERIFY_TOKEN || "addp_crm_fb_webhook_secret_2026",
       };
@@ -17,7 +17,7 @@ export function getMetaConfig() {
     console.error("[META_CONFIG_READ_ERR]", err);
   }
   return {
-    appId: process.env.FB_APP_ID || "2588476418323692",
+    appId: process.env.FB_APP_ID || "1818021756018026",
     appSecret: process.env.FB_APP_SECRET || "",
     verifyToken: process.env.FB_VERIFY_TOKEN || "addp_crm_fb_webhook_secret_2026",
   };

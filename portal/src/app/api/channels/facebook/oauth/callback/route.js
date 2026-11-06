@@ -22,7 +22,8 @@ function resolvePublicOrigin(request) {
     !fwdHost.includes("localhost") &&
     !fwdHost.includes(":3005")
   ) {
-    const proto = request.headers.get("x-forwarded-proto") || "https";
+    const rawProto = (request.headers.get("x-forwarded-proto") || "https").split(",")[0].trim();
+    const proto = rawProto === "http" || rawProto === "https" ? rawProto : "https";
     return `${proto}://${fwdHost}`;
   }
   return "https://crm.addp.vn";
