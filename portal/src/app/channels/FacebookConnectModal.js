@@ -12,7 +12,7 @@ import { useState, useEffect } from "react";
 
 export default function FacebookConnectModal({ isOpen, onClose, onConnected }) {
   const [mode, setMode] = useState("direct"); // 'direct' | 'token' | 'oauth'
-  const [appId, setAppId] = useState("2588176118323692");
+  const [appId, setAppId] = useState("2588476418323692");
   const [appSecret, setAppSecret] = useState("");
   const [tokenInput, setTokenInput] = useState("");
   const [directPageId, setDirectPageId] = useState("");
