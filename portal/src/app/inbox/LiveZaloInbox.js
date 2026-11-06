@@ -3,6 +3,27 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import QuickOrderModal from "../components/QuickOrderModal";
+import {
+  RefreshCw,
+  Settings,
+  Search,
+  Sparkles,
+  Phone,
+  Video,
+  UserCheck,
+  Zap,
+  Send,
+  Pin,
+  BellOff,
+  ShoppingCart,
+  Clock,
+  CheckCheck,
+  MessageSquare,
+  AlertTriangle,
+  Plus,
+  X,
+  CircleDot,
+} from "lucide-react";
 
 /**
  * ADDP Omnichannel AI CRM — Hộp Thư Hội Thoại Hợp Nhất 3 Cột Chuẩn Zalo / Messenger (WBS-21 -> WBS-25)
@@ -158,7 +179,6 @@ export default function LiveZaloInbox() {
   }, [messages]);
 
   // 1. Tải danh sách cuộc hội thoại thực tế
-  // Tối ưu hóa: Dùng sessionStorage để chuyển qua lại giữa các tab tức thì (0ms lag)
   const loadConversations = async (showLoading = true, forceRefresh = false) => {
     try {
       if (showLoading) setLoadingConv(true);
@@ -263,7 +283,6 @@ export default function LiveZaloInbox() {
         if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
           setMessages(data.messages);
         } else {
-          // Xóa bỏ hoàn toàn nội dung nhắn tin gợi ý, chỉ để lại danh sách tin thật
           setMessages([]);
         }
       } catch {
@@ -293,9 +312,12 @@ export default function LiveZaloInbox() {
         const res = await fetch(`/api/customers?search=${encodeURIComponent(searchParam)}`);
         const data = await res.json();
         if (!isCancelled && data.ok && Array.isArray(data.customers) && data.customers.length > 0) {
-          const matched = data.customers.find(
-            (c) => (activeConv.phone && c.phone === activeConv.phone) || c.fullName.toLowerCase() === activeConv.name.toLowerCase()
-          ) || data.customers[0];
+          const matched =
+            data.customers.find(
+              (c) =>
+                (activeConv.phone && c.phone === activeConv.phone) ||
+                c.fullName.toLowerCase() === activeConv.name.toLowerCase()
+            ) || data.customers[0];
           setMatchedCustomer(matched);
         } else if (!isCancelled) {
           setMatchedCustomer(null);
@@ -326,7 +348,7 @@ export default function LiveZaloInbox() {
       id: tempId,
       text: messageText,
       isMe: true,
-      senderName: "Sơn Tùng",
+      senderName: activeConv.accountName || "ADDP CRM",
       time: nowTime,
       date: "Hôm nay",
       status: "sending",
@@ -363,7 +385,7 @@ export default function LiveZaloInbox() {
           )
         );
       } else {
-        setToast({ type: "error", text: data.error || "Không thể gửi tin nhắn qua Zalo." });
+        setToast({ type: "error", text: data.error || "Không thể gửi tin nhắn." });
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
         );
@@ -396,14 +418,14 @@ export default function LiveZaloInbox() {
           customerMessage: lastCustMsg ? lastCustMsg.text : inputMessage,
           draftIdea: inputMessage,
           customerName: activeConv.name,
-          channel: "ZALO_PERSONAL",
+          channel: activeConv.channel || "ZALO_PERSONAL",
         }),
       });
       const data = await res.json();
       const replyContent = data.replyText || data.reply;
       if (data.ok && replyContent) {
         setInputMessage(replyContent);
-        setToast({ type: "success", text: "✨ A.I. đã soạn xong lời tư vấn chuyên sâu!" });
+        setToast({ type: "success", text: "A.I. đã soạn xong lời tư vấn chuyên sâu!" });
         setTimeout(() => setToast(null), 3000);
       } else {
         setToast({ type: "error", text: data.error || "Không thể soạn tin tự động." });
@@ -444,55 +466,74 @@ export default function LiveZaloInbox() {
     return true;
   });
 
+  const activeChannelName = activeConv
+    ? activeConv.accountName || activeConv.channelLabel || getChannelMeta(activeConv.channel).label
+    : "Zalo Cá Nhân (Sơn Tùng)";
+
   return (
-    <div className="flex flex-col h-[calc(100vh-80px)] rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden shadow-2xl">
+    <div className="flex flex-col h-full rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
       {/* Toast thông báo nhanh */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-xl border border-rose-500/40 bg-rose-950/90 px-4 py-2.5 text-xs text-rose-200 backdrop-blur-md shadow-xl flex items-center gap-2">
-          <span>⚠️ {toast.text}</span>
-          <button onClick={() => setToast(null)} className="ml-2 font-bold hover:text-white">✕</button>
+        <div
+          role="alert"
+          className={`fixed top-4 right-4 z-50 rounded-xl border px-4 py-2.5 text-xs backdrop-blur-md shadow-xl flex items-center gap-2 ${
+            toast.type === "success"
+              ? "border-emerald-500/40 bg-emerald-950/90 text-emerald-200"
+              : "border-rose-500/40 bg-rose-950/90 text-rose-200"
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          <span>{toast.text}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            aria-label="Đóng thông báo"
+            className="ml-2 p-0.5 rounded hover:bg-white/10 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
       {/* GIAO DIỆN CHAT 3 CỘT (Cột 1: Danh sách hội thoại | Cột 2: Khung Chat | Cột 3: Hồ sơ khách 360) */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* ========================================================================= */}
         {/* CỘT 1: DANH SÁCH HỘI THOẠI (CONVERSATIONS LIST)                           */}
         {/* ========================================================================= */}
-        <div className="w-80 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col">
+        <div className="w-80 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
           {/* Header & Tìm kiếm */}
-          <div className="p-3.5 border-b border-slate-800 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs">
+          <div className="p-3.5 border-b border-slate-800 space-y-2.5 shrink-0">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs shrink-0 badge-solid-white">
                   Z
                 </span>
-                <div>
-                  <h2 className="text-sm font-bold text-white tracking-tight">Hộp Thư Đa Kênh</h2>
-                  <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                    Zalo Sơn Tùng &amp; 3 Fanpage FB
+                <div className="min-w-0">
+                  <h2 className="text-sm font-bold text-white tracking-tight truncate">Hộp Thư Đa Kênh</h2>
+                  <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1 truncate">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse shrink-0" />
+                    <span className="truncate">Zalo Sơn Tùng &amp; 3 Fanpage FB</span>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => loadConversations(false, true)}
-                  title="Làm mới danh sách hội thoại từ Zalo"
-                  className={`rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-xs text-slate-300 hover:text-white transition ${
-                    isRefreshing ? "animate-spin text-blue-400" : ""
-                  }`}
+                  aria-label="Làm mới danh sách hội thoại"
+                  title="Làm mới danh sách hội thoại từ Zalo & Fanpage FB"
+                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
-                  🔄
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-400" : ""}`} />
                 </button>
                 <Link
                   href="/channels"
+                  aria-label="Quản lý kênh kết nối"
                   title="Quản lý kênh kết nối"
-                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition"
+                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors"
                 >
-                  ⚙️
+                  <Settings className="w-3.5 h-3.5" />
                 </Link>
               </div>
             </div>
@@ -506,39 +547,51 @@ export default function LiveZaloInbox() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
-              <span className="absolute left-2.5 top-2 text-slate-500 text-xs">🔍</span>
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400 pointer-events-none" />
             </div>
 
-            {/* Tabs trạng thái hội thoại (WBS-23: Cần bạn, A.I. xử lý, Bạn xử lý, Chưa đọc) */}
-            <div className="flex items-center gap-1 overflow-x-auto text-[11px] font-medium text-slate-400 border-b border-slate-800/80 pb-1 scrollbar-none">
+            {/* Tabs trạng thái hội thoại (WBS-23: Cần bạn, A.I. xử lý, Chưa đọc) */}
+            <div className="flex items-center gap-1 overflow-x-auto text-[11px] font-medium text-slate-400 border-b border-slate-800/80 pb-1.5">
               <button
+                type="button"
                 onClick={() => setActiveTab("all")}
-                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
                   activeTab === "all" ? "bg-slate-800 text-white font-bold" : "hover:text-slate-200"
                 }`}
               >
                 Tất cả
               </button>
               <button
+                type="button"
                 onClick={() => setActiveTab("need_human")}
-                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
-                  activeTab === "need_human" ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold" : "hover:text-slate-200"
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                  activeTab === "need_human"
+                    ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold"
+                    : "hover:text-slate-200"
                 }`}
               >
-                🔴 Cần bạn
+                <CircleDot className="w-3 h-3 text-rose-400 shrink-0" />
+                <span>Cần bạn</span>
               </button>
               <button
+                type="button"
                 onClick={() => setActiveTab("ai_handling")}
-                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
-                  activeTab === "ai_handling" ? "bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold" : "hover:text-slate-200"
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                  activeTab === "ai_handling"
+                    ? "bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold"
+                    : "hover:text-slate-200"
                 }`}
               >
-                ✨ A.I. xử lý
+                <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />
+                <span>A.I. xử lý</span>
               </button>
               <button
+                type="button"
                 onClick={() => setActiveTab("unread")}
-                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition ${
-                  activeTab === "unread" ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold" : "hover:text-slate-200"
+                className={`px-2 py-0.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+                  activeTab === "unread"
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold"
+                    : "hover:text-slate-200"
                 }`}
               >
                 Chưa đọc
@@ -546,41 +599,49 @@ export default function LiveZaloInbox() {
             </div>
 
             {/* Lọc theo Kênh tiếp nhận */}
-            <div className="flex items-center gap-1 text-[10px] text-slate-400">
-              <span className="text-slate-500 text-[10px]">Kênh:</span>
+            <div className="flex items-center gap-1 text-[10px] text-slate-400 flex-wrap">
+              <span className="text-slate-500 text-[10px] font-medium">Kênh:</span>
               <button
+                type="button"
                 onClick={() => setChannelFilter("ALL")}
-                className={`px-1.5 py-0.5 rounded ${
+                className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "ALL" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
                 }`}
               >
                 Tất cả
               </button>
               <button
+                type="button"
                 onClick={() => setChannelFilter("ZALO_PERSONAL")}
-                className={`px-1.5 py-0.5 rounded ${
-                  channelFilter === "ZALO_PERSONAL" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
+                className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
+                  channelFilter === "ZALO_PERSONAL"
+                    ? "bg-blue-600 text-white font-semibold"
+                    : "bg-slate-800 hover:text-white"
                 }`}
               >
                 Zalo QR
               </button>
               <button
+                type="button"
                 onClick={() => setChannelFilter("ZALO_OA")}
-                className={`px-1.5 py-0.5 rounded ${
+                className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "ZALO_OA" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
                 }`}
               >
                 Zalo OA
               </button>
               <button
+                type="button"
                 onClick={() => setChannelFilter("FACEBOOK")}
-                className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${
-                  channelFilter === "FACEBOOK" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
+                className={`px-2 py-0.5 rounded-md inline-flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
+                  channelFilter === "FACEBOOK"
+                    ? "bg-blue-600 text-white font-semibold"
+                    : "bg-slate-800 hover:text-white"
                 }`}
               >
                 <span>Fanpage FB</span>
                 {conversations.filter((c) => c.channel === "FACEBOOK").length > 0 && (
-                  <span className="rounded-full bg-blue-500/30 px-1 text-[9px] text-blue-200 font-bold">
+                  <span className="rounded-full bg-blue-500/30 px-1.5 text-[9px] text-blue-200 font-bold tabular-nums">
                     {conversations.filter((c) => c.channel === "FACEBOOK").length}
                   </span>
                 )}
@@ -589,7 +650,7 @@ export default function LiveZaloInbox() {
           </div>
 
           {/* Danh sách các cuộc trò chuyện */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50">
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 min-h-0">
             {loadingConv ? (
               <div className="p-8 text-center text-xs text-slate-500 space-y-2">
                 <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -614,8 +675,9 @@ export default function LiveZaloInbox() {
                 return (
                   <button
                     key={conv.id}
+                    type="button"
                     onClick={() => setActiveConv(conv)}
-                    className={`w-full text-left p-3 transition flex items-center gap-3 ${
+                    className={`w-full text-left p-3 transition-colors flex items-center gap-3 cursor-pointer ${
                       isSelected
                         ? "bg-blue-50/90 dark:bg-slate-800/90 border-l-4 border-blue-500"
                         : "hover:bg-slate-100 dark:hover:bg-slate-800/40"
@@ -631,12 +693,12 @@ export default function LiveZaloInbox() {
                           className="h-11 w-11 rounded-full object-cover border border-slate-300 dark:border-slate-700"
                         />
                       ) : (
-                        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-indigo-600 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white">
+                        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-indigo-600 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white badge-solid-white">
                           {conv.name.slice(0, 2).toUpperCase()}
                         </div>
                       )}
                       <span
-                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black`}
+                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black badge-solid-white`}
                         title={convMeta.label}
                       >
                         {convMeta.avatarLetter}
@@ -656,7 +718,7 @@ export default function LiveZaloInbox() {
                             {conv.name}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 flex-shrink-0 ml-1">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 flex-shrink-0 ml-1 tabular-nums">
                           {displayTime}
                         </span>
                       </div>
@@ -674,11 +736,11 @@ export default function LiveZaloInbox() {
         {/* ========================================================================= */}
         {/* CỘT 2: KHUNG CHAT 2 CHIỀU (MESSAGE STREAM & COMPOSER)                     */}
         {/* ========================================================================= */}
-        <div className="flex-1 flex flex-col bg-white dark:bg-slate-950">
+        <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 min-w-0 min-h-0">
           {activeConv ? (
             <>
               {/* Header khung chat */}
-              <div className="h-16 px-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/60 backdrop-blur flex items-center justify-between flex-shrink-0">
+              <div className="h-15 px-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/60 backdrop-blur flex items-center justify-between gap-3 flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="relative flex-shrink-0">
                     {activeConv.avatar ? (
@@ -689,7 +751,7 @@ export default function LiveZaloInbox() {
                         className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700"
                       />
                     ) : (
-                      <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                      <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white badge-solid-white">
                         {activeConv.name.slice(0, 2).toUpperCase()}
                       </div>
                     )}
@@ -699,62 +761,81 @@ export default function LiveZaloInbox() {
                   <div className="min-w-0">
                     <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 truncate">
                       <span className="truncate">{activeConv.name}</span>
-                      <span className={`rounded text-[10px] font-semibold px-1.5 py-0.2 flex-shrink-0 ${getChannelMeta(activeConv.channel).pillClass}`}>
+                      <span
+                        className={`rounded-md text-[10px] font-semibold px-2 py-0.5 whitespace-nowrap flex-shrink-0 ${
+                          getChannelMeta(activeConv.channel).pillClass
+                        }`}
+                      >
                         {activeConv.channelLabel || getChannelMeta(activeConv.channel).label}
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                      {activeConv.phone ? `SĐT: ${activeConv.phone}` : `ID: ${activeConv.id}`} • {activeConv.accountName ? `Nick: ${activeConv.accountName}` : `Kênh: ${getChannelMeta(activeConv.channel).label}`}
+                      {activeConv.phone ? `SĐT: ${activeConv.phone}` : `ID: ${activeConv.id}`} •{" "}
+                      {activeConv.accountName
+                        ? `Tài khoản: ${activeConv.accountName}`
+                        : `Kênh: ${getChannelMeta(activeConv.channel).label}`}
                     </p>
                   </div>
                 </div>
 
                 {/* WBS-32 & WBS-33: Bộ chuyển 3 chế độ AI & Các nút công cụ */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Trực:</span>
+                  <div className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                      Trực:
+                    </span>
                     <select
                       value={aiMode}
                       onChange={(e) => setAiMode(e.target.value)}
-                      className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                      aria-label="Chế độ trực hội thoại"
+                      className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer border-0 p-0"
                     >
-                      <option value="HUMAN_ONLY" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">👤 Nhân viên trực</option>
-                      <option value="DRAFT_ONLY" className="bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-300">📝 A.I. Soạn nháp</option>
-                      <option value="AUTO_REPLY" className="bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400">🤖 A.I. Tự động 24/7</option>
+                      <option value="HUMAN_ONLY" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+                        Nhân viên trực
+                      </option>
+                      <option value="DRAFT_ONLY" className="bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-300">
+                        A.I. Soạn nháp
+                      </option>
+                      <option value="AUTO_REPLY" className="bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400">
+                        A.I. Tự động 24/7
+                      </option>
                     </select>
                   </div>
 
                   <button
                     type="button"
-                    title="Gọi thoại Zalo"
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition"
+                    aria-label="Gọi thoại"
+                    title="Gọi thoại"
+                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
                   >
-                    📞
+                    <Phone className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
-                    title="Gọi video Zalo"
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition"
+                    aria-label="Gọi video"
+                    title="Gọi video"
+                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
                   >
-                    📹
+                    <Video className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowSidePanel(!showSidePanel)}
                     title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                    className={`p-2 rounded-xl text-xs font-semibold transition border ${
+                    className={`px-2.5 py-2 rounded-xl text-xs font-semibold transition-colors border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
                       showSidePanel
                         ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
                         : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
                     }`}
                   >
-                    👤 Hồ Sơ 360
+                    <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span>Hồ Sơ 360</span>
                   </button>
                 </div>
               </div>
 
               {/* Message Thread Stream (Bong bóng chat 2 chiều) */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4 chat-stream-bg">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4 chat-stream-bg min-h-0">
                 {/* Dấu mốc ngày tháng */}
                 <div className="flex justify-center">
                   <span className="rounded-full bg-slate-200/90 dark:bg-slate-800/80 px-3 py-1 text-[11px] text-slate-600 dark:text-slate-400 font-medium border border-slate-300 dark:border-slate-700/60 shadow-xs">
@@ -763,28 +844,31 @@ export default function LiveZaloInbox() {
                 </div>
 
                 {loadingMessages ? (
-                  <div className="p-8 text-center text-xs text-slate-500">
-                    Đang nạp lịch sử tin nhắn...
+                  <div className="p-8 text-center text-xs text-slate-500 flex flex-col items-center gap-2">
+                    <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
+                    <span>Đang nạp lịch sử tin nhắn...</span>
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
-                    <div className="h-16 w-16 rounded-full bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-3xl shadow-xs">
-                      💬
+                    <div className="h-14 w-14 rounded-2xl bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-blue-500 shadow-xs">
+                      <MessageSquare className="w-6 h-6" />
                     </div>
                     <div className="space-y-1">
                       <p className="font-bold text-sm text-slate-900 dark:text-white">
                         Cuộc trò chuyện với {activeConv.name}
                       </p>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {activeConv.phone ? `Số điện thoại: ${activeConv.phone}` : `Zalo ID: ${activeConv.id}`}
+                        {activeConv.phone ? `Số điện thoại: ${activeConv.phone}` : `ID Hội thoại: ${activeConv.id}`}
                       </p>
                     </div>
-                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1">
+                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1 shadow-xs">
                       <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold text-xs">
-                        <span>⚡</span> <span>Sẵn sàng kết nối 2 chiều</span>
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Sẵn sàng kết nối 2 chiều</span>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Chưa phát sinh tin nhắn mới trong phiên kết nối này. Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp từ nick Zalo Sơn Tùng.
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                        Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp qua{" "}
+                        <strong>{activeChannelName}</strong>.
                       </p>
                     </div>
                   </div>
@@ -821,7 +905,7 @@ export default function LiveZaloInbox() {
                         <div
                           className={`max-w-[70%] rounded-2xl px-4 py-2.5 shadow-sm ${
                             isMe
-                              ? "bg-blue-600 text-white rounded-br-none"
+                              ? "bg-blue-600 text-white rounded-br-none badge-solid-white"
                               : "bg-white text-slate-900 border border-slate-200 dark:bg-slate-800/90 dark:text-slate-100 rounded-bl-none dark:border-slate-700/60"
                           }`}
                         >
@@ -850,18 +934,20 @@ export default function LiveZaloInbox() {
                           )}
 
                           <div
-                            className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                              isMe ? "text-blue-200" : "text-slate-400"
+                            className={`mt-1 flex items-center justify-end gap-1 text-[10px] tabular-nums ${
+                              isMe ? "text-blue-100" : "text-slate-400"
                             }`}
                           >
                             <span>{m.time}</span>
                             {isMe && (
-                              <span>
-                                {m.status === "sending"
-                                  ? "🕒"
-                                  : m.status === "error"
-                                  ? "⚠️"
-                                  : "✓✓"}
+                              <span className="inline-flex items-center">
+                                {m.status === "sending" ? (
+                                  <Clock className="w-3 h-3" />
+                                ) : m.status === "error" ? (
+                                  <AlertTriangle className="w-3 h-3 text-rose-300" />
+                                ) : (
+                                  <CheckCheck className="w-3 h-3" />
+                                )}
                               </span>
                             )}
                           </div>
@@ -875,9 +961,11 @@ export default function LiveZaloInbox() {
 
               {/* Message Composer (Ô nhập tin nhắn & Gửi) */}
               <div className="border-t border-slate-800 bg-slate-900/80 p-3 space-y-2 flex-shrink-0">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
-                  <span>Nhắn tin trực tiếp qua <strong>Zalo Cá Nhân (Sơn Tùng)</strong></span>
-                  <span>Enter để gửi • Shift+Enter xuống dòng</span>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 gap-2">
+                  <span className="truncate">
+                    Nhắn tin trực tiếp qua <strong className="text-slate-300">{activeChannelName}</strong>
+                  </span>
+                  <span className="whitespace-nowrap hidden sm:inline">Enter để gửi • Shift+Enter xuống dòng</span>
                 </div>
 
                 {/* Khung nhập tin nhắn */}
@@ -893,22 +981,23 @@ export default function LiveZaloInbox() {
                     />
                   </div>
 
-                  {/* WBS-33: Nút ✨ A.I. Soạn */}
+                  {/* WBS-33: Nút A.I. Soạn */}
                   <button
                     type="button"
                     onClick={handleAiCompose}
                     disabled={aiComposing || sending}
                     title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
-                    className="h-11 px-3.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition flex-shrink-0 shadow-md shadow-purple-950/40"
+                    className="h-11 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer"
                   >
                     {aiComposing ? (
                       <>
-                        <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
                         <span className="hidden sm:inline">Đang soạn...</span>
                       </>
                     ) : (
                       <>
-                        <span>✨ A.I. Soạn</span>
+                        <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                        <span>A.I. Soạn</span>
                       </>
                     )}
                   </button>
@@ -916,14 +1005,14 @@ export default function LiveZaloInbox() {
                   <button
                     type="submit"
                     disabled={sending || !inputMessage.trim()}
-                    className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition flex-shrink-0"
+                    className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer"
                   >
                     {sending ? (
-                      <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
                       <>
                         <span>Gửi</span>
-                        <span>✈️</span>
+                        <Send className="w-3.5 h-3.5 shrink-0" />
                       </>
                     )}
                   </button>
@@ -941,7 +1030,7 @@ export default function LiveZaloInbox() {
         {/* CỘT 3: HỒ SƠ KHÁCH HÀNG 360 & THÔNG TIN HỘI THOẠI (CUSTOMER 360 PANEL)      */}
         {/* ========================================================================= */}
         {showSidePanel && activeConv && (
-          <div className="w-72 flex-shrink-0 border-l border-slate-800 bg-slate-900/90 p-4 flex flex-col overflow-y-auto space-y-5">
+          <div className="w-72 flex-shrink-0 border-l border-slate-800 bg-slate-900/90 p-4 flex flex-col overflow-y-auto space-y-5 min-h-0">
             {/* Header thông tin */}
             <div className="text-center space-y-2 border-b border-slate-800 pb-4">
               {activeConv.avatar ? (
@@ -952,37 +1041,42 @@ export default function LiveZaloInbox() {
                   className="h-16 w-16 rounded-full object-cover border-2 border-blue-500 mx-auto"
                 />
               ) : (
-                <div className="h-16 w-16 rounded-full bg-blue-600 border-2 border-blue-400 flex items-center justify-center text-base font-bold text-white mx-auto">
+                <div className="h-16 w-16 rounded-full bg-blue-600 border-2 border-blue-400 flex items-center justify-center text-base font-bold text-white mx-auto badge-solid-white">
                   {activeConv.name.slice(0, 2).toUpperCase()}
                 </div>
               )}
               <div>
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white">{activeConv.name}</h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{activeConv.phone || `Zalo ID: ${activeConv.id}`}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  {activeConv.phone || `ID: ${activeConv.id}`}
+                </p>
               </div>
 
               {/* Action buttons */}
-              <div className="flex justify-center gap-2 pt-1">
+              <div className="flex justify-center gap-1.5 pt-1 flex-wrap">
                 <button
                   type="button"
-                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700"
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 text-xs text-slate-200 hover:bg-slate-700 transition-colors inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
                   title="Ghim hội thoại"
                 >
-                  📌 Ghim
+                  <Pin className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                  <span>Ghim</span>
                 </button>
                 <button
                   type="button"
-                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700"
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 text-xs text-slate-200 hover:bg-slate-700 transition-colors inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
                   title="Tắt thông báo"
                 >
-                  🔕 Tắt chuông
+                  <BellOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Tắt chuông</span>
                 </button>
                 <Link
                   href="/customers"
-                  className="p-2 rounded-xl bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-600/30 transition"
+                  className="px-2.5 py-1.5 rounded-xl bg-blue-600/20 border border-blue-500/30 text-xs text-blue-300 font-semibold hover:bg-blue-600/30 transition-colors inline-flex items-center gap-1 whitespace-nowrap"
                   title="Mở hồ sơ khách hàng 360"
                 >
-                  👤 Hồ Sơ 360
+                  <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>Hồ Sơ 360</span>
                 </Link>
               </div>
             </div>
@@ -1019,7 +1113,7 @@ export default function LiveZaloInbox() {
 
                   <div className="flex items-center justify-between text-slate-300">
                     <span className="text-slate-400">Đơn hàng / Doanh thu:</span>
-                    <span className="font-semibold text-white">
+                    <span className="font-semibold text-white tabular-nums">
                       {matchedCustomer.totalOrders || 0} đơn • {(matchedCustomer.totalSpent || 0).toLocaleString("vi-VN")} đ
                     </span>
                   </div>
@@ -1037,11 +1131,15 @@ export default function LiveZaloInbox() {
                     <div className="grid grid-cols-2 gap-2 text-center pt-1">
                       <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
                         <div className="text-[10px] text-slate-400">Đường huyết ban đầu</div>
-                        <div className="font-bold text-rose-400 text-xs">{matchedCustomer.initialGlucose ? `${matchedCustomer.initialGlucose} mmol/L` : "Chưa đo"}</div>
+                        <div className="font-bold text-rose-400 text-xs tabular-nums">
+                          {matchedCustomer.initialGlucose ? `${matchedCustomer.initialGlucose} mmol/L` : "Chưa đo"}
+                        </div>
                       </div>
                       <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
                         <div className="text-[10px] text-slate-400">Đường huyết hiện tại</div>
-                        <div className="font-bold text-emerald-400 text-xs">{matchedCustomer.currentGlucose ? `${matchedCustomer.currentGlucose} mmol/L` : "Đang theo dõi"}</div>
+                        <div className="font-bold text-emerald-400 text-xs tabular-nums">
+                          {matchedCustomer.currentGlucose ? `${matchedCustomer.currentGlucose} mmol/L` : "Đang theo dõi"}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1066,37 +1164,43 @@ export default function LiveZaloInbox() {
                     <button
                       type="button"
                       onClick={() => setIsOrderModalOpen(true)}
-                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
+                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <span>🛒 Lên Đơn Hàng Nhanh</span>
+                      <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                      <span>Lên Đơn Hàng Nhanh</span>
                     </button>
                     <Link
                       href={`/customers/${matchedCustomer.id}`}
-                      className="w-full block text-center rounded-xl bg-blue-50 dark:bg-blue-600/20 hover:bg-blue-100 dark:hover:bg-blue-600/30 border border-blue-200 dark:border-blue-500/30 py-2 text-xs font-bold text-blue-600 dark:text-blue-300 transition"
+                      className="w-full rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition-colors inline-flex items-center justify-center gap-1.5"
                     >
-                      👤 Mở Chi Tiết Hồ Sơ 360 ({matchedCustomer.code})
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span>Mở Chi Tiết Hồ Sơ 360 ({matchedCustomer.code})</span>
                     </Link>
                   </div>
                 </div>
               ) : (
                 <div className="space-y-2 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-center space-y-1">
-                    <p className="text-slate-500 dark:text-slate-400 text-[11px]">Chưa tìm thấy hồ sơ khách hàng khớp với số điện thoại hoặc tên này.</p>
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-center space-y-1">
+                    <p className="text-slate-400 text-[11px]">
+                      Chưa tìm thấy hồ sơ khách hàng khớp với số điện thoại hoặc tên này.
+                    </p>
                   </div>
 
                   <div className="pt-1 space-y-2">
                     <button
                       type="button"
                       onClick={() => setIsOrderModalOpen(true)}
-                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
+                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
-                      <span>🛒 Lên Đơn Hàng Nhanh</span>
+                      <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                      <span>Lên Đơn Hàng Nhanh</span>
                     </button>
                     <Link
                       href="/customers"
-                      className="w-full block text-center rounded-xl bg-blue-50 dark:bg-blue-600/20 hover:bg-blue-100 dark:hover:bg-blue-600/30 border border-blue-200 dark:border-blue-500/30 py-2 text-xs font-bold text-blue-600 dark:text-blue-300 transition"
+                      className="w-full rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition-colors inline-flex items-center justify-center gap-1.5"
                     >
-                      + Tạo Hồ Sơ Khách Hàng 360 Mới
+                      <Plus className="w-3.5 h-3.5 shrink-0" />
+                      <span>Tạo Hồ Sơ Khách Hàng 360 Mới</span>
                     </Link>
                   </div>
                 </div>
@@ -1111,7 +1215,7 @@ export default function LiveZaloInbox() {
               <textarea
                 rows={4}
                 placeholder="Nhập ghi chú tư vấn thực tế dành cho khách hàng này..."
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-xs text-slate-300 placeholder-slate-600 focus:border-blue-500 focus:outline-none resize-none"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2.5 text-xs text-slate-300 placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none"
               />
             </div>
           </div>

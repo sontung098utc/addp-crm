@@ -2,7 +2,30 @@
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
 
+/* ==========================================================================
+   UI/UX PRO MAX DESIGN SYSTEM TOKENS — ADDP CRM (MASTER.md)
+   Category: Healthcare & Omnichannel Pharmacy CRM | Density: 8/10 | Variance: 6/10
+   ========================================================================== */
 :root {
+  --color-primary: #0891b2;
+  --color-primary-hover: #0e7490;
+  --color-secondary: #2563eb;
+  --color-accent: #059669;
+  --color-destructive: #dc2626;
+  --color-ring: #0891b2;
+
+  --space-xs: 0.125rem;
+  --space-sm: 0.25rem;
+  --space-md: 0.5rem;
+  --space-lg: 0.75rem;
+  --space-xl: 1rem;
+  --space-2xl: 1.5rem;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.06);
+  --shadow-xl: 0 20px 32px -8px rgba(15, 23, 42, 0.18);
+
   --background: #020617;
   --foreground: #f8fafc;
   --card-bg: #0f172a;
@@ -11,11 +34,11 @@
 }
 
 html.light {
-  --background: #f8fafc;
+  --background: #f1f5f9;
   --foreground: #0f172a;
   --card-bg: #ffffff;
   --card-border: #e2e8f0;
-  --muted-text: #64748b;
+  --muted-text: #475569;
   color-scheme: light;
 }
 
@@ -29,36 +52,107 @@ html.dark {
 }
 
 body {
-  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  font-family: var(--font-geist-sans), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: background-color 0.18s ease, color 0.18s ease;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular figures for numbers, prices, KPIs & timers (UI/UX Pro Max: number-tabular) */
+.tabular-nums,
+table td,
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Interactive cursor & focus-visible accessibility (UI/UX Pro Max: focus-states & cursor-pointer) */
+button:not(:disabled),
+a[href],
+select,
+[role="button"] {
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Respect prefers-reduced-motion (UI/UX Pro Max: reduced-motion) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ==========================================================================
-   CHẾ ĐỘ SÁNG (LIGHT MODE) - ĐỒNG BỘ 100% CÁC KHỐI CARD, BẢNG, TIN NHẮN
+   CHẾ ĐỘ SÁNG (LIGHT MODE PRO MAX) - ĐỘ TƯƠNG PHẢN CAO >= 4.5:1 (WCAG AA+)
    ========================================================================== */
 html.light body {
-  background-color: #f8fafc !important;
+  background-color: #f1f5f9 !important;
   color: #0f172a !important;
+}
+
+/* Khối nền chính */
+html.light main {
+  background-color: #f1f5f9 !important;
 }
 
 /* Các khối panel, container, card chính */
 html.light [class*="bg-slate-950"]:not(button):not(a):not(input) {
   background-color: #f8fafc !important;
+  border-color: #e2e8f0 !important;
 }
 
 html.light [class*="bg-slate-900"]:not(button):not(a):not(input) {
   background-color: #ffffff !important;
   border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow: var(--shadow-sm);
 }
 
-html.light [class*="bg-slate-800"]:not(button.bg-blue-600):not(a.bg-blue-600):not(button.bg-emerald-600):not(button.bg-rose-500) {
-  background-color: #f8fafc !important;
-  border-color: #e2e8f0 !important;
+html.light [class*="bg-slate-800"]:not(button):not(a):not(input) {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+/* Nút bấm phụ (Secondary Buttons bg-slate-800 / bg-slate-900) trong Light Mode */
+html.light button.bg-slate-800,
+html.light button.bg-slate-800\/80,
+html.light button.bg-slate-900,
+html.light button.bg-slate-900\/80,
+html.light a.bg-slate-800,
+html.light a.bg-slate-900 {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+html.light button.bg-slate-800:hover,
+html.light button.bg-slate-800\/80:hover,
+html.light button.bg-slate-900:hover,
+html.light button.bg-slate-900\/80:hover,
+html.light a.bg-slate-800:hover,
+html.light a.bg-slate-900:hover {
+  background-color: #e2e8f0 !important;
+  color: #020617 !important;
+  border-color: #94a3b8 !important;
 }
 
 /* Hộp chat & tin nhắn trong Light mode */
 html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/70,
+html.light .bg-slate-950\/80,
+html.light .bg-slate-900\/50,
 html.light .bg-slate-900\/60,
 html.light .bg-slate-900\/70,
 html.light .bg-slate-900\/80,
@@ -73,7 +167,7 @@ html.light [class*="border-slate-600"] {
   border-color: #e2e8f0 !important;
 }
 
-/* Typography trong Light mode */
+/* Typography trong Light mode (WCAG AA 4.5:1+) */
 html.light h1,
 html.light h2,
 html.light h3,
@@ -101,23 +195,146 @@ html.light .text-slate-300 {
 }
 
 html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light .text-slate-500 {
   color: #64748b !important;
 }
 
-/* Text white được giữ nguyên cho nút bấm, badge và thẻ có nền màu đậm */
+/* Semantic Color Contrast in Light Mode (Đảm bảo chữ màu luôn sắc nét trên nền sáng) */
+html.light .text-blue-300,
+html.light .text-blue-400 {
+  color: #1d4ed8 !important;
+}
+
+html.light .text-cyan-300,
+html.light .text-cyan-400 {
+  color: #0e7490 !important;
+}
+
+html.light .text-sky-300,
+html.light .text-sky-400 {
+  color: #0369a1 !important;
+}
+
+html.light .text-emerald-200,
+html.light .text-emerald-300,
+html.light .text-emerald-400 {
+  color: #047857 !important;
+}
+
+html.light .text-amber-200,
+html.light .text-amber-300,
+html.light .text-amber-400 {
+  color: #b45309 !important;
+}
+
+html.light .text-orange-200,
+html.light .text-orange-300,
+html.light .text-orange-400 {
+  color: #c2410c !important;
+}
+
+html.light .text-rose-200,
+html.light .text-rose-300,
+html.light .text-rose-400 {
+  color: #be123c !important;
+}
+
+html.light .text-purple-300,
+html.light .text-purple-400 {
+  color: #6d28d9 !important;
+}
+
+html.light .text-pink-400 {
+  color: #be185d !important;
+}
+
+/* Giữ nguyên chữ trắng tinh khôi cho toàn bộ các nút bấm & badge có nền màu đậm */
 html.light button.bg-blue-600,
+html.light button.bg-blue-600 *,
+html.light button.bg-cyan-600,
+html.light button.bg-cyan-600 *,
 html.light button.bg-emerald-600,
+html.light button.bg-emerald-600 *,
 html.light button.bg-rose-500,
+html.light button.bg-rose-500 *,
 html.light button.bg-rose-600,
+html.light button.bg-rose-600 *,
 html.light button.bg-indigo-600,
+html.light button.bg-indigo-600 *,
 html.light button.bg-purple-600,
+html.light button.bg-purple-600 *,
+html.light button.bg-amber-600,
+html.light button.bg-amber-600 *,
+html.light button[class*="from-purple-600"],
+html.light button[class*="from-purple-600"] *,
+html.light button[class*="from-blue-600"],
+html.light button[class*="from-blue-600"] *,
 html.light a.bg-blue-600,
+html.light a.bg-blue-600 *,
+html.light a.bg-cyan-600,
+html.light a.bg-cyan-600 *,
+html.light a.bg-emerald-600,
+html.light a.bg-emerald-600 *,
+html.light .bg-blue-600,
+html.light .bg-blue-600 *,
+html.light .bg-cyan-600,
+html.light .bg-cyan-600 *,
+html.light .bg-emerald-600,
+html.light .bg-emerald-600 *,
+html.light .bg-rose-500,
+html.light .bg-rose-500 *,
 html.light .badge-solid-white {
   color: #ffffff !important;
 }
 
-html.light .text-white:not(button):not(button *):not(a.bg-blue-600):not(a.bg-blue-600 *):not([class*="bg-blue-600"] *):not([class*="bg-emerald-600"] *):not([class*="bg-rose-"] *):not([class*="bg-purple-"] *):not([class*="bg-amber-600"] *) {
+html.light .text-white:not(button):not(button *):not(a.bg-blue-600):not(a.bg-blue-600 *):not(a.bg-cyan-600):not(a.bg-cyan-600 *):not([class*="bg-blue-600"]):not([class*="bg-blue-600"] *):not([class*="bg-cyan-600"]):not([class*="bg-cyan-600"] *):not([class*="bg-emerald-600"]):not([class*="bg-emerald-600"] *):not([class*="bg-rose-500"]):not([class*="bg-rose-600"]):not([class*="bg-indigo-600"]):not([class*="bg-purple-600"]):not([class*="from-purple-600"] *):not([class*="from-blue-700"]) {
   color: #0f172a !important;
+}
+
+/* Các nút Tint nhẹ (Chọn Fanpage, Đổi Nick QR, Xóa...) trong Light Mode */
+html.light button[class*="bg-blue-600/20"],
+html.light a[class*="bg-blue-600/20"],
+html.light span[class*="bg-blue-600/20"],
+html.light span[class*="bg-blue-500/15"],
+html.light span[class*="bg-blue-500/10"] {
+  background-color: #eff6ff !important;
+  border-color: #93c5fd !important;
+  color: #1d4ed8 !important;
+}
+
+html.light button[class*="bg-cyan-600/20"],
+html.light a[class*="bg-cyan-600/20"],
+html.light span[class*="bg-cyan-500/15"],
+html.light span[class*="bg-cyan-500/10"] {
+  background-color: #ecfeff !important;
+  border-color: #67e8f9 !important;
+  color: #0e7490 !important;
+}
+
+html.light button[class*="bg-emerald-500/1"],
+html.light span[class*="bg-emerald-500/1"] {
+  background-color: #ecfdf5 !important;
+  border-color: #6ee7b7 !important;
+  color: #047857 !important;
+}
+
+html.light button[class*="bg-amber-500/1"],
+html.light span[class*="bg-amber-500/1"],
+html.light span[class*="bg-amber-500/2"] {
+  background-color: #fffbeb !important;
+  border-color: #fcd34d !important;
+  color: #b45309 !important;
+}
+
+html.light button[class*="bg-rose-500/1"],
+html.light span[class*="bg-rose-500/1"],
+html.light span[class*="bg-rose-500/2"] {
+  background-color: #fff1f2 !important;
+  border-color: #fda4af !important;
+  color: #be123c !important;
 }
 
 /* Inputs, Selects, Textareas trong Light mode */
@@ -132,8 +349,8 @@ html.light textarea {
 html.light input:focus,
 html.light select:focus,
 html.light textarea:focus {
-  border-color: #3b82f6 !important;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+  border-color: #0891b2 !important;
+  box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.18) !important;
 }
 
 html.light input::placeholder,
@@ -155,13 +372,14 @@ html.light .hover\:bg-slate-700:hover {
 html.light aside {
   background-color: #ffffff !important;
   border-right-color: #e2e8f0 !important;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.03);
+  box-shadow: 2px 0 12px rgba(15, 23, 42, 0.03);
 }
 
 html.light header {
-  background-color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  backdrop-filter: blur(12px);
   border-bottom-color: #e2e8f0 !important;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
 }
 
 /* Bảng dữ liệu trong Light mode */
@@ -171,11 +389,12 @@ html.light table thead tr {
 }
 
 html.light table thead th {
-  color: #475569 !important;
+  color: #334155 !important;
+  font-weight: 700;
 }
 
 html.light table tbody tr:hover {
-  background-color: #f8fafc !important;
+  background-color: #f1f5f9 !important;
 }
 
 html.light table tbody td {
@@ -209,7 +428,7 @@ html.light [role="dialog"] .bg-slate-900,
 html.light [role="dialog"] .bg-slate-950 {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: var(--shadow-xl) !important;
   color: #0f172a !important;
 }
 
@@ -229,6 +448,10 @@ html.light [class*="bg-emerald-950"] {
 html.light [class*="bg-amber-950"] {
   background-color: #fffbeb !important;
   border-color: #fde68a !important;
+}
+html.light [class*="bg-rose-950"] {
+  background-color: #fff1f2 !important;
+  border-color: #fecdd3 !important;
 }
 
 /* Scrollbars đẹp mắt, mượt mà */
@@ -277,11 +500,12 @@ dialog[open][data-nextjs-dialog],
 /* Chat Stream Background */
 html.light .chat-stream-bg {
   background-color: #f1f5f9 !important;
-  background-image: none !important;
+  background-image: radial-gradient(#cbd5e1 0.75px, transparent 0.75px) !important;
+  background-size: 20px 20px !important;
 }
 
 html.dark .chat-stream-bg {
-  background: linear-gradient(to bottom, #020617, #020617, rgba(15, 23, 42, 0.4)) !important;
+  background: linear-gradient(to bottom, #020617, #091024, rgba(15, 23, 42, 0.5)) !important;
 }
 
 /* Modals & Dialogs in Light Mode */

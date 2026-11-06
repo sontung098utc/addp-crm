@@ -8,6 +8,7 @@ import Header from "./Header";
 export default function AppShell({ children }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/login";
+  const isInboxPage = pathname?.startsWith("/inbox");
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [currentUser, setCurrentUser] = useState({
     id: "staff_admin",
@@ -34,15 +35,22 @@ export default function AppShell({ children }) {
   }
 
   return (
-    <div suppressHydrationWarning className="min-h-screen flex bg-slate-950 text-slate-100">
+    <div suppressHydrationWarning className="h-screen overflow-hidden flex bg-slate-950 text-slate-100">
       <Sidebar
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
         currentUser={currentUser}
       />
-      <div suppressHydrationWarning className="flex-1 flex flex-col min-w-0">
+      <div suppressHydrationWarning className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <Header currentUser={currentUser} />
-        <main suppressHydrationWarning className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main
+          suppressHydrationWarning
+          className={`flex-1 min-h-0 ${
+            isInboxPage ? "overflow-hidden p-3" : "overflow-y-auto p-6"
+          }`}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

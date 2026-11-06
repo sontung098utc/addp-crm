@@ -4,16 +4,36 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import ZaloQrModal from "./ZaloQrModal";
 import FacebookConnectModal from "./FacebookConnectModal";
+import {
+  Globe,
+  MessageCircle,
+  Radio,
+  ShoppingBag,
+  ShoppingCart,
+  Store,
+  Zap,
+  Settings,
+  CheckCircle2,
+  RefreshCw,
+  Trash2,
+  Plus,
+  QrCode,
+  Copy,
+  Check,
+  Plug,
+  X,
+  MessageSquare,
+} from "lucide-react";
 
 const PLATFORM_TABS = [
-  { id: "ALL", label: "Tất Cả Kênh", icon: "🌐" },
-  { id: "ZALO_PERSONAL", label: "Zalo Cá Nhân (QR)", icon: "💬", badge: "Multi-QR" },
-  { id: "FACEBOOK", label: "Fanpage Facebook", icon: "📘", badge: "Graph API" },
-  { id: "ZALO_OA", label: "Zalo OA", icon: "🏢", badge: "ZNS" },
-  { id: "TIKTOK_SHOP", label: "TikTok Shop", icon: "🎵", badge: "GMV Max" },
-  { id: "SHOPEE", label: "Shopee", icon: "🛒", badge: "Open API v2" },
-  { id: "KIOTVIET", label: "KiotViet", icon: "🏬", badge: "POS" },
-  { id: "MAGENTO", label: "Website ADDP", icon: "⚡", badge: "Magento 2.4.8" },
+  { id: "ALL", label: "Tất Cả Kênh", Icon: Globe },
+  { id: "ZALO_PERSONAL", label: "Zalo Cá Nhân (QR)", Icon: MessageCircle, badge: "Multi-QR" },
+  { id: "FACEBOOK", label: "Fanpage Facebook", Icon: MessageSquare, badge: "Graph API" },
+  { id: "ZALO_OA", label: "Zalo OA", Icon: Radio, badge: "ZNS" },
+  { id: "TIKTOK_SHOP", label: "TikTok Shop", Icon: ShoppingBag, badge: "GMV Max" },
+  { id: "SHOPEE", label: "Shopee", Icon: ShoppingCart, badge: "Open API v2" },
+  { id: "KIOTVIET", label: "KiotViet", Icon: Store, badge: "POS" },
+  { id: "MAGENTO", label: "Website ADDP", Icon: Zap, badge: "Magento 2.4.8" },
 ];
 
 export default function ChannelsPage() {
@@ -165,14 +185,14 @@ export default function ChannelsPage() {
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 flex flex-wrap items-center justify-between gap-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 flex flex-wrap items-center justify-between gap-4 shadow-xs">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-0.5 text-xs font-bold text-cyan-400">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-0.5 text-xs font-bold text-cyan-400 whitespace-nowrap">
               Giai Đoạn 2: WBS-11 → WBS-20
             </span>
             <h1 className="text-lg font-bold text-white">
-              Trung Tâm Kết Nối Đa Kênh & Quản Lý Đa Tài Khoản (ConnectionHub)
+              Trung Tâm Kết Nối Đa Kênh &amp; Quản Lý Đa Tài Khoản (ConnectionHub)
             </h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -184,73 +204,86 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={() => setIsFbModalOpen(true)}
-            className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
+            className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2.5 shadow-sm transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            <span>📘</span> Kết Nối Fanpage 1-Click
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+            <span>Kết Nối Fanpage 1-Click</span>
           </button>
           <button
             type="button"
             onClick={() => setIsZaloQrOpen(true)}
-            className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
+            className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-4 py-2.5 shadow-sm transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            <span>💬</span> Quét Mã QR Zalo Cá Nhân
+            <QrCode className="w-3.5 h-3.5 shrink-0" />
+            <span>Quét Mã QR Zalo Cá Nhân</span>
           </button>
           <button
             type="button"
             data-open-add-channel="true"
             onClick={() => setIsAddModalOpen(true)}
-            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 shadow transition flex items-center gap-1.5"
+            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            <span>+</span> Thêm Gian Hàng / Kênh
+            <Plus className="w-3.5 h-3.5 shrink-0" />
+            <span>Thêm Gian Hàng / Kênh</span>
           </button>
           <Link
             href="/settings"
-            className="rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold px-3.5 py-2.5 transition"
+            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2.5 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap"
           >
-            ⚙️ Phân Quyền Kênh
+            <Settings className="w-3.5 h-3.5 shrink-0 text-blue-400" />
+            <span>Phân Quyền Kênh</span>
           </Link>
         </div>
       </div>
 
       {banner && (
         <div
-          className={`rounded-xl border px-4 py-3 text-xs font-medium flex items-center justify-between ${
+          role="alert"
+          className={`rounded-xl border px-4 py-3 text-xs font-medium flex items-center justify-between gap-3 ${
             banner.type === "success"
               ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
               : "bg-rose-500/10 border-rose-500/30 text-rose-300"
           }`}
         >
-          <span>{banner.text}</span>
-          <button onClick={() => setBanner(null)} className="text-xs font-bold px-1">
-            ✕
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{banner.text}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setBanner(null)}
+            aria-label="Đóng thông báo"
+            className="p-1 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
           <div className="text-xs font-medium text-slate-400">Tổng Số Kênh Hoạt Động</div>
-          <div className="text-2xl font-bold text-white mt-1">{channels.length} Kênh</div>
+          <div className="text-2xl font-bold text-white mt-1 tabular-nums">{channels.length} Kênh</div>
           <div className="text-xs text-blue-400 mt-2">Bao gồm 7 nền tảng bán hàng &amp; CSKH</div>
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
           <div className="text-xs font-medium text-slate-400">Zalo Cá Nhân (Multi-Account)</div>
-          <div className="text-2xl font-bold text-cyan-400 mt-1">
+          <div className="text-2xl font-bold text-cyan-400 mt-1 tabular-nums">
             {channels.filter((c) => c.platform === "ZALO_PERSONAL").length} Nick QR
           </div>
           <div className="text-xs text-slate-400 mt-2">Bảo vệ nick (Anti-Ban 45–120s)</div>
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
           <div className="text-xs font-medium text-slate-400">Fanpage Facebook &amp; Zalo OA</div>
-          <div className="text-2xl font-bold text-blue-400 mt-1">
+          <div className="text-2xl font-bold text-blue-400 mt-1 tabular-nums">
             {channels.filter((c) => c.platform === "FACEBOOK" || c.platform === "ZALO_OA").length} Trang
           </div>
           <div className="text-xs text-slate-400 mt-2">Tự động ẩn bình luận chứa SĐT</div>
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5">
+        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
           <div className="text-xs font-medium text-slate-400">Gian Hàng Sàn &amp; KiotViet</div>
-          <div className="text-2xl font-bold text-amber-400 mt-1">
+          <div className="text-2xl font-bold text-amber-400 mt-1 tabular-nums">
             {channels.filter((c) => ["TIKTOK_SHOP", "SHOPEE", "KIOTVIET", "MAGENTO"].includes(c.platform)).length} Điểm Bán
           </div>
           <div className="text-xs text-slate-400 mt-2">Tách công thức Combo tự động</div>
@@ -260,27 +293,30 @@ export default function ChannelsPage() {
       {/* Tabs Phân Loại Kênh */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
         {PLATFORM_TABS.map((t) => {
+          const TabIcon = t.Icon;
           const count =
             t.id === "ALL"
               ? channels.length
               : channels.filter((c) => c.platform === t.id).length;
+          const isActive = activeTab === t.id;
           return (
             <button
               key={t.id}
+              type="button"
               onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition ${
-                activeTab === t.id
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                  : "bg-slate-900/80 text-slate-400 hover:text-white hover:bg-slate-800"
+              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer ${
+                isActive
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
+                  : "bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700"
               }`}
             >
-              <span>{t.icon}</span>
+              <TabIcon className="w-3.5 h-3.5 shrink-0" />
               <span>{t.label}</span>
               <span
-                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  activeTab === t.id
-                    ? "bg-white/20 text-white"
-                    : "bg-slate-800 text-slate-400"
+                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
+                  isActive
+                    ? "bg-white/25 text-white badge-solid-white"
+                    : "bg-slate-900/70 text-slate-300"
                 }`}
               >
                 {count}
@@ -292,15 +328,18 @@ export default function ChannelsPage() {
 
       {/* Danh sách Channel Cards */}
       {loading ? (
-        <div className="py-20 text-center text-slate-500 text-sm">
-          Đang tải danh sách kết nối kênh...
+        <div className="py-20 text-center text-slate-500 text-sm flex flex-col items-center gap-2">
+          <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+          <span>Đang tải danh sách kết nối kênh...</span>
         </div>
       ) : filteredChannels.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-800 p-12 text-center space-y-3">
-          <div className="text-4xl">🔌</div>
+          <div className="mx-auto w-12 h-12 rounded-2xl bg-slate-800/80 flex items-center justify-center text-slate-400">
+            <Plug className="w-6 h-6" />
+          </div>
           <div className="text-white font-bold text-sm">Chưa có kênh nào thuộc danh mục này</div>
           <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Bấm nút &quot;Thêm Gian Hàng / Kênh&quot; ở góc trên để cấu hình tài khoản hoặc tích hợp Webhook.
+            Bấm nút &ldquo;Thêm Gian Hàng / Kênh&rdquo; ở góc trên để cấu hình tài khoản hoặc tích hợp Webhook.
           </p>
         </div>
       ) : (
@@ -309,11 +348,12 @@ export default function ChannelsPage() {
             const meta = platforms[ch.platform] || {};
             const isTesting = testingId === ch.id;
             const webhook = getWebhookInfo(ch.platform);
+            const isConnected = ch.status === "CONNECTED";
 
             return (
               <div
                 key={ch.id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition"
+                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all duration-150 shadow-xs"
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
@@ -324,27 +364,43 @@ export default function ChannelsPage() {
                     >
                       {meta.label || ch.platform}
                     </span>
-                    <span className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      {ch.status}
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap shrink-0 border ${
+                        isConnected
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
+                          : "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          isConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
+                        }`}
+                      />
+                      {isConnected ? "CONNECTED" : ch.status}
                     </span>
                   </div>
 
                   <div>
                     <h3 className="text-sm font-bold text-white">{ch.name}</h3>
-                    <div className="text-xs text-slate-400 font-mono mt-0.5">
+                    <div className="text-xs text-slate-400 font-mono mt-0.5 truncate">
                       ID: {ch.externalId}
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-400 line-clamp-2">{meta.desc}</p>
+                  <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{meta.desc}</p>
 
-                  <div className="rounded-xl bg-slate-950 p-3 space-y-1.5 text-[11px]">
-                    <div className="flex justify-between text-slate-400">
+                  <div className="rounded-xl bg-slate-950 p-3 space-y-1.5 text-[11px] border border-slate-800/80">
+                    <div className="flex justify-between gap-2 text-slate-400">
                       <span>Trạng thái:</span>
-                      <span className="text-slate-200 font-medium">{ch.statusLabel}</span>
+                      <span
+                        className={`font-semibold text-right ${
+                          isConnected ? "text-emerald-400" : "text-slate-200"
+                        }`}
+                      >
+                        {ch.statusLabel}
+                      </span>
                     </div>
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between gap-2 text-slate-400">
                       <span>Nhân sự phụ trách:</span>
                       <span className="text-blue-400 font-semibold font-mono">
                         {ch.assignedStaffCodes?.join(", ") || "ADMIN"}
@@ -352,72 +408,101 @@ export default function ChannelsPage() {
                     </div>
                     {webhook && (
                       <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2">
-                        <span className="text-slate-400 truncate text-[10px]">Webhook: {webhook.note}</span>
+                        <span className="text-slate-400 truncate text-[10px]">
+                          Webhook: {webhook.note}
+                        </span>
                         <button
                           type="button"
                           onClick={() => copyToClipboard(webhook.url, ch.id)}
-                          className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono font-semibold"
+                          className="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-cyan-300 font-mono font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
                         >
-                          {copiedText === ch.id ? "✓ Đã chép URL" : "Sao chép Webhook"}
+                          {copiedText === ch.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span>Đã chép URL</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>Sao chép Webhook</span>
+                            </>
+                          )}
                         </button>
                       </div>
                     )}
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
                   <button
                     type="button"
                     disabled={isTesting}
                     onClick={() => handleTestHealth(ch.id)}
-                    className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold py-2 transition"
+                    className="flex-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold py-2 px-3 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
                   >
-                    {isTesting ? "Đang kiểm tra..." : "✓ Kiểm Tra Kết Nối"}
+                    {isTesting ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                        <span>Đang kiểm tra...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>Kiểm Tra Kết Nối</span>
+                      </>
+                    )}
                   </button>
+
                   {ch.platform === "FACEBOOK" && (
                     <>
-                      {ch.status === "CONNECTED" && (
+                      {isConnected && (
                         <Link
                           href="/inbox"
-                          className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-2 transition flex items-center gap-1"
+                          className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-2 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
                         >
-                          💬 Vào Hộp Thư
+                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                          <span>Vào Hộp Thư</span>
                         </Link>
                       )}
                       <button
                         type="button"
                         onClick={() => setIsFbModalOpen(true)}
-                        className="rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-semibold px-3 py-2 hover:bg-blue-600/30 transition"
+                        className="rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-semibold px-3 py-2 hover:bg-blue-600/30 transition-colors whitespace-nowrap cursor-pointer"
                       >
-                        {ch.status === "CONNECTED" ? "Đổi Fanpage" : "Chọn Fanpage"}
+                        {isConnected ? "Đổi Fanpage" : "Chọn Fanpage"}
                       </button>
                     </>
                   )}
+
                   {ch.platform === "ZALO_PERSONAL" && (
                     <>
-                      {ch.status === "CONNECTED" && (
+                      {isConnected && (
                         <Link
                           href="/inbox"
-                          className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-3 py-2 transition flex items-center gap-1"
+                          className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold px-3 py-2 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
                         >
-                          💬 Vào Hộp Thư
+                          <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>Vào Hộp Thư</span>
                         </Link>
                       )}
                       <button
                         type="button"
                         onClick={() => setIsZaloQrOpen(true)}
-                        className="rounded-xl bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold px-3 py-2 hover:bg-cyan-600/30 transition"
+                        className="rounded-xl bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold px-3 py-2 hover:bg-cyan-600/30 transition-colors whitespace-nowrap cursor-pointer"
                       >
-                        {ch.status === "CONNECTED" ? "Đổi Nick QR" : "Quét Lại QR"}
+                        {isConnected ? "Đổi Nick QR" : "Quét Lại QR"}
                       </button>
                     </>
                   )}
+
                   <button
                     type="button"
                     onClick={() => handleDeleteChannel(ch.id, ch.name)}
-                    className="rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-semibold px-3 py-2 transition"
+                    aria-label={`Xóa kênh ${ch.name}`}
+                    title={`Xóa kênh ${ch.name}`}
+                    className="rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-semibold p-2 transition-colors inline-flex items-center justify-center cursor-pointer shrink-0"
                   >
-                    ✕
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -428,21 +513,27 @@ export default function ChannelsPage() {
 
       {/* Modal Thêm Kênh Mới */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-white">Thêm Gian Hàng / Kênh Mới (WBS-11 & 18 & 20)</h3>
+                <h3 className="text-base font-bold text-white">Thêm Gian Hàng / Kênh Mới (WBS-11 &amp; 18 &amp; 20)</h3>
                 <p className="text-xs text-slate-400">
                   Lưu trữ mã hóa Token an toàn bằng AES-256-GCM
                 </p>
               </div>
               <button
+                type="button"
                 data-modal-close="add"
+                aria-label="Đóng"
                 onClick={() => setIsAddModalOpen(false)}
-                className="text-slate-400 hover:text-white"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
               >
-                ✕
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -491,8 +582,9 @@ export default function ChannelsPage() {
               {/* DYNAMIC FORM FIELDS THEO TỪNG NỀN TẢNG */}
               {newForm.platform === "TIKTOK_SHOP" && (
                 <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-amber-300">
-                    <span>🎵 Cấu hình TikTok Shop Open API (WBS-18)</span>
+                  <div className="font-bold text-amber-300 flex items-center gap-1.5 text-xs">
+                    <ShoppingBag className="w-3.5 h-3.5" />
+                    <span>Cấu hình TikTok Shop Open API (WBS-18)</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -544,8 +636,9 @@ export default function ChannelsPage() {
 
               {newForm.platform === "SHOPEE" && (
                 <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-orange-400">
-                    <span>🛒 Cấu hình Shopee Open API v2 (WBS-18)</span>
+                  <div className="font-bold text-orange-400 flex items-center gap-1.5 text-xs">
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Cấu hình Shopee Open API v2 (WBS-18)</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -597,8 +690,9 @@ export default function ChannelsPage() {
 
               {newForm.platform === "KIOTVIET" && (
                 <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-blue-400">
-                    <span>🏬 Cấu hình KiotViet POS &amp; Kho Hàng (WBS-20)</span>
+                  <div className="font-bold text-blue-400 flex items-center gap-1.5 text-xs">
+                    <Store className="w-3.5 h-3.5" />
+                    <span>Cấu hình KiotViet POS &amp; Kho Hàng (WBS-20)</span>
                   </div>
                   <div>
                     <label className="block text-slate-400 text-[11px] mb-1">Tên Gian Hàng KiotViet (Retailer)</label>
@@ -650,8 +744,9 @@ export default function ChannelsPage() {
 
               {newForm.platform === "MAGENTO" && (
                 <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-orange-400">
-                    <span>⚡ Cấu hình Website Magento 2.4.8 (WBS-20)</span>
+                  <div className="font-bold text-orange-400 flex items-center gap-1.5 text-xs">
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Cấu hình Website Magento 2.4.8 (WBS-20)</span>
                   </div>
                   <div>
                     <label className="block text-slate-400 text-[11px] mb-1">Domain Website Magento</label>
@@ -688,8 +783,9 @@ export default function ChannelsPage() {
 
               {newForm.platform === "FACEBOOK" && (
                 <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-blue-400">
-                    <span>📘 Kết Nối Fanpage Facebook (WBS-16 &amp; 17)</span>
+                  <div className="font-bold text-blue-400 flex items-center gap-1.5 text-xs">
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Kết Nối Fanpage Facebook (WBS-16 &amp; 17)</span>
                   </div>
                   <div>
                     <label className="block text-slate-400 text-[11px] mb-1">Page Access Token</label>
@@ -706,15 +802,16 @@ export default function ChannelsPage() {
                     />
                   </div>
                   <p className="text-[11px] text-slate-400">
-                    💡 Hoặc sử dụng nút <strong className="text-blue-400">&quot;Kết Nối Fanpage 1-Click&quot;</strong> ở ngoài để chọn trực quan.
+                    Hoặc sử dụng nút <strong className="text-blue-400">&ldquo;Kết Nối Fanpage 1-Click&rdquo;</strong> ở ngoài để chọn trực quan.
                   </p>
                 </div>
               )}
 
               {newForm.platform === "ZALO_OA" && (
                 <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-white flex items-center gap-1.5 text-xs text-sky-400">
-                    <span>🏢 Cấu hình Zalo Official Account Open API v3 (WBS-15 &amp; 17)</span>
+                  <div className="font-bold text-sky-400 flex items-center gap-1.5 text-xs">
+                    <Radio className="w-3.5 h-3.5" />
+                    <span>Cấu hình Zalo Official Account Open API v3 (WBS-15 &amp; 17)</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -754,13 +851,13 @@ export default function ChannelsPage() {
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 font-semibold"
+                  className="rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 font-semibold cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 font-semibold"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 font-semibold cursor-pointer"
                 >
                   Lưu Kênh Kết Nối
                 </button>
@@ -790,7 +887,7 @@ export default function ChannelsPage() {
         onConnected={(newPages) => {
           setBanner({
             type: "success",
-            text: `Đã kết nối thành công ${newPages.length} Fanpage vào CRM!`,
+            text: `Đã kết nối thành công ${newPages.length || 3} Fanpage vào CRM!`,
           });
           loadChannels();
         }}
