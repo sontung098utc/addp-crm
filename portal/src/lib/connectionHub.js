@@ -100,6 +100,8 @@ export function decryptCredential(cipherText) {
   }
 }
 
+const PERSISTED_CHANNELS_PATH = path.join(process.cwd(), "data", "connected_channels.json");
+
 // Lưu trữ bộ nhớ runtime cho các tài khoản kênh
 let runtimeChannelsStore = new Map([
   [
@@ -120,20 +122,66 @@ let runtimeChannelsStore = new Map([
     },
   ],
   [
-    "102",
+    "fb_352284187972091",
     {
-      id: "102",
+      id: "fb_352284187972091",
       platform: "FACEBOOK",
-      name: "Fanpage Sữa Hạt Tiểu Đường Glucare Plus",
-      externalId: "fb_page_glucare",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ cấu hình Page Token",
+      name: "Dược Phẩm ADDP",
+      externalId: "fb_352284187972091",
+      status: "CONNECTED",
+      statusLabel: "Đã kết nối trực tiếp (Meta OAuth)",
       config: {
-        pageId: "1029384756102",
-        encryptedPageAccessToken: "",
+        pageId: "352284187972091",
+        pageAccessToken:
+          "EAAZA1eyz2HWoBSzHcupwyhLptv0lx7dTz4NSSyN3yRhcGHPpPb72lZA8Jli7gWJIZBrASKSdqZBSega1KGTdDiEBTAk8F4igOQhPVs1eT9oIZCRjyindF6TRP9T9qwvV95nUCCE7QpGBZCZCTJwDeK7AjC8zqfGvqZCzZCQRT7KEZBe1No41gbe1UznuQAwT4pSfMSo8ObRRQiZBoRzFuHb8ZAwi",
+        avatar: "",
+        category: "Y tế & Sức khỏe",
+        autoHidePhone: true,
       },
       lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["S001", "S002"],
+      assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
+    },
+  ],
+  [
+    "fb_361639000358537",
+    {
+      id: "fb_361639000358537",
+      platform: "FACEBOOK",
+      name: "Sống khỏe mỗi ngày",
+      externalId: "fb_361639000358537",
+      status: "CONNECTED",
+      statusLabel: "Đã kết nối trực tiếp (Meta OAuth)",
+      config: {
+        pageId: "361639000358537",
+        pageAccessToken:
+          "EAAZA1eyz2HWoBS9YyssPDZAMUqboPpbGeWk7DZAgtwjTLvtBu1eazRlvhNQ3tKARSElBDLzp0z5e8bgzGXvDfRZBvZADVPXgENc9BzIuZCugw6TDBuuKXWuCdZBfsSFupmG1SAfz3dhzvVmey8IZBW6iJrjkgO6MCZB1J9C2IcezH7aq1WYEHkGf2UgB62AZCFWG8oQ4gknQc3dlyUaZB2i9Dc2",
+        avatar: "",
+        category: "Trang web sức khỏe và sự khỏe mạnh",
+        autoHidePhone: true,
+      },
+      lastCheckedAt: new Date().toISOString(),
+      assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
+    },
+  ],
+  [
+    "fb_103590525665701",
+    {
+      id: "fb_103590525665701",
+      platform: "FACEBOOK",
+      name: "Dược phẩm ADDP",
+      externalId: "fb_103590525665701",
+      status: "CONNECTED",
+      statusLabel: "Đã kết nối trực tiếp (Meta OAuth)",
+      config: {
+        pageId: "103590525665701",
+        pageAccessToken:
+          "EAAZA1eyz2HWoBSZCITqY8lvIi8IZBm8gLlqO5e9lwwbIpkOgZCD2Wpuvo4eqiRrDO3uHO6tww7WpZAs81qGSYZBWcjhT5AFHt4BCkTA572olSAE06b7jQ8WgoUL9evCegGxBrFRmUqLwSyHcyiN8SRApgpZAtiTnHwqlgKbXFt0werxkhuS63suf4BD8pKIBkKCn0DgDwP2I1iq1hTZB65EZD",
+        avatar: "",
+        category: "Người sáng tạo nội dung số",
+        autoHidePhone: true,
+      },
+      lastCheckedAt: new Date().toISOString(),
+      assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
     },
   ],
   [
@@ -220,6 +268,40 @@ let runtimeChannelsStore = new Map([
   ],
 ]);
 
+function loadPersistedChannels() {
+  try {
+    if (fs.existsSync(PERSISTED_CHANNELS_PATH)) {
+      const items = JSON.parse(fs.readFileSync(PERSISTED_CHANNELS_PATH, "utf8"));
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          if (item && item.id) {
+            if (item.config?.pageAccessToken && item.status !== "CONNECTED") {
+              item.status = "CONNECTED";
+              item.statusLabel = "Đã kết nối trực tiếp (Meta OAuth)";
+            }
+            runtimeChannelsStore.set(String(item.id), item);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[CONNECTION_HUB_LOAD_ERR]", err);
+  }
+}
+
+function savePersistedChannels() {
+  try {
+    const dir = path.dirname(PERSISTED_CHANNELS_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const all = Array.from(runtimeChannelsStore.values());
+    fs.writeFileSync(PERSISTED_CHANNELS_PATH, JSON.stringify(all, null, 2), "utf8");
+  } catch (err) {
+    console.error("[CONNECTION_HUB_SAVE_ERR]", err);
+  }
+}
+
+loadPersistedChannels();
+
 function getLiveZaloAccounts() {
   const accounts = [];
   try {
@@ -272,15 +354,32 @@ function getLiveZaloAccounts() {
 }
 
 export function listAllChannels() {
+  loadPersistedChannels();
   const staticList = Array.from(runtimeChannelsStore.values());
   const liveZalo = getLiveZaloAccounts();
+  const hasConnectedFb = staticList.some(
+    (c) => c.platform === "FACEBOOK" && (c.status === "CONNECTED" || Boolean(c.config?.pageAccessToken))
+  );
 
-  // Nếu đã có Zalo live thì thay thế hoặc bổ sung lên đầu danh sách
+  // Nếu đã có Zalo live hoặc Fanpage thật thì thay thế tài khoản mẫu chờ cấu hình
   const combined = [...liveZalo];
+  const seenExternalIds = new Set(liveZalo.map((z) => String(z.externalId)));
+
   for (const item of staticList) {
     if (item.platform === "ZALO_PERSONAL" && liveZalo.length > 0) {
       continue; // Đã có tài khoản Zalo thật
     }
+    if (item.platform === "FACEBOOK" && hasConnectedFb && !item.config?.pageAccessToken) {
+      continue; // Bỏ qua thẻ Fanpage mẫu chưa có token khi đã kết nối Fanpage thật
+    }
+    if (item.config?.pageAccessToken && item.status !== "CONNECTED") {
+      item.status = "CONNECTED";
+      item.statusLabel = "Đã kết nối trực tiếp (Meta OAuth)";
+    }
+    if (item.externalId && seenExternalIds.has(String(item.externalId))) {
+      continue;
+    }
+    if (item.externalId) seenExternalIds.add(String(item.externalId));
     combined.push(item);
   }
 
@@ -291,6 +390,7 @@ export function listAllChannels() {
 }
 
 export function getChannelById(id) {
+  loadPersistedChannels();
   const item = runtimeChannelsStore.get(String(id));
   if (item) {
     return {
@@ -310,6 +410,7 @@ export function getChannelById(id) {
 }
 
 export function createChannelAccount(input) {
+  loadPersistedChannels();
   const platform = input.platform;
   if (!PLATFORM_INFO[platform]) {
     return { ok: false, error: "Nền tảng kết nối không hợp lệ." };
@@ -319,26 +420,54 @@ export function createChannelAccount(input) {
     return { ok: false, error: "Vui lòng nhập tên nhận diện tài khoản kênh." };
   }
 
-  const nextId = String(Date.now());
+  const extId = input.externalId ? String(input.externalId).trim() : "";
+  const isConnected =
+    input.status === "CONNECTED" ||
+    Boolean(input.config?.pageAccessToken) ||
+    Boolean(input.config?.ownId) ||
+    Boolean(input.config?.apiToken);
+
+  // Kiểm tra nếu đã tồn tại kênh cùng externalId thì cập nhật luôn không tạo trùng
+  if (extId) {
+    for (const [k, v] of runtimeChannelsStore.entries()) {
+      if (v.externalId === extId) {
+        const updated = {
+          ...v,
+          name,
+          status: isConnected ? "CONNECTED" : v.status,
+          statusLabel: isConnected ? "Đã kết nối trực tiếp (Meta OAuth)" : v.statusLabel,
+          config: { ...v.config, ...input.config },
+          lastCheckedAt: new Date().toISOString(),
+        };
+        runtimeChannelsStore.set(k, updated);
+        savePersistedChannels();
+        return { ok: true, channel: updated };
+      }
+    }
+  }
+
+  const nextId = extId || String(Date.now());
   const newAccount = {
     id: nextId,
     platform,
     name,
-    externalId: input.externalId ? String(input.externalId).trim() : `ext_${nextId.slice(-6)}`,
-    status: "READY_TO_CONNECT",
-    statusLabel: "Vừa khởi tạo, sẵn sàng kết nối",
+    externalId: extId || `ext_${nextId.slice(-6)}`,
+    status: isConnected ? "CONNECTED" : "READY_TO_CONNECT",
+    statusLabel: isConnected ? "Đã kết nối trực tiếp (Meta OAuth)" : "Vừa khởi tạo, sẵn sàng kết nối",
     config: {
       ...input.config,
     },
     lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: input.assignedStaffCodes || ["ADMIN"],
+    assignedStaffCodes: input.assignedStaffCodes || ["ADMIN", "S001", "S002", "CS01"],
   };
 
   runtimeChannelsStore.set(nextId, newAccount);
+  savePersistedChannels();
   return { ok: true, channel: newAccount };
 }
 
 export function updateChannelAccount(id, updates) {
+  loadPersistedChannels();
   const existing = runtimeChannelsStore.get(String(id));
   if (!existing) {
     return { ok: false, error: "Không tìm thấy tài khoản kênh." };
@@ -359,12 +488,15 @@ export function updateChannelAccount(id, updates) {
   existing.lastCheckedAt = new Date().toISOString();
 
   runtimeChannelsStore.set(String(id), existing);
+  savePersistedChannels();
   return { ok: true, channel: existing };
 }
 
 export function deleteChannelAccount(id) {
+  loadPersistedChannels();
   if (runtimeChannelsStore.has(String(id))) {
     runtimeChannelsStore.delete(String(id));
+    savePersistedChannels();
     return { ok: true };
   }
   return { ok: false, error: "Không tìm thấy tài khoản kênh để xóa." };

@@ -17,7 +17,7 @@ import path from "path";
 export async function POST(request) {
   try {
     const body = await request.json();
-    let { recipient, message, homeDir, channel = "ZALO_PERSONAL" } = body;
+    let { recipient, recipientId, pageId, message, homeDir, channel = "ZALO_PERSONAL" } = body;
 
     if (!recipient || !String(recipient).trim()) {
       return NextResponse.json(
@@ -45,7 +45,8 @@ export async function POST(request) {
     if (channel === "FACEBOOK" || channel === "ZALO_OA") {
       const result = await sendUnifiedMessage({
         channel,
-        recipientId: recipient,
+        recipientId: recipientId || recipient,
+        pageId,
         text: message,
       });
 

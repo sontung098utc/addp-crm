@@ -224,8 +224,26 @@ export default function LiveZaloInbox() {
       }
     } catch {}
 
-    loadConversations(!hasLocal);
+    // Luôn gọi refresh=1 khi mở trang để đồng bộ mới nhất từ Zalo & Fanpage FB
+    loadConversations(!hasLocal, true);
+
+    // Tự động đồng bộ danh sách hội thoại mới mỗi 12 giây
+    const pollTimer = setInterval(() => {
+      loadConversations(false, false);
+    }, 12000);
+
+    return () => clearInterval(pollTimer);
   }, []);
+
+  // Tự động chọn hội thoại đầu tiên của kênh khi người dùng bấm lọc Kênh (Zalo QR / Fanpage FB)
+  useEffect(() => {
+    if (channelFilter !== "ALL" && conversations.length > 0) {
+      if (!activeConv || activeConv.channel !== channelFilter) {
+        const firstMatch = conversations.find((c) => c.channel === channelFilter);
+        if (firstMatch) setActiveConv(firstMatch);
+      }
+    }
+  }, [channelFilter, conversations]);
 
   // 2. Tải lịch sử tin nhắn khi đổi người chat (Tuyệt đối không chèn tin nhắn giả)
   useEffect(() => {
@@ -237,6 +255,8 @@ export default function LiveZaloInbox() {
         const res = await fetch(
           `/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}&type=${encodeURIComponent(
             activeConv.type || "DIRECT"
+          )}&channel=${encodeURIComponent(activeConv.channel || "ZALO_PERSONAL")}&pageId=${encodeURIComponent(
+            activeConv.pageId || ""
           )}`
         );
         const data = await res.json();
@@ -322,6 +342,8 @@ export default function LiveZaloInbox() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           recipient: activeConv.id,
+          recipientId: activeConv.recipientId || activeConv.id,
+          pageId: activeConv.pageId || "",
           message: messageText,
           channel: activeConv.channel || "ZALO_PERSONAL",
         }),
@@ -449,7 +471,7 @@ export default function LiveZaloInbox() {
                   <h2 className="text-sm font-bold text-white tracking-tight">Hộp Thư Đa Kênh</h2>
                   <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse" />
-                    Sơn Tùng (Zalo Cá Nhân)
+                    Zalo Sơn Tùng &amp; 3 Fanpage FB
                   </p>
                 </div>
               </div>
@@ -552,11 +574,16 @@ export default function LiveZaloInbox() {
               </button>
               <button
                 onClick={() => setChannelFilter("FACEBOOK")}
-                className={`px-1.5 py-0.5 rounded ${
+                className={`px-1.5 py-0.5 rounded flex items-center gap-1 ${
                   channelFilter === "FACEBOOK" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
                 }`}
               >
-                Fanpage FB
+                <span>Fanpage FB</span>
+                {conversations.filter((c) => c.channel === "FACEBOOK").length > 0 && (
+                  <span className="rounded-full bg-blue-500/30 px-1 text-[9px] text-blue-200 font-bold">
+                    {conversations.filter((c) => c.channel === "FACEBOOK").length}
+                  </span>
+                )}
               </button>
             </div>
           </div>

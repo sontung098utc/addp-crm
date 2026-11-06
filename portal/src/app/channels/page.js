@@ -375,13 +375,23 @@ export default function ChannelsPage() {
                     {isTesting ? "Đang kiểm tra..." : "✓ Kiểm Tra Kết Nối"}
                   </button>
                   {ch.platform === "FACEBOOK" && (
-                    <button
-                      type="button"
-                      onClick={() => setIsFbModalOpen(true)}
-                      className="rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-semibold px-3 py-2 hover:bg-blue-600/30 transition"
-                    >
-                      {ch.status === "CONNECTED" ? "Đổi Fanpage" : "Chọn Fanpage"}
-                    </button>
+                    <>
+                      {ch.status === "CONNECTED" && (
+                        <Link
+                          href="/inbox"
+                          className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold px-3 py-2 transition flex items-center gap-1"
+                        >
+                          💬 Vào Hộp Thư
+                        </Link>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsFbModalOpen(true)}
+                        className="rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs font-semibold px-3 py-2 hover:bg-blue-600/30 transition"
+                      >
+                        {ch.status === "CONNECTED" ? "Đổi Fanpage" : "Chọn Fanpage"}
+                      </button>
+                    </>
                   )}
                   {ch.platform === "ZALO_PERSONAL" && (
                     <>

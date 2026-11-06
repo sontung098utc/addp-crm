@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -6,11 +6,126 @@ import os from "os";
 /**
  * ADDP Omnichannel AI CRM — High Performance Zalo CLI Runner (Cross-Platform)
  * Tự động nhận diện môi trường Windows / Linux (CentOS, Ubuntu).
- * Hỗ trợ đa tài khoản độc lập qua connector-home.
+ * Hỗ trợ đa tài khoản độc lập qua connector-home & tự động chạy tiến trình đồng bộ ngầm (mcp start).
  */
 
 const LOCAL_ENTRY = "C:\\addp-crm\\server\\tools\\javis-zalo\\node_modules\\javis-zalo\\src\\index.js";
 const REMOTE_TARBALL = "https://codeload.github.com/blogminhquy/javis-zalo/tar.gz/refs/tags/v1.9.0";
+
+if (!globalThis.__zaloMcpDaemons) {
+  globalThis.__zaloMcpDaemons = new Map();
+}
+
+function isPidAlive(pid) {
+  const num = Number(pid);
+  if (!num || num <= 0) return false;
+  try {
+    process.kill(num, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Đảm bảo tiến trình ngầm `mcp start` luôn chạy cho tài khoản Zalo đang kết nối
+ * để tự động backfill lịch sử tin nhắn cũ và lắng nghe tin nhắn mới thời gian thực vào history.jsonl.
+ */
+export function ensureZaloMcpDaemon(homeDir) {
+  try {
+    const targetHome = homeDir || getActiveZaloHome();
+    if (!targetHome) return false;
+
+    const cliDir = path.join(targetHome, ".zalo-agent-cli");
+    const credPath = path.join(cliDir, "credentials");
+    if (!fs.existsSync(credPath)) return false;
+
+    // 1. Kiểm tra trong bộ nhớ process hiện tại
+    const existingMem = globalThis.__zaloMcpDaemons.get(targetHome);
+    if (existingMem && existingMem.pid && isPidAlive(existingMem.pid)) {
+      return true;
+    }
+
+    // 2. Kiểm tra file mcp.pid trong .zalo-agent-cli
+    const pidFile = path.join(cliDir, "mcp.pid");
+    if (fs.existsSync(pidFile)) {
+      try {
+        const savedPid = Number(fs.readFileSync(pidFile, "utf8").trim());
+        if (isPidAlive(savedPid)) {
+          return true;
+        }
+      } catch {}
+    }
+
+    // 3. Kiểm tra mcp-stdio-pids.json của Javis (nếu có)
+    const stdioCandidates = [
+      path.resolve(process.cwd(), "server", "mcp-stdio-pids.json"),
+      path.resolve(process.cwd(), "..", "server", "mcp-stdio-pids.json"),
+    ];
+    for (const sp of stdioCandidates) {
+      if (fs.existsSync(sp)) {
+        try {
+          const map = JSON.parse(fs.readFileSync(sp, "utf8"));
+          for (const p of Object.values(map || {})) {
+            if (isPidAlive(p)) return true;
+          }
+        } catch {}
+      }
+    }
+
+    // 4. Khởi chạy daemon `mcp start` ngầm cho targetHome
+    const localCandidates = [
+      path.resolve(process.cwd(), "server", "tools", "javis-zalo", "node_modules", "javis-zalo", "src", "index.js"),
+      path.resolve(process.cwd(), "..", "server", "tools", "javis-zalo", "node_modules", "javis-zalo", "src", "index.js"),
+      path.resolve(process.cwd(), "tools", "javis-zalo", "node_modules", "javis-zalo", "src", "index.js"),
+      ...(process.platform === "win32" ? [LOCAL_ENTRY] : []),
+    ];
+    const localEntry = localCandidates.find((p) => fs.existsSync(p));
+
+    const env = {
+      ...process.env,
+      HOME: targetHome,
+      USERPROFILE: targetHome,
+      ZALO_JSON_MODE: "1",
+    };
+
+    let child = null;
+    if (localEntry) {
+      child = spawn(process.execPath, [localEntry, "mcp", "start"], {
+        env,
+        stdio: ["pipe", "ignore", "ignore"],
+      });
+    } else {
+      const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+      child = spawn(
+        npxCmd,
+        ["-y", "--prefer-offline", REMOTE_TARBALL, "mcp", "start"],
+        {
+          env,
+          shell: process.platform === "win32",
+          stdio: ["pipe", "ignore", "ignore"],
+        }
+      );
+    }
+
+    if (child && child.pid) {
+      fs.writeFileSync(pidFile, String(child.pid), "utf8");
+      globalThis.__zaloMcpDaemons.set(targetHome, {
+        pid: child.pid,
+        stdin: child.stdin, // Giữ stdin mở để stdio MCP server không tự thoát
+        startedAt: Date.now(),
+      });
+      child.on("exit", () => {
+        globalThis.__zaloMcpDaemons.delete(targetHome);
+      });
+      child.unref();
+      return true;
+    }
+  } catch (err) {
+    console.error("[ENSURE_ZALO_MCP_DAEMON_ERR]", err.message);
+  }
+  return false;
+}
 
 export function getActiveZaloHome() {
   try {

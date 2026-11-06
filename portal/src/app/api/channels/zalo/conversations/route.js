@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runZaloCommand, getActiveZaloHome } from "../../../../../lib/zaloRunner.js";
+import { runZaloCommand, getActiveZaloHome, ensureZaloMcpDaemon } from "../../../../../lib/zaloRunner.js";
 import { getOmnichannelConversations } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
 import path from "path";
@@ -149,10 +149,28 @@ export async function GET(request) {
     const forceRefresh = searchParams.get("refresh") === "1";
     const targetHome = getActiveZaloHome();
 
-    // 1. Đọc tin nhắn mới từ history.jsonl & danh bạ / hội thoại từ Zalo CLI
-    const [threadsMap, { recentList, friendMap, groupMap }] = await Promise.all([
+    // Đảm bảo tiến trình ngầm `mcp start` đang chạy để backfill & nhận tin nhắn Zalo thời gian thực
+    ensureZaloMcpDaemon(targetHome);
+
+    // Nếu history.jsonl chưa kịp khởi tạo lần đầu, chờ tối đa 3.2s để backfill kịp ghi đĩa
+    const histPath = path.join(targetHome, ".zalo-agent-cli", "history.jsonl");
+    if (!fs.existsSync(histPath)) {
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 3200) {
+        if (fs.existsSync(histPath)) {
+          try {
+            if (fs.statSync(histPath).size > 0) break;
+          } catch {}
+        }
+        await new Promise((r) => setTimeout(r, 350));
+      }
+    }
+
+    // 1. Đọc tin nhắn mới từ history.jsonl & danh bạ / hội thoại từ Zalo CLI + Fanpage FB
+    const [threadsMap, { recentList, friendMap, groupMap }, otherConversations] = await Promise.all([
       getLatestThreadsFromHistory(targetHome),
       getZaloMetadata(forceRefresh),
+      getOmnichannelConversations(forceRefresh),
     ]);
 
     const conversations = [];
@@ -210,8 +228,9 @@ export async function GET(request) {
       });
     }
 
-    // 3. Bổ sung các cuộc hội thoại gần nhất trả về từ Zalo API (conv recent)
-    for (const item of recentList) {
+    // 3. Bổ sung các cuộc hội thoại gần nhất trả về từ Zalo API (conv recent) đúng thứ tự thời gian thực
+    for (let idx = 0; idx < recentList.length; idx++) {
+      const item = recentList[idx];
       const tid = String(item.threadId);
       if (!processedIds.has(tid)) {
         processedIds.add(tid);
@@ -219,7 +238,18 @@ export async function GET(request) {
         const f = friendMap.get(tid);
         const g = groupMap.get(tid);
 
+        const rawAction = Number(item.lastActionTime || f?.lastActionTime || 0);
+        const actionTs =
+          rawAction > 0
+            ? rawAction > 2e12
+              ? Math.floor(rawAction / 1000)
+              : rawAction < 1e11
+              ? rawAction * 1000
+              : rawAction
+            : Date.now() - 60000 - idx * 1000;
+
         const cleanActive = (() => {
+          if (rawAction > 0) return formatTimeLabel(actionTs);
           const s = String(item.lastActive || "").trim();
           if (/\b\d{5}\b/.test(s) || /588\d{2}/.test(s) || s.includes("5881") || s.includes("588")) {
             const timeMatch = s.match(/\d{1,2}:\d{2}/);
@@ -237,7 +267,7 @@ export async function GET(request) {
           memberCount: g?.memberCount || (isGroup ? 2 : 0),
           lastMessage: isGroup ? "Hội thoại nhóm Zalo" : "Trò chuyện gần đây",
           lastActive: cleanActive,
-          timestamp: Date.now() - 3600000, // Ưu tiên xếp trên danh bạ tĩnh
+          timestamp: actionTs,
           channel: "ZALO_PERSONAL",
           channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
         });
@@ -282,7 +312,6 @@ export async function GET(request) {
     }
 
     // 5. Hợp nhất các cuộc trò chuyện từ Fanpage Facebook & Zalo OA (WBS-21)
-    const otherConversations = getOmnichannelConversations();
     const combined = [...conversations, ...otherConversations].sort((a, b) => b.timestamp - a.timestamp);
 
     return NextResponse.json({

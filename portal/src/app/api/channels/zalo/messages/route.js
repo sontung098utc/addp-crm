@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runZaloCommand, getActiveZaloHome } from "../../../../../lib/zaloRunner.js";
+import { runZaloCommand, getActiveZaloHome, ensureZaloMcpDaemon } from "../../../../../lib/zaloRunner.js";
 import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
 import path from "path";
@@ -86,14 +86,46 @@ export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const threadId = searchParams.get("threadId");
+    const channel = searchParams.get("channel") || "";
+    const pageId = searchParams.get("pageId") || "";
 
     if (!threadId) {
       return NextResponse.json({ error: "Thiếu tham số threadId." }, { status: 400 });
     }
 
-    const targetHome = getActiveZaloHome();
+    // 1. Nếu là hội thoại Fanpage Facebook (t_xxx hoặc channel === FACEBOOK) -> Lấy trực tiếp từ Meta Graph API
+    if (channel === "FACEBOOK" || String(threadId).startsWith("t_")) {
+      const fbMsgs = await getThreadMessages(threadId, "FACEBOOK", pageId);
+      const formatted = fbMsgs.map((m) => {
+        const { time, date } = formatMessageTime(m.timestamp);
+        return {
+          id: m.id,
+          text: m.text,
+          senderId: m.senderId,
+          senderName: m.senderName,
+          isMe: m.isMe,
+          timestamp: m.timestamp,
+          time,
+          date,
+          type: m.type || "text",
+          mediaUrl: m.mediaUrl,
+          status: "sent",
+        };
+      });
 
-    // 1. Ưu tiên đọc lịch sử tin nhắn thật từ history.jsonl (siêu tốc <5ms)
+      return NextResponse.json({
+        ok: true,
+        source: "facebook_graph",
+        threadId,
+        count: formatted.length,
+        messages: formatted,
+      });
+    }
+
+    const targetHome = getActiveZaloHome();
+    const daemonRunning = ensureZaloMcpDaemon(targetHome);
+
+    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ history.jsonl (siêu tốc <5ms)
     const localMessages = await getThreadMessagesFromHistory(targetHome, threadId);
     if (localMessages.length > 0) {
       return NextResponse.json({
@@ -105,44 +137,46 @@ export async function GET(request) {
       });
     }
 
-    // 2. Dự phòng: Gọi lệnh CLI msg history nếu chưa có trong history.jsonl
-    const isGroup = searchParams.get("type") === "GROUP";
-    const typeArgs = isGroup ? ["-t", "1"] : ["-t", "0"];
-    const result = await runZaloCommand(["msg", "history", threadId, ...typeArgs, "--limit", "40", "--json"], {
-      homeDir: targetHome,
-      timeout: 10000,
-    });
-
-    if (result.ok && result.data && Array.isArray(result.data.messages)) {
-      const formatted = result.data.messages.map((m) => {
-        const ts = Number(m.timestamp) || Date.now();
-        const { time, date } = formatMessageTime(ts);
-        const isMe = m.isMe === true;
-        return {
-          id: String(m.msgId || ts),
-          text: m.text || "[Tin nhắn]",
-          senderId: String(m.senderId || ""),
-          senderName: m.senderName || (isMe ? "Sơn Tùng" : "Khách"),
-          isMe,
-          timestamp: ts,
-          time,
-          date,
-          type: m.type || "text",
-          status: "sent",
-        };
+    // 3. Dự phòng: Chỉ gọi CLI msg history khi daemon chưa chạy (tránh xung đột WebSocket code 3000)
+    if (!daemonRunning) {
+      const isGroup = searchParams.get("type") === "GROUP";
+      const typeArgs = isGroup ? ["-t", "1"] : ["-t", "0"];
+      const result = await runZaloCommand(["msg", "history", threadId, ...typeArgs, "--limit", "40", "--json"], {
+        homeDir: targetHome,
+        timeout: 10000,
       });
 
-      return NextResponse.json({
-        ok: true,
-        source: "cli_history",
-        threadId,
-        count: formatted.length,
-        messages: formatted,
-      });
+      if (result.ok && result.data && Array.isArray(result.data.messages)) {
+        const formatted = result.data.messages.map((m) => {
+          const ts = Number(m.timestamp) || Date.now();
+          const { time, date } = formatMessageTime(ts);
+          const isMe = m.isMe === true;
+          return {
+            id: String(m.msgId || ts),
+            text: m.text || "[Tin nhắn]",
+            senderId: String(m.senderId || ""),
+            senderName: m.senderName || (isMe ? "Sơn Tùng" : "Khách"),
+            isMe,
+            timestamp: ts,
+            time,
+            date,
+            type: m.type || "text",
+            status: "sent",
+          };
+        });
+
+        return NextResponse.json({
+          ok: true,
+          source: "cli_history",
+          threadId,
+          count: formatted.length,
+          messages: formatted,
+        });
+      }
     }
 
-    // 3. Fallback: Lấy tin nhắn từ Unified Message Router (Facebook Fanpage & Zalo OA)
-    const omniMsgs = await getThreadMessages(threadId);
+    // 4. Fallback: Lấy tin nhắn từ Unified Message Router (Zalo OA / Webchat)
+    const omniMsgs = await getThreadMessages(threadId, channel, pageId);
     if (omniMsgs.length > 0) {
       const formatted = omniMsgs.map((m) => {
         const { time, date } = formatMessageTime(m.timestamp);

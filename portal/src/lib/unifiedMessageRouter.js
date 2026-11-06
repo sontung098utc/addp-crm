@@ -138,12 +138,176 @@ export async function addUnifiedMessage({
   return messageObj;
 }
 
+let cachedFbConversations = null;
+let lastFbFetchTime = 0;
+const FB_CACHE_TTL_MS = 15000;
+// Map lưu liên kết threadId (t_xxx) -> { pageId, psid, pageName, token }
+const fbThreadMetaMap = new Map();
+
 /**
- * Lấy lịch sử tin nhắn của một hội thoại theo threadId
+ * Đồng bộ danh sách hội thoại thật 100% từ tất cả các Fanpage Facebook đã kết nối qua Meta Graph API
  */
-export async function getThreadMessages(threadId, channel = "ALL") {
+export async function fetchLiveFacebookConversations(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedFbConversations && now - lastFbFetchTime < FB_CACHE_TTL_MS) {
+    return cachedFbConversations;
+  }
+
+  const channels = listAllChannels();
+  const fbChannels = channels.filter(
+    (c) => c.platform === "FACEBOOK" && c.config?.pageId && c.config?.pageAccessToken
+  );
+
+  if (fbChannels.length === 0) {
+    return [];
+  }
+
+  const results = [];
+
+  await Promise.all(
+    fbChannels.map(async (fbCh) => {
+      const pageId = String(fbCh.config.pageId).trim();
+      const token = String(fbCh.config.pageAccessToken).trim();
+      const pageName = fbCh.name || `Fanpage ${pageId}`;
+      try {
+        const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(
+          pageId
+        )}/conversations?fields=id,updated_time,snippet,unread_count,participants&limit=25&access_token=${encodeURIComponent(
+          token
+        )}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const data = await res.json();
+        if (Array.isArray(data?.data)) {
+          for (const conv of data.data) {
+            const parts = Array.isArray(conv.participants?.data) ? conv.participants.data : [];
+            const customer = parts.find((p) => String(p.id) !== pageId) || parts[0] || {};
+            const psid = customer.id ? String(customer.id) : "";
+            const custName = customer.name || "Khách hàng Fanpage";
+            const updatedTs = conv.updated_time ? new Date(conv.updated_time).getTime() : Date.now();
+
+            fbThreadMetaMap.set(String(conv.id), {
+              pageId,
+              psid,
+              pageName,
+              token,
+              customerName: custName,
+            });
+            if (psid) {
+              fbThreadMetaMap.set(psid, {
+                threadId: String(conv.id),
+                pageId,
+                psid,
+                pageName,
+                token,
+                customerName: custName,
+              });
+            }
+
+            results.push({
+              id: String(conv.id),
+              recipientId: psid || String(conv.id),
+              pageId,
+              pageName,
+              channel: "FACEBOOK",
+              channelLabel: `Fanpage: ${pageName}`,
+              channelIcon: "📘",
+              name: custName,
+              type: "DIRECT",
+              avatar: "",
+              phone: "",
+              lastMessage: conv.snippet || "[Tin nhắn Messenger]",
+              timestamp: updatedTs,
+              lastActive: formatTimeAgo(updatedTs),
+              unreadCount: Number(conv.unread_count) || 0,
+              status: Number(conv.unread_count) > 0 ? "need_human" : "sale_handled",
+            });
+          }
+        }
+      } catch (err) {
+        console.error(`[FB_GRAPH_CONV_ERR] (${pageName}):`, err.message);
+      }
+    })
+  );
+
+  results.sort((a, b) => b.timestamp - a.timestamp);
+  cachedFbConversations = results;
+  lastFbFetchTime = now;
+  return results;
+}
+
+/**
+ * Lấy lịch sử tin nhắn của một hội thoại theo threadId (Hỗ trợ cả Facebook Graph API trực tiếp)
+ */
+export async function getThreadMessages(threadId, channel = "ALL", pageIdHint = "") {
+  const tid = String(threadId);
+
+  // Nếu là hội thoại Facebook (t_xxx hoặc channel === FACEBOOK) -> Gọi trực tiếp Graph API
+  if (tid.startsWith("t_") || channel === "FACEBOOK") {
+    const channels = listAllChannels();
+    const fbChannels = channels.filter(
+      (c) => c.platform === "FACEBOOK" && c.config?.pageId && c.config?.pageAccessToken
+    );
+
+    const meta = fbThreadMetaMap.get(tid);
+    const orderedPages = [];
+    if (pageIdHint) {
+      const matched = fbChannels.find((c) => String(c.config.pageId) === String(pageIdHint));
+      if (matched) orderedPages.push(matched);
+    }
+    if (meta?.pageId) {
+      const matched = fbChannels.find((c) => String(c.config.pageId) === String(meta.pageId));
+      if (matched && !orderedPages.includes(matched)) orderedPages.push(matched);
+    }
+    for (const ch of fbChannels) {
+      if (!orderedPages.includes(ch)) orderedPages.push(ch);
+    }
+
+    for (const fbCh of orderedPages) {
+      const pageId = String(fbCh.config.pageId).trim();
+      const token = String(fbCh.config.pageAccessToken).trim();
+      try {
+        const msgUrl = `https://graph.facebook.com/v19.0/${encodeURIComponent(
+          tid
+        )}/messages?fields=id,message,from,to,created_time,attachments&limit=30&access_token=${encodeURIComponent(
+          token
+        )}`;
+        const res = await fetch(msgUrl, { signal: AbortSignal.timeout(8000) });
+        const data = await res.json();
+        if (Array.isArray(data?.data)) {
+          const graphMsgs = data.data.map((m) => {
+            const isMe = String(m.from?.id) === pageId;
+            const ts = m.created_time ? new Date(m.created_time).getTime() : Date.now();
+            const attUrl =
+              m.attachments?.data?.[0]?.image_data?.url ||
+              m.attachments?.data?.[0]?.video_data?.url ||
+              null;
+            return {
+              id: String(m.id || ts),
+              channel: "FACEBOOK",
+              channelId: pageId,
+              channelName: fbCh.name,
+              threadId: tid,
+              senderId: String(m.from?.id || ""),
+              senderName: m.from?.name || (isMe ? fbCh.name : "Khách hàng"),
+              text: m.message || (attUrl ? "[Hình ảnh đính kèm]" : "[Tệp đính kèm]"),
+              type: attUrl ? "image" : "text",
+              mediaUrl: attUrl,
+              isMe,
+              timestamp: ts,
+              status: "sent",
+            };
+          });
+          graphMsgs.sort((a, b) => a.timestamp - b.timestamp);
+          return graphMsgs;
+        }
+      } catch (err) {
+        console.error("[FB_GRAPH_MSG_ERR]", err.message);
+      }
+    }
+  }
+
   const localMsgs = storedMessages.filter((m) => {
-    const matchThread = String(m.threadId) === String(threadId);
+    const matchThread = String(m.threadId) === tid;
     if (channel && channel !== "ALL") {
       return matchThread && m.channel === channel;
     }
@@ -154,11 +318,18 @@ export async function getThreadMessages(threadId, channel = "ALL") {
 }
 
 /**
- * Gom và nhóm các tin nhắn đã lưu thành danh sách cuộc hội thoại đa kênh
+ * Gom và nhóm các tin nhắn đã lưu + hội thoại Fanpage thực tế thành danh sách cuộc hội thoại đa kênh
  */
-export function getOmnichannelConversations() {
+export async function getOmnichannelConversations(forceRefresh = false) {
   const convMap = new Map();
 
+  // 1. Lấy hội thoại thật từ các Fanpage Facebook qua Meta Graph API
+  const liveFb = await fetchLiveFacebookConversations(forceRefresh);
+  for (const fbConv of liveFb) {
+    convMap.set(`FACEBOOK_${fbConv.id}`, fbConv);
+  }
+
+  // 2. Bổ sung các tin nhắn realtime nhận qua Webhook
   for (const m of storedMessages) {
     // Không gom lại Zalo cá nhân vì Zalo cá nhân đọc từ history.jsonl trực tiếp
     if (m.channel === "ZALO_PERSONAL") continue;
@@ -168,10 +339,10 @@ export function getOmnichannelConversations() {
 
     if (!existing || m.timestamp >= existing.timestamp) {
       let icon = "🌐";
-      let channelLabel = m.channel;
+      let channelLabel = m.channelName || m.channel;
       if (m.channel === "FACEBOOK") {
         icon = "📘";
-        channelLabel = "Fanpage Facebook";
+        channelLabel = m.channelName ? `Fanpage: ${m.channelName}` : "Fanpage Facebook";
       } else if (m.channel === "ZALO_OA") {
         icon = "🏢";
         channelLabel = "Zalo OA";
@@ -179,10 +350,12 @@ export function getOmnichannelConversations() {
 
       convMap.set(key, {
         id: m.threadId,
+        recipientId: existing?.recipientId || m.senderId || m.threadId,
+        pageId: existing?.pageId || m.channelId || "",
         channel: m.channel,
         channelLabel,
         channelIcon: icon,
-        name: m.senderName || `Khách ${m.channel}`,
+        name: existing?.name || m.senderName || `Khách ${m.channel}`,
         type: "DIRECT",
         avatar: "",
         lastMessage: m.isMe ? `Bạn: ${m.text}` : m.text,
@@ -202,13 +375,17 @@ function formatTimeAgo(ts) {
   if (diff < 60000) return "Vừa xong";
   if (diff < 3600000) return `${Math.floor(diff / 60000)}p trước`;
   const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 /**
  * Gửi tin nhắn phản hồi tới khách hàng qua kênh tương ứng
  */
-export async function sendUnifiedMessage({ channel, recipientId, text, channelId }) {
+export async function sendUnifiedMessage({ channel, recipientId, text, channelId, pageId }) {
   if (!text || !recipientId) {
     return { ok: false, error: "Thiếu nội dung hoặc người nhận tin nhắn." };
   }
@@ -235,18 +412,42 @@ export async function sendUnifiedMessage({ channel, recipientId, text, channelId
 
   if (channel === "FACEBOOK") {
     const channels = listAllChannels();
-    const fbChannel = channels.find((c) => c.platform === "FACEBOOK" && (c.config?.pageAccessToken || c.config?.pageId));
+    const fbChannels = channels.filter(
+      (c) => c.platform === "FACEBOOK" && c.config?.pageId && c.config?.pageAccessToken
+    );
+
+    const meta = fbThreadMetaMap.get(String(recipientId));
+    const targetPageId = pageId || channelId || meta?.pageId || "";
+    const fbChannel =
+      fbChannels.find((c) => String(c.config.pageId) === String(targetPageId)) || fbChannels[0];
+
     const token = fbChannel?.config?.pageAccessToken;
-    const pageId = fbChannel?.config?.pageId;
+    const resolvedPageId = fbChannel?.config?.pageId;
+    let targetPsid = meta?.psid || String(recipientId);
 
     if (token) {
       try {
+        // Nếu recipientId đang là mã hội thoại t_xxx thì truy vấn PSID của khách hàng
+        if (targetPsid.startsWith("t_")) {
+          const convRes = await fetch(
+            `https://graph.facebook.com/v19.0/${encodeURIComponent(
+              targetPsid
+            )}?fields=participants&access_token=${encodeURIComponent(token)}`
+          );
+          const convData = await convRes.json();
+          const parts = Array.isArray(convData?.participants?.data) ? convData.participants.data : [];
+          const cust = parts.find((p) => String(p.id) !== String(resolvedPageId)) || parts[0];
+          if (cust?.id) {
+            targetPsid = String(cust.id);
+          }
+        }
+
         const sendUrl = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(token)}`;
         const fbRes = await fetch(sendUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            recipient: { id: recipientId },
+            recipient: { id: targetPsid },
             message: { text },
           }),
         });
@@ -254,32 +455,25 @@ export async function sendUnifiedMessage({ channel, recipientId, text, channelId
         if (fbData.message_id) {
           await addUnifiedMessage({
             channel: "FACEBOOK",
-            channelId: pageId,
+            channelId: resolvedPageId,
             channelName: fbChannel.name,
-            threadId: recipientId,
+            threadId: String(recipientId),
             senderId: "me",
-            senderName: "Trang ADDP",
+            senderName: fbChannel.name,
             text,
             isMe: true,
           });
-          return { ok: true, message: "Đã gửi tin nhắn qua Facebook Messenger!" };
+          return { ok: true, message: `Đã gửi tin nhắn qua Fanpage ${fbChannel.name}!` };
+        } else if (fbData.error) {
+          return { ok: false, error: `Meta báo lỗi: ${fbData.error.message}` };
         }
       } catch (err) {
         console.error("[FB_SEND_ERR]", err);
+        return { ok: false, error: `Lỗi kết nối Meta Graph API: ${err.message}` };
       }
     }
 
-    await addUnifiedMessage({
-      channel: "FACEBOOK",
-      channelId: pageId || "fb_page",
-      channelName: "Fanpage Facebook",
-      threadId: recipientId,
-      senderId: "me",
-      senderName: "Trang ADDP",
-      text,
-      isMe: true,
-    });
-    return { ok: true, message: "Đã ghi nhận gửi tin nhắn Messenger!" };
+    return { ok: false, error: "Chưa tìm thấy Page Access Token hợp lệ cho Fanpage này." };
   }
 
   await addUnifiedMessage({

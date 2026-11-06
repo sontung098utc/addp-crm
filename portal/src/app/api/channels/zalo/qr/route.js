@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { createChannelAccount } from "../../../../../lib/connectionHub.js";
+import { ensureZaloMcpDaemon } from "../../../../../lib/zaloRunner.js";
 
 /**
  * Cầu nối Quét mã QR Zalo Cá Nhân Chuẩn (WBS-13 & WBS-14)
@@ -119,12 +120,19 @@ function registerZaloConnection({ id, label, homeDir, ownId }) {
       platform: "ZALO_PERSONAL",
       name: `Zalo Cá Nhân (${label})`,
       externalId: ownId || id,
+      status: "CONNECTED",
       config: {
         homeDir,
         label,
         ownId,
       },
     });
+    // Khởi động ngay tiến trình đồng bộ ngầm (mcp start) để tải lịch sử & lắng nghe tin nhắn mới
+    setTimeout(() => {
+      try {
+        ensureZaloMcpDaemon(homeDir);
+      } catch {}
+    }, 800);
   } catch (err) {
     console.error("[REGISTER_CRM_CHANNEL_ERROR]", err);
   }
