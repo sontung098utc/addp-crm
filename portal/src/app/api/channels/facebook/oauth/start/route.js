@@ -7,6 +7,38 @@ import { getMetaConfig, saveMetaConfig } from "@/lib/metaConfig.js";
  * facebook.com/dialog/oauth?client_id=...&redirect_uri=...&scope=...
  */
 
+function resolvePublicOrigin(request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const explicitOrigin = searchParams.get("origin");
+    if (
+      explicitOrigin &&
+      explicitOrigin.startsWith("http") &&
+      !explicitOrigin.includes("0.0.0.0") &&
+      !explicitOrigin.includes("127.0.0.1") &&
+      !explicitOrigin.includes("localhost")
+    ) {
+      return explicitOrigin.replace(/\/$/, "");
+    }
+  } catch {}
+
+  const fwdHost = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
+    .split(",")[0]
+    .trim();
+  if (
+    fwdHost &&
+    !fwdHost.includes("0.0.0.0") &&
+    !fwdHost.includes("127.0.0.1") &&
+    !fwdHost.includes("localhost") &&
+    !fwdHost.includes(":3005")
+  ) {
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    return `${proto}://${fwdHost}`;
+  }
+
+  return "https://crm.addp.vn";
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -19,9 +51,7 @@ export async function GET(request) {
 
     const config = getMetaConfig();
     const appId = config.appId;
-    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "crm.addp.vn";
-    const proto = request.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-    const reqOrigin = `${proto}://${host}`;
+    const reqOrigin = resolvePublicOrigin(request);
     const redirectUri = `${reqOrigin}/api/channels/facebook/oauth/callback`;
 
     // Các quyền chính thức Meta yêu cầu cho CRM/CSKH

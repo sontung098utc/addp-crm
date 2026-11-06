@@ -58,17 +58,24 @@ export default function FacebookConnectModal({ isOpen, onClose, onConnected }) {
       const params = new URLSearchParams();
       if (appId.trim()) params.set("appId", appId.trim());
       if (appSecret.trim()) params.set("appSecret", appSecret.trim());
+      if (typeof window !== "undefined") {
+        params.set("origin", window.location.origin);
+      }
 
       const res = await fetch(`/api/channels/facebook/oauth/start?${params.toString()}`);
       const data = await res.json();
 
       if (res.ok && data.authUrl) {
+        const cleanAuthUrl = data.authUrl
+          .replace(/0\.0\.0\.0(%3A|:)3005/g, "crm.addp.vn")
+          .replace(/127\.0\.0\.1(%3A|:)3005/g, "crm.addp.vn")
+          .replace(/localhost(%3A|:)3005/g, "crm.addp.vn");
         const w = 620;
         const h = 750;
         const left = window.screen.width / 2 - w / 2;
         const top = window.screen.height / 2 - h / 2;
         window.open(
-          data.authUrl,
+          cleanAuthUrl,
           "MetaFacebookOAuth",
           `width=${w},height=${h},top=${top},left=${left},scrollbars=yes,status=yes`
         );

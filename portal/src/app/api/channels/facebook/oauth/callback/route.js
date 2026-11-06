@@ -11,6 +11,23 @@ import { getMetaConfig } from "@/lib/metaConfig.js";
  * 4. Tự động kết nối vào CRM và đóng cửa sổ popup
  */
 
+function resolvePublicOrigin(request) {
+  const fwdHost = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
+    .split(",")[0]
+    .trim();
+  if (
+    fwdHost &&
+    !fwdHost.includes("0.0.0.0") &&
+    !fwdHost.includes("127.0.0.1") &&
+    !fwdHost.includes("localhost") &&
+    !fwdHost.includes(":3005")
+  ) {
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    return `${proto}://${fwdHost}`;
+  }
+  return "https://crm.addp.vn";
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -32,7 +49,7 @@ export async function GET(request) {
     const metaConfig = getMetaConfig();
     const appId = metaConfig.appId;
     const appSecret = metaConfig.appSecret;
-    const reqOrigin = request.headers.get("origin") || request.nextUrl.origin || "http://localhost:3005";
+    const reqOrigin = resolvePublicOrigin(request);
     const redirectUri = `${reqOrigin}/api/channels/facebook/oauth/callback`;
 
     let userAccessToken = "";
@@ -51,6 +68,22 @@ export async function GET(request) {
 
       if (tokenData.access_token) {
         userAccessToken = tokenData.access_token;
+
+        // 2. Đổi sang Long-Lived User Token (~60 ngày) để lấy Page Token vĩnh viễn
+        try {
+          const llUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(
+            appId
+          )}&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(
+            userAccessToken
+          )}`;
+          const llRes = await fetch(llUrl);
+          const llData = await llRes.json();
+          if (llData.access_token) {
+            userAccessToken = llData.access_token;
+          }
+        } catch (llErr) {
+          console.warn("[FB_LONG_LIVED_WARN]", llErr);
+        }
       } else {
         exchangeError = tokenData.error?.message || "Không thể đổi mã code lấy Access Token từ Facebook.";
         console.error("[FB_OAUTH_EXCHANGE_ERR]", tokenData);
@@ -70,6 +103,16 @@ export async function GET(request) {
 
       if (Array.isArray(accountsData.data)) {
         for (const p of accountsData.data) {
+          // Tự động đăng ký Webhook cho Fanpage
+          try {
+            await fetch(
+              `https://graph.facebook.com/v19.0/${p.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,feed&access_token=${encodeURIComponent(
+                p.access_token
+              )}`,
+              { method: "POST" }
+            );
+          } catch {}
+
           const res = createChannelAccount({
             platform: "FACEBOOK",
             name: p.name || `Fanpage ${p.id}`,
