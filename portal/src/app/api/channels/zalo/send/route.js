@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { normalizePhone } from "@/lib/phone.js";
-import { runZaloCommand } from "@/lib/zaloRunner.js";
+import { runZaloCommand, getActiveZaloHome } from "@/lib/zaloRunner.js";
 import { sendUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
+import fs from "fs";
+import path from "path";
 
 /**
  * ADDP Omnichannel AI CRM — API Gửi Tin Nhắn Đa Kênh Hợp Nhất (WBS-21 & WBS-22)
@@ -79,6 +81,28 @@ export async function POST(request) {
         },
         { status: 500 }
       );
+    }
+
+    // Tự động ghi ngay tin nhắn vừa gửi vào history.jsonl để hiện thị tức thì trong lịch sử
+    try {
+      const activeHome = homeDir || getActiveZaloHome();
+      const histDir = path.join(activeHome, ".zalo-agent-cli");
+      if (!fs.existsSync(histDir)) fs.mkdirSync(histDir, { recursive: true });
+      const histFile = path.join(histDir, "history.jsonl");
+      const record =
+        JSON.stringify({
+          msgId: `sent_${Date.now()}`,
+          threadId: String(recipient),
+          senderId: "0",
+          senderName: "Sơn Tùng",
+          isSelf: true,
+          text: message,
+          timestamp: Date.now(),
+          type: "text",
+        }) + "\n";
+      fs.appendFileSync(histFile, record, "utf8");
+    } catch (saveErr) {
+      console.warn("[ZALO_SEND_HISTORY_SAVE_WARN]", saveErr?.message);
     }
 
     return NextResponse.json({

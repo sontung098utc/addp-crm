@@ -234,7 +234,11 @@ export default function LiveZaloInbox() {
     async function loadHistory() {
       try {
         setLoadingMessages(true);
-        const res = await fetch(`/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}`);
+        const res = await fetch(
+          `/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}&type=${encodeURIComponent(
+            activeConv.type || "DIRECT"
+          )}`
+        );
         const data = await res.json();
         if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
           setMessages(data.messages);
@@ -573,12 +577,12 @@ export default function LiveZaloInbox() {
                 const isSelected = activeConv?.id === conv.id;
                 const convMeta = getChannelMeta(conv.channel);
                 const displayTime = (() => {
-                  const s = String(conv.lastActive || "");
-                  if (s.includes("58815") || s.includes("5881") || s.includes("588")) {
-                    const parts = s.split(",");
-                    return parts.length > 1 ? parts[1].trim() : "Hôm nay";
+                  const s = String(conv.lastActive || "").trim();
+                  if (/\b\d{5}\b/.test(s) || /588\d{2}/.test(s) || s.includes("5881") || s.includes("588")) {
+                    const timeMatch = s.match(/\d{1,2}:\d{2}/);
+                    return timeMatch ? timeMatch[0] : "Hôm nay";
                   }
-                  return conv.lastActive || "Gần đây";
+                  return s || "Gần đây";
                 })();
                 return (
                   <button
@@ -736,12 +740,26 @@ export default function LiveZaloInbox() {
                     Đang nạp lịch sử tin nhắn...
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-slate-500 text-xs space-y-2">
-                    <div className="text-3xl">💬</div>
-                    <p className="font-semibold text-slate-300">Cuộc trò chuyện với {activeConv.name}</p>
-                    <p className="text-[11px] text-slate-500 max-w-sm">
-                      Chưa có tin nhắn trong phiên này. Hãy soạn tin nhắn bên dưới để gửi tin trực tiếp từ tài khoản Zalo Sơn Tùng.
-                    </p>
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
+                    <div className="h-16 w-16 rounded-full bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-3xl shadow-xs">
+                      💬
+                    </div>
+                    <div className="space-y-1">
+                      <p className="font-bold text-sm text-slate-900 dark:text-white">
+                        Cuộc trò chuyện với {activeConv.name}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {activeConv.phone ? `Số điện thoại: ${activeConv.phone}` : `Zalo ID: ${activeConv.id}`}
+                      </p>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1">
+                      <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold text-xs">
+                        <span>⚡</span> <span>Sẵn sàng kết nối 2 chiều</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Chưa phát sinh tin nhắn mới trong phiên kết nối này. Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp từ nick Zalo Sơn Tùng.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   messages.map((m) => {

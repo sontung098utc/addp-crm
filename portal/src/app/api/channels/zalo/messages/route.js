@@ -13,16 +13,26 @@ import readline from "readline";
 
 function formatMessageTime(timestamp) {
   if (!timestamp) return { time: "Vừa xong", date: "Hôm nay" };
-  const d = new Date(timestamp);
+  let rawTs = Number(timestamp) || Date.now();
+  // Nếu bị nhân 1000 thừa (vượt quá năm 2035 ~ 2.05e12 ms) hoặc thiếu ms
+  const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+  const d = new Date(ts);
+  const now = new Date();
   const hours = String(d.getHours()).padStart(2, "0");
   const mins = String(d.getMinutes()).padStart(2, "0");
+
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const year = d.getFullYear();
 
   return {
     time: `${hours}:${mins}`,
-    date: `${day}/${month}/${year}`,
+    date: isToday ? "Hôm nay" : isYesterday ? "Hôm qua" : `${day}/${month}/${year}`,
   };
 }
 
@@ -96,7 +106,9 @@ export async function GET(request) {
     }
 
     // 2. Dự phòng: Gọi lệnh CLI msg history nếu chưa có trong history.jsonl
-    const result = await runZaloCommand(["msg", "history", threadId, "--json"], {
+    const isGroup = searchParams.get("type") === "GROUP";
+    const typeArgs = isGroup ? ["-t", "1"] : ["-t", "0"];
+    const result = await runZaloCommand(["msg", "history", threadId, ...typeArgs, "--limit", "40", "--json"], {
       homeDir: targetHome,
       timeout: 10000,
     });

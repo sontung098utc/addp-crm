@@ -113,7 +113,9 @@ async function getLatestThreadsFromHistory(zaloHome) {
 
 function formatTimeLabel(timestamp) {
   if (!timestamp) return "Gần đây";
-  const date = new Date(timestamp);
+  let rawTs = Number(timestamp) || Date.now();
+  const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+  const date = new Date(ts);
   const now = new Date();
 
   const isToday =
@@ -218,12 +220,12 @@ export async function GET(request) {
         const g = groupMap.get(tid);
 
         const cleanActive = (() => {
-          const s = String(item.lastActive || "");
-          if (s.includes("58815") || s.includes("5881") || s.includes("588")) {
-            const parts = s.split(",");
-            return parts.length > 1 ? parts[1].trim() : "Hôm nay";
+          const s = String(item.lastActive || "").trim();
+          if (/\b\d{5}\b/.test(s) || /588\d{2}/.test(s) || s.includes("5881") || s.includes("588")) {
+            const timeMatch = s.match(/\d{1,2}:\d{2}/);
+            return timeMatch ? timeMatch[0] : "Hôm nay";
           }
-          return item.lastActive || "Gần đây";
+          return s || "Gần đây";
         })();
 
         conversations.push({
