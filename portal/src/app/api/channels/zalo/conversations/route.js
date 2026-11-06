@@ -217,6 +217,15 @@ export async function GET(request) {
         const f = friendMap.get(tid);
         const g = groupMap.get(tid);
 
+        const cleanActive = (() => {
+          const s = String(item.lastActive || "");
+          if (s.includes("58815") || s.includes("5881") || s.includes("588")) {
+            const parts = s.split(",");
+            return parts.length > 1 ? parts[1].trim() : "Hôm nay";
+          }
+          return item.lastActive || "Gần đây";
+        })();
+
         conversations.push({
           id: tid,
           name: item.name || g?.name || f?.displayName || "Hội thoại Zalo",
@@ -225,7 +234,7 @@ export async function GET(request) {
           phone: f?.phoneNumber || "",
           memberCount: g?.memberCount || (isGroup ? 2 : 0),
           lastMessage: isGroup ? "Hội thoại nhóm Zalo" : "Trò chuyện gần đây",
-          lastActive: item.lastActive || "Gần đây",
+          lastActive: cleanActive,
           timestamp: Date.now() - 3600000, // Ưu tiên xếp trên danh bạ tĩnh
           channel: "ZALO_PERSONAL",
           channelLabel: "Zalo Cá Nhân (Sơn Tùng)",

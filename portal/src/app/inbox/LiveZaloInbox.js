@@ -572,14 +572,22 @@ export default function LiveZaloInbox() {
               filteredConversations.map((conv) => {
                 const isSelected = activeConv?.id === conv.id;
                 const convMeta = getChannelMeta(conv.channel);
+                const displayTime = (() => {
+                  const s = String(conv.lastActive || "");
+                  if (s.includes("58815") || s.includes("5881") || s.includes("588")) {
+                    const parts = s.split(",");
+                    return parts.length > 1 ? parts[1].trim() : "Hôm nay";
+                  }
+                  return conv.lastActive || "Gần đây";
+                })();
                 return (
                   <button
                     key={conv.id}
                     onClick={() => setActiveConv(conv)}
                     className={`w-full text-left p-3 transition flex items-center gap-3 ${
                       isSelected
-                        ? "bg-slate-800/90 border-l-4 border-blue-500"
-                        : "hover:bg-slate-800/40"
+                        ? "bg-blue-50/90 dark:bg-slate-800/90 border-l-4 border-blue-500"
+                        : "hover:bg-slate-100 dark:hover:bg-slate-800/40"
                     }`}
                   >
                     {/* Avatar */}
@@ -589,15 +597,15 @@ export default function LiveZaloInbox() {
                         <img
                           src={conv.avatar}
                           alt={conv.name}
-                          className="h-11 w-11 rounded-full object-cover border border-slate-700"
+                          className="h-11 w-11 rounded-full object-cover border border-slate-300 dark:border-slate-700"
                         />
                       ) : (
-                        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-indigo-600 border border-slate-700 flex items-center justify-center text-xs font-bold text-white">
+                        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-indigo-600 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white">
                           {conv.name.slice(0, 2).toUpperCase()}
                         </div>
                       )}
                       <span
-                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-slate-900 flex items-center justify-center text-[7px] text-white font-black`}
+                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black`}
                         title={convMeta.label}
                       >
                         {convMeta.avatarLetter}
@@ -609,19 +617,19 @@ export default function LiveZaloInbox() {
                       <div className="flex items-center justify-between mb-0.5">
                         <div className="flex items-center gap-1 min-w-0">
                           {conv.type === "GROUP" && (
-                            <span className="rounded bg-indigo-500/20 text-indigo-400 text-[9px] font-semibold px-1 py-0.2 flex-shrink-0">
+                            <span className="rounded bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 text-[9px] font-semibold px-1 py-0.2 flex-shrink-0">
                               Nhóm
                             </span>
                           )}
-                          <span className="font-semibold text-xs text-white truncate">
+                          <span className="font-semibold text-xs text-slate-900 dark:text-white truncate">
                             {conv.name}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-500 flex-shrink-0 ml-1">
-                          {conv.lastActive}
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 flex-shrink-0 ml-1">
+                          {displayTime}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 truncate">
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
                         {conv.lastMessage}
                       </p>
                     </div>
@@ -639,63 +647,63 @@ export default function LiveZaloInbox() {
           {activeConv ? (
             <>
               {/* Header khung chat */}
-              <div className="h-16 px-5 border-b border-slate-800 bg-slate-900/60 backdrop-blur flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
+              <div className="h-16 px-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/60 backdrop-blur flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative flex-shrink-0">
                     {activeConv.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={activeConv.avatar}
                         alt={activeConv.name}
-                        className="h-10 w-10 rounded-full object-cover border border-slate-700"
+                        className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700"
                       />
                     ) : (
                       <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
                         {activeConv.name.slice(0, 2).toUpperCase()}
                       </div>
                     )}
-                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-slate-900" />
+                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
                   </div>
 
-                  <div>
-                    <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                      {activeConv.name}
-                      <span className={`rounded text-[10px] font-semibold px-1.5 py-0.2 ${getChannelMeta(activeConv.channel).pillClass}`}>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 truncate">
+                      <span className="truncate">{activeConv.name}</span>
+                      <span className={`rounded text-[10px] font-semibold px-1.5 py-0.2 flex-shrink-0 ${getChannelMeta(activeConv.channel).pillClass}`}>
                         {activeConv.channelLabel || getChannelMeta(activeConv.channel).label}
                       </span>
                     </h3>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
                       {activeConv.phone ? `SĐT: ${activeConv.phone}` : `ID: ${activeConv.id}`} • {activeConv.accountName ? `Nick: ${activeConv.accountName}` : `Kênh: ${getChannelMeta(activeConv.channel).label}`}
                     </p>
                   </div>
                 </div>
 
                 {/* WBS-32 & WBS-33: Bộ chuyển 3 chế độ AI & Các nút công cụ */}
-                <div className="flex items-center gap-2">
-                  <div className="hidden sm:flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-800">
-                    <span className="text-[11px] text-slate-400 font-medium">Trực:</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Trực:</span>
                     <select
                       value={aiMode}
                       onChange={(e) => setAiMode(e.target.value)}
-                      className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer"
+                      className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
                     >
-                      <option value="HUMAN_ONLY" className="bg-slate-900 text-slate-200">👤 Nhân viên trực</option>
-                      <option value="DRAFT_ONLY" className="bg-slate-900 text-amber-300">📝 A.I. Soạn nháp</option>
-                      <option value="AUTO_REPLY" className="bg-slate-900 text-emerald-400">🤖 A.I. Tự động 24/7</option>
+                      <option value="HUMAN_ONLY" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">👤 Nhân viên trực</option>
+                      <option value="DRAFT_ONLY" className="bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-300">📝 A.I. Soạn nháp</option>
+                      <option value="AUTO_REPLY" className="bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400">🤖 A.I. Tự động 24/7</option>
                     </select>
                   </div>
 
                   <button
                     type="button"
                     title="Gọi thoại Zalo"
-                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition"
                   >
                     📞
                   </button>
                   <button
                     type="button"
                     title="Gọi video Zalo"
-                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition"
                   >
                     📹
                   </button>
@@ -703,13 +711,13 @@ export default function LiveZaloInbox() {
                     type="button"
                     onClick={() => setShowSidePanel(!showSidePanel)}
                     title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                    className={`p-2 rounded-xl text-xs font-semibold transition ${
+                    className={`p-2 rounded-xl text-xs font-semibold transition border ${
                       showSidePanel
-                        ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                        ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
                     }`}
                   >
-                    📋 Hồ Sơ 360
+                    👤 Hồ Sơ 360
                   </button>
                 </div>
               </div>
@@ -904,29 +912,29 @@ export default function LiveZaloInbox() {
                 </div>
               )}
               <div>
-                <h4 className="font-bold text-sm text-white">{activeConv.name}</h4>
-                <p className="text-xs text-slate-400">{activeConv.phone || `Zalo ID: ${activeConv.id}`}</p>
+                <h4 className="font-bold text-sm text-slate-900 dark:text-white">{activeConv.name}</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{activeConv.phone || `Zalo ID: ${activeConv.id}`}</p>
               </div>
 
               {/* Action buttons */}
               <div className="flex justify-center gap-2 pt-1">
                 <button
                   type="button"
-                  className="p-2 rounded-xl bg-slate-800 text-xs text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700"
                   title="Ghim hội thoại"
                 >
                   📌 Ghim
                 </button>
                 <button
                   type="button"
-                  className="p-2 rounded-xl bg-slate-800 text-xs text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                  className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition border border-slate-200 dark:border-slate-700"
                   title="Tắt thông báo"
                 >
                   🔕 Tắt chuông
                 </button>
                 <Link
                   href="/customers"
-                  className="p-2 rounded-xl bg-blue-600/20 border border-blue-500/30 text-xs text-blue-300 hover:bg-blue-600/30 transition"
+                  className="p-2 rounded-xl bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-600/30 transition"
                   title="Mở hồ sơ khách hàng 360"
                 >
                   👤 Hồ Sơ 360
@@ -1016,11 +1024,10 @@ export default function LiveZaloInbox() {
                       className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
                     >
                       <span>🛒 Lên Đơn Hàng Nhanh</span>
-                      <span className="text-[10px] bg-emerald-700 px-1.5 py-0.2 rounded font-mono">WBS-39</span>
                     </button>
                     <Link
                       href={`/customers/${matchedCustomer.id}`}
-                      className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
+                      className="w-full block text-center rounded-xl bg-blue-50 dark:bg-blue-600/20 hover:bg-blue-100 dark:hover:bg-blue-600/30 border border-blue-200 dark:border-blue-500/30 py-2 text-xs font-bold text-blue-600 dark:text-blue-300 transition"
                     >
                       👤 Mở Chi Tiết Hồ Sơ 360 ({matchedCustomer.code})
                     </Link>
@@ -1028,8 +1035,8 @@ export default function LiveZaloInbox() {
                 </div>
               ) : (
                 <div className="space-y-2 text-xs">
-                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-center space-y-1">
-                    <p className="text-slate-400 text-[11px]">Chưa tìm thấy hồ sơ khách hàng khớp với số điện thoại hoặc tên này.</p>
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 text-center space-y-1">
+                    <p className="text-slate-500 dark:text-slate-400 text-[11px]">Chưa tìm thấy hồ sơ khách hàng khớp với số điện thoại hoặc tên này.</p>
                   </div>
 
                   <div className="pt-1 space-y-2">
@@ -1039,11 +1046,10 @@ export default function LiveZaloInbox() {
                       className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-lg shadow-emerald-950/40 transition flex items-center justify-center gap-1.5"
                     >
                       <span>🛒 Lên Đơn Hàng Nhanh</span>
-                      <span className="text-[10px] bg-emerald-700 px-1.5 py-0.2 rounded font-mono">WBS-39</span>
                     </button>
                     <Link
                       href="/customers"
-                      className="w-full block text-center rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 py-2 text-xs font-bold text-blue-300 transition"
+                      className="w-full block text-center rounded-xl bg-blue-50 dark:bg-blue-600/20 hover:bg-blue-100 dark:hover:bg-blue-600/30 border border-blue-200 dark:border-blue-500/30 py-2 text-xs font-bold text-blue-600 dark:text-blue-300 transition"
                     >
                       + Tạo Hồ Sơ Khách Hàng 360 Mới
                     </Link>
