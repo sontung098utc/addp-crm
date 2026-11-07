@@ -1,16 +1,10 @@
 # ============================================================================
-# ADDP CRM - DIRECTADMIN APACHE REVERSE PROXY CONFIGURATION
+# ADDP CRM - DIRECTADMIN OPENLITESPEED REVERSE PROXY CONFIGURATION
 # Đặt file này trong thư mục /home/addp/domains/crm.addp.vn/public_html
+# Sử dụng extprocessor BackendCrm (trỏ về 127.0.0.1:3005)
 # ============================================================================
 
-<IfModule mod_rewrite.c>
-  RewriteEngine On
-  RewriteBase /
-
-  # Không chuyển tiếp thư mục xác thực SSL Let's Encrypt
-  RewriteRule ^\.well-known/acme-challenge - [L]
-
-  # Chuyển tiếp toàn bộ yêu cầu (Reverse Proxy) vào ứng dụng ADDP CRM đang chạy tại cổng 3005
-  RewriteCond %{REQUEST_URI} !^/\.well-known/
-  RewriteRule ^(.*)$ http://127.0.0.1:3005/$1 [P,L]
-</IfModule>
+RewriteEngine On
+RewriteRule ^\.well-known/acme-challenge - [L]
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+RewriteRule ^(.*)$ http://BackendCrm/$1 [P,L]
