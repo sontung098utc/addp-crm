@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import QuickOrderModal from "../components/QuickOrderModal";
+import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 import {
   RefreshCw,
   Settings,
@@ -117,6 +118,23 @@ function getChannelMeta(channel, pageId = "", connectedPages = []) {
   }
 }
 
+function extractChatPhoneNumbers(messagesList = []) {
+  const phoneRegex = /(?:\+84|84|0)[35789](?:[\s.-]?\d){8}\b/g;
+  const found = [];
+  for (let i = messagesList.length - 1; i >= 0; i--) {
+    const txt = messagesList[i]?.text;
+    if (!txt || typeof txt !== "string") continue;
+    const matches = txt.match(phoneRegex) || [];
+    for (const m of matches) {
+      const norm = normalizePhone(m);
+      if (isValidVietnamPhone(norm) && !found.includes(norm)) {
+        found.push(norm);
+      }
+    }
+  }
+  return found;
+}
+
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [connectedPages, setConnectedPages] = useState([]);
@@ -131,6 +149,8 @@ export default function LiveZaloInbox() {
   // WBS-25: Hồ Sơ Khách Hàng 360 liên kết với hội thoại
   const [matchedCustomer, setMatchedCustomer] = useState(null);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
+  const [detectedChatPhone, setDetectedChatPhone] = useState("");
+  const [detectedAiTags, setDetectedAiTags] = useState([]);
 
   // Tin nhắn của cuộc trò chuyện đang chọn
   const [messages, setMessages] = useState([]);
@@ -170,6 +190,9 @@ export default function LiveZaloInbox() {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("addp:realtime-event", { detail: data }));
+          }
           if (data.type === "NEW_MESSAGE" && data.message) {
             const newMsg = data.message;
             if (activeConvRef.current && String(activeConvRef.current.id) === String(newMsg.threadId)) {
@@ -305,8 +328,8 @@ export default function LiveZaloInbox() {
       }
     } catch {}
 
-    // Luôn gọi refresh=1 khi mở trang để đồng bộ mới nhất từ Zalo & 3 Fanpage FB
-    loadConversations(!hasLocal, true);
+    // Tải ngay danh sách hội thoại từ bộ nhớ/cache để hiển thị tức thì (<50ms), đồng bộ ngầm ở phía server
+    loadConversations(!hasLocal, false);
 
     // Tự động đồng bộ danh sách hội thoại mới mỗi 12 giây (chạy ngầm, không gây giật UI)
     const pollTimer = setInterval(() => {
@@ -391,17 +414,26 @@ export default function LiveZaloInbox() {
     };
   }, [activeConv?.id, activeConv?.channel, activeConv?.pageId]);
 
-  // WBS-25: Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat
+  // WBS-25: Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat hoặc khi bắt được SĐT trong tin nhắn
   useEffect(() => {
     if (!activeConv) {
       setMatchedCustomer(null);
+      setDetectedChatPhone("");
       return;
     }
     let isCancelled = false;
+
+    const scannedPhones = extractChatPhoneNumbers(messages);
+    const effectivePhone =
+      (activeConv.phone && normalizePhone(activeConv.phone)) ||
+      scannedPhones[0] ||
+      "";
+    setDetectedChatPhone(effectivePhone);
+
     async function loadCustomerProfile() {
       try {
         setLoadingCustomer(true);
-        const searchParam = activeConv.phone || activeConv.name || "";
+        const searchParam = effectivePhone || activeConv.name || "";
         if (!searchParam) {
           setMatchedCustomer(null);
           return;
@@ -412,7 +444,7 @@ export default function LiveZaloInbox() {
           const matched =
             data.customers.find(
               (c) =>
-                (activeConv.phone && c.phone === activeConv.phone) ||
+                (effectivePhone && c.phone === effectivePhone) ||
                 c.fullName.toLowerCase() === activeConv.name.toLowerCase()
             ) || data.customers[0];
           setMatchedCustomer(matched);
@@ -429,7 +461,7 @@ export default function LiveZaloInbox() {
     return () => {
       isCancelled = true;
     };
-  }, [activeConv?.id, activeConv?.phone, activeConv?.name]);
+  }, [activeConv?.id, activeConv?.phone, activeConv?.name, messages]);
 
   // 3. Gửi tin nhắn 2 chiều (Hỗ trợ cả DM, Group Zalo & từng Fanpage FB)
   const handleSendMessage = async (e) => {
@@ -531,6 +563,12 @@ export default function LiveZaloInbox() {
       const replyContent = data.replyText || data.reply;
       if (data.ok && replyContent) {
         setInputMessage(replyContent);
+        if (data.detectedPhone) {
+          setDetectedChatPhone(data.detectedPhone);
+        }
+        if (Array.isArray(data.tags) && data.tags.length > 0) {
+          setDetectedAiTags(data.tags);
+        }
         setToast({ type: "success", text: "A.I. đã soạn xong lời tư vấn chuyên sâu!" });
         setTimeout(() => setToast(null), 3000);
       } else {
@@ -1401,8 +1439,22 @@ export default function LiveZaloInbox() {
               <div className="space-y-1">
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white">{activeConv.name}</h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                  {activeConv.phone || `ID: ${activeConv.id}`}
+                  {activeConv.phone || detectedChatPhone
+                    ? `SĐT: ${activeConv.phone || detectedChatPhone}`
+                    : `ID: ${activeConv.id}`}
                 </p>
+                {detectedAiTags.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-1 pt-1">
+                    {detectedAiTags.map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-semibold text-indigo-300"
+                      >
+                        ✨ {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="pt-0.5">
                   <span
                     className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ${
@@ -1588,7 +1640,14 @@ export default function LiveZaloInbox() {
       <QuickOrderModal
         isOpen={isOrderModalOpen}
         onClose={() => setIsOrderModalOpen(false)}
-        customer={activeConv}
+        customer={
+          activeConv
+            ? {
+                ...activeConv,
+                phone: activeConv.phone || detectedChatPhone || matchedCustomer?.phone || "",
+              }
+            : null
+        }
         onSuccess={(order) => {
           setToast({ type: "success", text: `Đã tạo đơn hàng ${order.orderCode} thành công!` });
           setTimeout(() => setToast(null), 3000);

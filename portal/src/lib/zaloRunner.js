@@ -403,6 +403,8 @@ function triggerDirectSyncWorker(targetHome, forceFull = false) {
 export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
   const targetHome = homeDir || getActiveZaloHome();
   const cliDir = path.join(targetHome, ".zalo-agent-cli");
+  const credPath = path.join(cliDir, "credentials");
+  const hasCredentials = fs.existsSync(credPath);
   const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
 
   let cached = null;
@@ -412,19 +414,32 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
     } catch {}
   }
 
+  // Nếu chưa có phiên đăng nhập Zalo (credentials) và chưa có cache, trả về ngay lập tức không chờ spawn CLI 27s
+  if (!hasCredentials && !cached) {
+    return {
+      ownId: "1781287338457243967",
+      friendMap: new Map(),
+      groupMap: new Map(),
+      pinnedSet: new Set(),
+    };
+  }
+
   const now = Date.now();
   const cacheAge = cached?.updatedAt ? now - cached.updatedAt : Infinity;
 
-  if (!cached || forceRefresh) {
-    // Chờ worker chạy xong để có dữ liệu mới nhất ngay lập tức
-    await triggerDirectSyncWorker(targetHome, forceRefresh);
+  if (forceRefresh && hasCredentials) {
+    // Chỉ chờ tối đa 2.5s khi người dùng chủ động bấm nút Làm mới (refresh=1)
+    await Promise.race([
+      triggerDirectSyncWorker(targetHome, true),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
     if (fs.existsSync(metaCachePath)) {
       try {
         cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
       } catch {}
     }
-  } else if (cacheAge > 20000) {
-    // Đã có cache trên đĩa -> kích hoạt đồng bộ ngầm không chặn phản hồi UI
+  } else if ((!cached || cacheAge > 20000) && hasCredentials) {
+    // Kích hoạt đồng bộ ngầm không chặn phản hồi UI để danh sách hội thoại mở tức thì (<50ms)
     triggerDirectSyncWorker(targetHome, false).catch(() => {});
   }
 
@@ -439,20 +454,6 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
   }
 
   const pinnedSet = new Set((cached?.pinnedIds || []).map((id) => String(id)));
-
-  // Fallback nếu worker chưa lấy được (ví dụ chạy qua CLI thuần)
-  if (friendMap.size === 0 && groupMap.size === 0) {
-    const [fRes, gRes] = await Promise.all([
-      runZaloCommand(["friend", "list", "--json"], { homeDir: targetHome, timeout: 12000 }),
-      runZaloCommand(["group", "list", "--json"], { homeDir: targetHome, timeout: 12000 }),
-    ]);
-    if (fRes.ok && Array.isArray(fRes.data)) {
-      for (const f of fRes.data) friendMap.set(String(f.userId), f);
-    }
-    if (gRes.ok && Array.isArray(gRes.data)) {
-      for (const g of gRes.data) groupMap.set(String(g.threadId), g);
-    }
-  }
 
   return {
     ownId: cached?.ownId || "1781287338457243967",

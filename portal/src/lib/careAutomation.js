@@ -110,9 +110,110 @@ export function buildCareSchedule({
   return tasks.sort((a, b) => a.offsetDays - b.offsetDays);
 }
 
+// Bộ nhớ động lưu trữ trạng thái các công việc chăm sóc hàng ngày (WBS-28 & WBS-29)
+let dynamicTasksStore = [];
+
+export function getAllCareTasks(seedCustomers = []) {
+  if (dynamicTasksStore.length === 0 && Array.isArray(seedCustomers) && seedCustomers.length > 0) {
+    const today = new Date();
+    seedCustomers.forEach((c) => {
+      const schedule = buildCareSchedule({
+        customerName: c.fullName,
+        productName: "Sữa hạt Glucare Plus",
+        startDate: c.lastOrderDate || today,
+        durationDays: 30,
+      });
+
+      schedule.forEach((item, idx) => {
+        const dueDate = new Date();
+        if (idx === 0) {
+          dueDate.setDate(dueDate.getDate() - 1); // Quá hạn 1 ngày
+        } else if (idx === 1) {
+          // Hôm nay
+        } else {
+          dueDate.setDate(dueDate.getDate() + idx * 2);
+        }
+
+        dynamicTasksStore.push({
+          id: `task_${c.id}_${item.type}`,
+          customerId: c.id,
+          customerName: c.fullName,
+          customerPhone: c.phone,
+          customerPathology: c.pathology,
+          customerGlucose: c.currentGlucose || c.initialGlucose,
+          staffId: c.staffId,
+          staffName: c.staffName,
+          taskType: item.type,
+          title: item.title,
+          deadline: dueDate.toISOString().slice(0, 10),
+          suggestedMessage: item.suggestedMessage,
+          isCompleted: false,
+          completedAt: null,
+          resultNote: null,
+          carePath: c.status || "Đang chăm sóc",
+          channel: c.source || "ZALO_PERSONAL",
+        });
+      });
+    });
+  }
+  return dynamicTasksStore;
+}
+
+export function appendOrderCareTasks(order = {}) {
+  const schedule = buildCareSchedule({
+    customerName: order.customerName || "Anh/Chị",
+    productName:
+      Array.isArray(order.items) && order.items[0]?.name
+        ? order.items[0].name
+        : "Sữa hạt Glucare Plus",
+    startDate: order.createdAt || new Date(),
+    durationDays: 30,
+  });
+
+  const orderTag = order.orderCode || order.id || Date.now();
+  const createdTasks = [];
+
+  schedule.forEach((item, idx) => {
+    const taskId = `task_${orderTag}_${item.type}`;
+    if (dynamicTasksStore.some((t) => t.id === taskId)) return;
+
+    // Mốc đầu tiên đặt vào hôm nay để Sale chăm sóc ngay, các mốc sau theo lịch chuẩn
+    const deadlineStr = idx === 0 ? new Date().toISOString().slice(0, 10) : item.dueDate;
+
+    const newTask = {
+      id: taskId,
+      customerId: order.customerId || order.phone || orderTag,
+      customerName: order.customerName || "Khách hàng",
+      customerPhone: order.phone || "",
+      customerPathology: order.pathology || "Đơn hàng mới: " + (order.orderCode || ""),
+      customerGlucose: null,
+      staffId: Number(order.staffId) || 1,
+      staffName: order.staffName || "Trần Thu Hà",
+      taskType: item.type,
+      title: item.title,
+      deadline: deadlineStr,
+      suggestedMessage: item.suggestedMessage,
+      isCompleted: false,
+      completedAt: null,
+      resultNote: null,
+      carePath: "Đang chăm sóc",
+      channel: order.channel || "ZALO_PERSONAL",
+      orderCode: order.orderCode || null,
+    };
+
+    dynamicTasksStore.unshift(newTask);
+    createdTasks.push(newTask);
+  });
+
+  return createdTasks;
+}
+
 /**
- * Tương thích ngược với các module gọi generateCareTasks
+ * Tương thích ngược với các module gọi generateCareTasks (tự động ghi vào kho CareTasks nếu là đơn hàng)
  */
-export function generateCareTasks(params) {
+export function generateCareTasks(params = {}) {
+  if (params && (params.orderCode || params.id)) {
+    appendOrderCareTasks(params);
+  }
   return buildCareSchedule(params);
 }

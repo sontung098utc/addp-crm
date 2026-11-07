@@ -1,5 +1,7 @@
+import { cookies, headers } from "next/headers";
 import ReportsClient from "./ReportsClient";
 import { getFinancialOverview } from "@/lib/financialEngine";
+import { guardApiRequest } from "@/lib/rbac";
 
 export const metadata = {
   title: "Báo Cáo Doanh Số, Lãi/Lỗ Thực & Đối Soát BI | ADDP CRM",
@@ -11,10 +13,23 @@ export default async function ReportsPage({ searchParams }) {
   const initialTab = sp?.tab || "channels";
   const initialChannel = sp?.channel || "ALL";
 
-  // Lấy dữ liệu tài chính ban đầu trực tiếp trên Server (SSR) để UI hiển thị tức thì, không bị giật số 0 đ
   let initialReport = null;
   try {
-    initialReport = getFinancialOverview({ channel: initialChannel });
+    const cookieStore = await cookies();
+    const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "KE_TOAN"],
+      moduleKey: "reports",
+      resourceType: "finance",
+    });
+
+    if (guard.ok) {
+      initialReport = getFinancialOverview({ channel: initialChannel });
+      if (!guard.scope.canViewFinancialCost && initialReport?.financeBreakdown) {
+        delete initialReport.financeBreakdown.cogs;
+        delete initialReport.financeBreakdown.netProfit;
+      }
+    }
   } catch (e) {
     console.error("Lỗi SSR Financial Report:", e);
   }

@@ -5,12 +5,15 @@ import { SESSION_COOKIE_NAME, verifySessionToken, getStaffByIdOrCode } from "@/l
 export async function GET() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  let user = verifySessionToken(token);
+  const parsed = verifySessionToken(token);
 
-  if (!user) {
-    // Mặc định phiên làm việc Quản trị viên ADDP (ADMIN) để người dùng thao tác thông suốt
-    user = getStaffByIdOrCode("ADMIN");
+  if (!parsed) {
+    return NextResponse.json(
+      { authenticated: false, user: null, error: "Chưa đăng nhập phiên làm việc." },
+      { status: 401 }
+    );
   }
 
+  const user = getStaffByIdOrCode(parsed.code || parsed.id) || parsed;
   return NextResponse.json({ authenticated: true, user });
 }

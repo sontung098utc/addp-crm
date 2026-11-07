@@ -51,6 +51,26 @@ export default function OrdersClient() {
     fetchOrders();
   }, []);
 
+  const handleUpdateOrderStatus = async (orderId, nextStatus) => {
+    try {
+      const res = await fetch("/api/orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, status: nextStatus }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        fetchOrders();
+        setToast(
+          nextStatus === "DELIVERED"
+            ? `Đơn ${data.order.orderCode} đã Giao thành công & tự sinh 7 mốc chăm sóc!`
+            : `Đã cập nhật trạng thái đơn ${data.order.orderCode}`
+        );
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch {}
+  };
+
   const filteredOrders = orders.filter((o) => {
     if (selectedChannel !== "ALL" && o.channel !== selectedChannel) return false;
     if (selectedStatus !== "ALL" && o.status !== selectedStatus) return false;
@@ -264,7 +284,21 @@ export default function OrdersClient() {
                     <td className="px-4 py-3 font-mono font-bold text-emerald-400">
                       {(o.finalAmount || 0).toLocaleString("vi-VN")} đ
                     </td>
-                    <td className="px-4 py-3">{getStatusBadge(o.status)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        {getStatusBadge(o.status)}
+                        {o.status !== "DELIVERED" && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateOrderStatus(o.id, "DELIVERED")}
+                            title="Xác nhận Giao thành công & kích hoạt 7 mốc CSKH"
+                            className="px-2 py-0.5 rounded bg-emerald-600/20 hover:bg-emerald-600/40 border border-emerald-500/30 text-[10px] font-semibold text-emerald-300 cursor-pointer transition"
+                          >
+                            ✓ Giao xong
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-slate-300">{o.staffName || "Chưa gán"}</td>
                     <td className="px-4 py-3 text-slate-400 text-[11px]">
                       {o.createdAt ? new Date(o.createdAt).toLocaleDateString("vi-VN") : "Hôm nay"}

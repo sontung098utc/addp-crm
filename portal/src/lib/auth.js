@@ -65,8 +65,58 @@ export function hashPassword(plainPassword) {
   return crypto.createHmac("sha256", SECRET).update(String(plainPassword)).digest("hex");
 }
 
-// Danh sách nhân viên khởi tạo sẵn (đồng bộ với seed trong 001_init_addp_crm.sql)
-const runtimeStaffStore = new Map([
+function getNodeFsAndPath() {
+  if (typeof window !== "undefined") return null;
+  try {
+    const req = eval("require");
+    const fs = req("fs");
+    const path = req("path");
+    const storagePath = path.join(process.cwd(), ".data", "staff.json");
+    return { fs, path, storagePath };
+  } catch {
+    return null;
+  }
+}
+
+function loadPersistentStaffStore() {
+  const map = new Map(DEFAULT_STAFF_ENTRIES);
+  const nodeEnv = getNodeFsAndPath();
+  if (!nodeEnv) return map;
+  try {
+    const { fs, storagePath } = nodeEnv;
+    if (fs.existsSync(storagePath)) {
+      const raw = JSON.parse(fs.readFileSync(storagePath, "utf8"));
+      if (Array.isArray(raw)) {
+        for (const item of raw) {
+          if (item && item.code) {
+            map.set(String(item.code).toUpperCase(), item);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[STAFF_STORAGE_LOAD_ERROR]", err);
+  }
+  return map;
+}
+
+function savePersistentStaffStore(storeMap) {
+  const nodeEnv = getNodeFsAndPath();
+  if (!nodeEnv) return;
+  try {
+    const { fs, path, storagePath } = nodeEnv;
+    const dir = path.dirname(storagePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const list = Array.from(storeMap.values());
+    fs.writeFileSync(storagePath, JSON.stringify(list, null, 2), "utf8");
+  } catch (err) {
+    console.error("[STAFF_STORAGE_SAVE_ERROR]", err);
+  }
+}
+
+const DEFAULT_STAFF_ENTRIES = [
   [
     "ADMIN",
     {
@@ -187,7 +237,9 @@ const runtimeStaffStore = new Map([
       passwordHash: hashPassword("123456"),
     },
   ],
-]);
+];
+
+const runtimeStaffStore = loadPersistentStaffStore();
 
 // Danh sách tài khoản đa kênh thuộc 7 nền tảng (phục vụ Ma trận Phân quyền Kênh WBS-08)
 const runtimeChannelAccounts = [
@@ -338,6 +390,7 @@ export function updateStaffPassword(code, currentPassword, newPassword) {
   }
   staff.passwordHash = hashPassword(newPassword);
   runtimeStaffStore.set(normalizedCode, staff);
+  savePersistentStaffStore(runtimeStaffStore);
   return { ok: true };
 }
 
@@ -393,6 +446,7 @@ export function createStaffRecord(input) {
   };
 
   runtimeStaffStore.set(code, newStaff);
+  savePersistentStaffStore(runtimeStaffStore);
   return { ok: true, staff: stripPassword(newStaff) };
 }
 
@@ -437,6 +491,7 @@ export function updateStaffRecord(idOrCode, updates) {
   }
 
   runtimeStaffStore.set(target.code, target);
+  savePersistentStaffStore(runtimeStaffStore);
   return { ok: true, staff: stripPassword(target) };
 }
 
@@ -455,6 +510,7 @@ export function deleteStaffRecord(idOrCode) {
     return { ok: false, error: "Bảo mật hệ thống: Không được phép xóa tài khoản ADMIN chính!" };
   }
   runtimeStaffStore.delete(target.code);
+  savePersistentStaffStore(runtimeStaffStore);
   for (const key of Array.from(runtimeChannelPermissions.keys())) {
     if (key.startsWith(`${target.id}:`)) {
       runtimeChannelPermissions.delete(key);
@@ -576,15 +632,21 @@ export async function getSessionStaff(request) {
       const cookieHeader = request.headers.get("cookie") || "";
       const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
       if (match) token = match[1];
+      if (!token) {
+        const authHeader = request.headers.get("authorization") || "";
+        if (authHeader.toLowerCase().startsWith("bearer ")) {
+          token = authHeader.slice(7).trim();
+        }
+      }
     }
     if (!token) {
-      return getStaffByIdOrCode("ADMIN");
+      return null;
     }
     const payload = verifySessionToken(token);
-    if (!payload) return getStaffByIdOrCode("ADMIN");
+    if (!payload) return null;
     return getStaffByIdOrCode(payload.code) || payload;
   } catch {
-    return getStaffByIdOrCode("ADMIN");
+    return null;
   }
 }
 

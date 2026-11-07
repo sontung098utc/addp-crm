@@ -10,6 +10,7 @@
 
 import { resolveComboFormulaList } from "./comboResolver.js";
 import { getStoredOrders } from "./ordersStore.js";
+import { getCustomFormulasMap } from "./inventoryStore.js";
 
 // Phí sàn chuẩn theo từng nền tảng
 export const PLATFORM_FEE_RATES = {
@@ -94,11 +95,12 @@ export function computeOrderFinancials(order, adSpendPerOrder = 0) {
 
   // 1. Tính tổng giá vốn hàng bán (COGS) dựa vào thuật toán giải mã combo đệ quy (WBS-41)
   let totalCogs = 0;
+  const customFormulas = getCustomFormulasMap();
   const items = Array.isArray(order.items) ? order.items : [];
   for (const item of items) {
     const sku = item.sku || item.code || item.name || "GLUCARE-LON-800";
     const qty = Number(item.quantity) || 1;
-    const resolvedList = resolveComboFormulaList(sku, qty);
+    const resolvedList = resolveComboFormulaList(sku, qty, customFormulas);
     for (const r of resolvedList) {
       totalCogs += r.totalCost || 0;
     }

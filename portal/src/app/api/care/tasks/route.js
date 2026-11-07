@@ -1,67 +1,13 @@
 import { NextResponse } from "next/server";
-import { getAllCustomers, getCustomerById } from "@/lib/customerIdentityResolver";
-import { buildCareSchedule } from "@/lib/careAutomation";
+import { getAllCustomers, updateCustomer } from "@/lib/customerIdentityResolver";
+import { getAllCareTasks } from "@/lib/careAutomation";
 import { getSessionStaff } from "@/lib/auth";
 import { filterRecordsByRbac } from "@/lib/rbac";
 
-// Bộ nhớ động lưu trữ trạng thái các công việc chăm sóc hàng ngày
-let dynamicTasksStore = [];
-
-function initializeTasksIfNeeded() {
-  const customers = getAllCustomers();
-  if (customers.length === 0) {
-    dynamicTasksStore = [];
-    return;
-  }
-  if (dynamicTasksStore.length > 0) return;
-
-  const today = new Date();
-
-  customers.forEach((c) => {
-    const schedule = buildCareSchedule({
-      customerName: c.fullName,
-      productName: "Sữa hạt Glucare Plus",
-      startDate: c.lastOrderDate || today,
-      durationDays: 30,
-    });
-
-    schedule.forEach((item, idx) => {
-      // Phân bổ một số task vào hôm nay, một số task quá hạn, một số task sắp tới
-      const dueDate = new Date();
-      if (idx === 0) {
-        dueDate.setDate(dueDate.getDate() - 1); // Quá hạn 1 ngày
-      } else if (idx === 1) {
-        // Hôm nay
-      } else {
-        dueDate.setDate(dueDate.getDate() + (idx * 2));
-      }
-
-      dynamicTasksStore.push({
-        id: `task_${c.id}_${item.type}`,
-        customerId: c.id,
-        customerName: c.fullName,
-        customerPhone: c.phone,
-        customerPathology: c.pathology,
-        customerGlucose: c.currentGlucose || c.initialGlucose,
-        staffId: c.staffId,
-        staffName: c.staffName,
-        taskType: item.type,
-        title: item.title,
-        deadline: dueDate.toISOString().slice(0, 10),
-        suggestedMessage: item.suggestedMessage,
-        isCompleted: false,
-        completedAt: null,
-        resultNote: null,
-        carePath: c.status || "Đang chăm sóc",
-        channel: c.source || "ZALO_PERSONAL",
-      });
-    });
-  });
-}
-
 export async function GET(request) {
   try {
-    initializeTasksIfNeeded();
+    const allCustomers = getAllCustomers();
+    const dynamicTasksStore = getAllCareTasks(allCustomers);
 
     const currentStaff = await getSessionStaff(request);
     const { searchParams } = new URL(request.url);
@@ -108,7 +54,8 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    initializeTasksIfNeeded();
+    const allCustomers = getAllCustomers();
+    const dynamicTasksStore = getAllCareTasks(allCustomers);
     const body = await request.json();
     const { taskId, action, resultNote, nextCareDate, careStatus } = body;
 

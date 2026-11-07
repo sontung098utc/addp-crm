@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTheme } from "./ThemeProvider";
@@ -18,39 +18,115 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-const SAMPLE_NOTIFICATIONS = [
-  {
-    id: 1,
-    channel: "Zalo Cá nhân",
-    text: "Khách Nguyễn Văn Hùng (0912345678) hỏi tư vấn Combo 3 Mát Gan + 1 Glucare",
-    time: "Vừa xong",
-    unread: true,
-  },
-  {
-    id: 2,
-    channel: "KiotViet Webhook",
-    text: "Đơn KV-HD8821 đã Giao thành công -> Đã tự tạo 7 mốc nhắc lịch chăm sóc",
-    time: "5 phút trước",
-    unread: true,
-  },
-  {
-    id: 3,
-    channel: "Magento 2.4.8",
-    text: "Khách điền CustomForm tư vấn tiểu đường tuýp 2 trên ADDP.vn",
-    time: "12 phút trước",
-    unread: false,
-  },
-];
-
 export default function Header({ currentUser }) {
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
   const [showNotif, setShowNotif] = useState(false);
+  const [notifications, setNotifications] = useState([]);
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [pwdMessage, setPwdMessage] = useState({ type: "", text: "" });
   const [loadingPwd, setLoadingPwd] = useState(false);
+
+  // Nạp dữ liệu thông báo hệ thống thực tế từ Đơn hàng & Lịch CSKH và lắng nghe SSE Stream (/api/inbox/stream)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSystemNotifications() {
+      try {
+        const [ordersRes, tasksRes] = await Promise.all([
+          fetch("/api/orders"),
+          fetch("/api/care/tasks?filterDate=TODAY"),
+        ]);
+        const ordersData = ordersRes.ok ? await ordersRes.json() : null;
+        const tasksData = tasksRes.ok ? await tasksRes.json() : null;
+
+        if (cancelled) return;
+        const list = [];
+
+        if (ordersData?.ok && Array.isArray(ordersData.orders)) {
+          ordersData.orders.slice(0, 2).forEach((ord) => {
+            list.push({
+              id: `notif_ord_${ord.id}`,
+              channel: ord.channel || "Đơn hàng",
+              text: `Đơn ${ord.orderCode} (${ord.customerName} - ${ord.phone}): ${(ord.finalAmount || 0).toLocaleString("vi-VN")} đ`,
+              time: ord.createdAt ? new Date(ord.createdAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "Gần đây",
+              unread: true,
+            });
+          });
+        }
+
+        if (tasksData?.ok && Array.isArray(tasksData.tasks)) {
+          tasksData.tasks.slice(0, 2).forEach((tsk) => {
+            list.push({
+              id: `notif_tsk_${tsk.id}`,
+              channel: "Lịch CSKH 1-3-7-14-21",
+              text: `${tsk.title} (${tsk.customerPhone})`,
+              time: "Hôm nay",
+              unread: !tsk.isCompleted,
+            });
+          });
+        }
+
+        setNotifications(list);
+      } catch {}
+    }
+
+    loadSystemNotifications();
+    const pollTimer = setInterval(loadSystemNotifications, 20000);
+
+    const handleRealtimeEvent = (e) => {
+      try {
+        const payload = e?.detail;
+        if (!payload) return;
+        if (payload.type === "NEW_MESSAGE" && payload.message) {
+          const m = payload.message;
+          setNotifications((prev) => [
+            {
+              id: `sse_msg_${m.id}`,
+              channel: m.channelName || m.channel || "Tin nhắn mới",
+              text: `${m.senderName}: ${m.text}`,
+              time: "Vừa xong",
+              unread: true,
+            },
+            ...prev.slice(0, 9),
+          ]);
+        } else if (payload.type === "NEW_ORDER" && payload.order) {
+          setNotifications((prev) => [
+            {
+              id: `sse_ord_${payload.order.id}`,
+              channel: payload.channel || "Đơn hàng mới",
+              text: payload.text || `Đơn hàng mới ${payload.order.orderCode}`,
+              time: "Vừa xong",
+              unread: true,
+            },
+            ...prev.slice(0, 9),
+          ]);
+        } else if (payload.type === "CUSTOMER_IDENTIFIED" && payload.customer) {
+          setNotifications((prev) => [
+            {
+              id: `sse_cust_${Date.now()}`,
+              channel: "Khách hàng 360",
+              text: `Đã nhận diện SĐT ${payload.phone} trong hội thoại`,
+              time: "Vừa xong",
+              unread: true,
+            },
+            ...prev.slice(0, 9),
+          ]);
+        }
+      } catch {}
+    };
+
+    window.addEventListener("addp:realtime-event", handleRealtimeEvent);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+      window.removeEventListener("addp:realtime-event", handleRealtimeEvent);
+    };
+  }, []);
+
+  const unreadCount = notifications.filter((n) => n.unread).length;
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -142,41 +218,62 @@ export default function Header({ currentUser }) {
             >
               <Bell className="w-4 h-4 text-slate-300 shrink-0" />
               <span className="hidden md:inline">Thông báo</span>
-              <span className="h-5 min-w-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center badge-solid-white">
-                2
-              </span>
+              {unreadCount > 0 && (
+                <span className="h-5 min-w-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center badge-solid-white">
+                  {unreadCount}
+                </span>
+              )}
             </button>
 
             {showNotif && (
               <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-4 z-50 space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                   <span className="font-bold text-sm text-white">Thông báo Thời gian thực</span>
-                  <button
-                    type="button"
-                    onClick={() => setShowNotif(false)}
-                    aria-label="Đóng thông báo"
-                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {unreadCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNotifications((prev) => prev.map((item) => ({ ...item, unread: false })))
+                        }
+                        className="text-[11px] text-blue-400 hover:underline cursor-pointer"
+                      >
+                        Đánh dấu đã đọc
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowNotif(false)}
+                      aria-label="Đóng thông báo"
+                      className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {SAMPLE_NOTIFICATIONS.map((n) => (
-                    <div
-                      key={n.id}
-                      className={`p-2.5 rounded-xl border text-xs space-y-1 ${
-                        n.unread
-                          ? "bg-blue-950/40 border-blue-500/30 text-slate-100"
-                          : "bg-slate-800/40 border-slate-800 text-slate-300"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between font-semibold text-blue-400">
-                        <span>{n.channel}</span>
-                        <span className="text-[11px] text-slate-400">{n.time}</span>
-                      </div>
-                      <p className="leading-relaxed">{n.text}</p>
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      Chưa có thông báo mới.
                     </div>
-                  ))}
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        className={`p-2.5 rounded-xl border text-xs space-y-1 ${
+                          n.unread
+                            ? "bg-blue-950/40 border-blue-500/30 text-slate-100"
+                            : "bg-slate-800/40 border-slate-800 text-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-semibold text-blue-400">
+                          <span>{n.channel}</span>
+                          <span className="text-[11px] text-slate-400">{n.time}</span>
+                        </div>
+                        <p className="leading-relaxed">{n.text}</p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

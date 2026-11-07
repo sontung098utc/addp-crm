@@ -1,0 +1,127 @@
+{
+  "base_url": "http://localhost:3005",
+  "timestamp": "2026-11-07 16:47:21",
+  "bugs": {
+    "BUG-01": {
+      "passed": true,
+      "api_status": 401,
+      "api_authenticated": false,
+      "redirected_url": "http://localhost:3005/login"
+    },
+    "BUG-03": {
+      "passed": true,
+      "has_realtime_panel": true
+    },
+    "BUG-04": {
+      "passed": true,
+      "status": 400,
+      "response": {
+        "error": "Mã nhân viên 'QA99' đã tồn tại trong hệ thống."
+      }
+    },
+    "BUG-05": {
+      "passed": true,
+      "status": 200,
+      "replyTextPreview": "Dạ em chào Chú Hùng! Dạ dòng Sữa Hạt Tiểu Đường Glucare Plus bên em hiện có giá niêm yết là 590.000đ/hộp 800g (dùng được"
+    },
+    "BUG-10": {
+      "passed": true,
+      "customer_fullName": "Nguyễn Thị Kiểm Thử Magento",
+      "customer_phone": "0914044866",
+      "customer_pathology": "Tiểu đường tuýp 2"
+    },
+    "BUG-06": {
+      "passed": true,
+      "detected_phone_in_ui": true,
+      "modal_opened": true
+    },
+    "BUG-07": {
+      "passed": true,
+      "has_editable_phone_input": true,
+      "prefilled_phone": "0912345678"
+    },
+    "BUG-08": {
+      "passed": true,
+      "bad_phone_status": 400,
+      "bad_phone_error": "Số điện thoại không hợp lệ. Vui lòng nhập SĐT chuẩn 10 số Việt Nam (bắt đầu bằng 03, 05, 07, 08, 09).",
+      "normalized_phone": "0912345678"
+    },
+    "BUG-09": {
+      "passed": true,
+      "tasks_before": 42,
+      "tasks_after": 49,
+      "delta_tasks": 7,
+      "order_code": "DH-261107-6983"
+    },
+    "BUG-11": {
+      "passed": true,
+      "orders_modal_opened_with_phone_input": true
+    },
+    "BUG-12": {
+      "passed": true,
+      "order_code": "DH-261107-1657",
+      "calculated_cogs": 365000,
+      "expected_cogs": 365000
+    },
+    "BUG-02": {
+      "passed": true,
+      "sale_financial_api_status": 403,
+      "kho_inbox_api_status": 403,
+      "sale_settings_ui_blocked": true,
+      "sale_reports_ui_blocked": true,
+      "kho_inbox_ui_blocked": true
+    }
+  },
+  "routes_checked": [
+    {
+      "route": "/",
+      "url": "http://localhost:3005/"
+    },
+    {
+      "route": "/inbox",
+      "url": "http://localhost:3005/inbox"
+    },
+    {
+      "route": "/customers",
+      "url": "http://localhost:3005/customers"
+    },
+    {
+      "route": "/customers/1001",
+      "url": "http://localhost:3005/customers/1001"
+    },
+    {
+      "route": "/work-tracking",
+      "url": "http://localhost:3005/work-tracking"
+    },
+    {
+      "route": "/broadcast",
+      "url": "http://localhost:3005/broadcast"
+    },
+    {
+      "route": "/orders",
+      "url": "http://localhost:3005/orders"
+    },
+    {
+      "route": "/inventory",
+      "url": "http://localhost:3005/inventory"
+    },
+    {
+      "route": "/channels",
+      "url": "http://localhost:3005/channels"
+    },
+    {
+      "route": "/reports",
+      "url": "http://localhost:3005/reports"
+    },
+    {
+      "route": "/settings",
+      "url": "http://localhost:3005/settings"
+    },
+    {
+      "route": "/guide",
+      "url": "http://localhost:3005/guide"
+    }
+  ],
+  "console_errors": [],
+  "page_errors": []
+}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies, headers } from "next/headers";
 import {
   getActiveZaloHome,
   ensureZaloMcpDaemon,
@@ -9,6 +10,7 @@ import {
   getOmnichannelConversations,
   getConnectedFacebookPages,
 } from "@/lib/unifiedMessageRouter.js";
+import { guardApiRequest } from "@/lib/rbac.js";
 import fs from "fs";
 
 /**
@@ -147,6 +149,17 @@ function formatZaloTimeLabel(timestamp) {
 
 export async function GET(request) {
   try {
+    const cookieStore = await cookies();
+    const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "SALE", "CSKH"],
+      moduleKey: "inbox",
+      resourceType: "conversations",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get("refresh") === "1";
     const targetHome = getActiveZaloHome();

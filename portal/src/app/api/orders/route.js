@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStoredOrders, createOrder } from "@/lib/ordersStore";
+import { getStoredOrders, createOrder, updateOrderStatus } from "@/lib/ordersStore";
 import { getSessionStaff } from "@/lib/auth";
 import { filterRecordsByRbac } from "@/lib/rbac";
 
@@ -91,6 +91,30 @@ export async function POST(req) {
     });
   } catch (err) {
     console.error("Lỗi POST /api/orders:", err);
+    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+  }
+}
+
+export async function PUT(req) {
+  try {
+    const body = await req.json();
+    const { orderId, status, deliveryStatus } = body || {};
+    if (!orderId || !status) {
+      return NextResponse.json({ ok: false, error: "Thiếu mã đơn hàng hoặc trạng thái" }, { status: 400 });
+    }
+    const updated = updateOrderStatus(orderId, {
+      status,
+      ...(deliveryStatus ? { deliveryStatus } : {}),
+    });
+    if (!updated) {
+      return NextResponse.json({ ok: false, error: "Không tìm thấy đơn hàng" }, { status: 404 });
+    }
+    return NextResponse.json({
+      ok: true,
+      message: `Đã cập nhật trạng thái đơn hàng ${updated.orderCode}`,
+      order: updated,
+    });
+  } catch (err) {
     return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
   }
 }

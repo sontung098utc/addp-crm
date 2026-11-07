@@ -1,0 +1,157 @@
+{
+  "console_errors": [],
+  "page_errors": [],
+  "network_errors": [],
+  "route_results": [
+    {
+      "route": "/",
+      "url": "https://crm.addp.vn/",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/inbox",
+      "url": "https://crm.addp.vn/inbox",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/customers",
+      "url": "https://crm.addp.vn/customers",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/customers/1001",
+      "url": "https://crm.addp.vn/customers/1001",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/work-tracking",
+      "url": "https://crm.addp.vn/work-tracking",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/broadcast",
+      "url": "https://crm.addp.vn/broadcast",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/orders",
+      "url": "https://crm.addp.vn/orders",
+      "title": "Quản Lý Đơn Hàng Đa Nền Tảng | ADDP CRM"
+    },
+    {
+      "route": "/inventory",
+      "url": "https://crm.addp.vn/inventory",
+      "title": "Kho Combo & Quản Lý Tồn Kho Đa Sàn | ADDP CRM"
+    },
+    {
+      "route": "/channels",
+      "url": "https://crm.addp.vn/channels",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/reports",
+      "url": "https://crm.addp.vn/reports",
+      "title": "Báo Cáo Doanh Số, Lãi/Lỗ Thực & Đối Soát BI | ADDP CRM"
+    },
+    {
+      "route": "/settings",
+      "url": "https://crm.addp.vn/settings",
+      "title": "ADDP CRM — Hệ Thống Quản Trị & Chăm Sóc Khách Hàng"
+    },
+    {
+      "route": "/guide",
+      "url": "https://crm.addp.vn/guide",
+      "title": "Sổ Tay Hướng Dẫn Sử Dụng & Vận Hành Toàn Diện | ADDP CRM"
+    }
+  ],
+  "feature_checks": {
+    "unauth_redirect_to_login": false,
+    "unauth_actual_url": "https://crm.addp.vn/",
+    "api_checks": {
+      "ai_compose_frontend_payload": {
+        "ok": true,
+        "replyText": "Dạ em chào Chú Hùng, Dược sĩ ADDP luôn sẵn sàng hỗ trợ mình kiểm soát đường huyết và tư vấn chế độ dinh dưỡng an toàn ạ. Anh/chị đang quan tâm đến vấn đề nào nhắn em hỗ trợ ngay nhé!",
+        "references": [
+          "Chào hỏi mở đầu"
+        ],
+        "tags": [
+          "Tư vấn"
+        ],
+        "decision": "AI_CAN_ANSWER",
+        "judgeReason": "Tin nhắn rỗng",
+        "detectedPhone": null
+      },
+      "magento_form_webhook": {
+        "ok": true,
+        "message": "Đồng bộ từ Magento 2.4.8 thành công",
+        "data": {
+          "success": true,
+          "type": "FORM_SUBMISSION",
+          "customer": {
+            "customer": {
+              "id": 1007,
+              "code": "KH007",
+              "fullName": "Khách hàng mới",
+              "phone": "0918765432",
+              "age": null,
+              "gender": "Chưa rõ",
+              "province": "Chưa cập nhật",
+              "address": "",
+              "pathology": "Cần tư vấn bệnh lý",
+              "initialGlucose": null,
+              "currentGlucose": null,
+              "weeklyFeedback": "Vừa tiếp nhận qua kênh Form Website: Tư vấn tiểu đường tuýp 2",
+              "feedbackRating": "NONE",
+              "source": "Form Website: Tư vấn tiểu đường tuýp 2",
+              "channelLabel": "Form Website: Tư vấn tiểu đường tuýp 2",
+              "tags": [
+                "Khách Mới",
+                "Form Website: Tư vấn tiểu đường tuýp 2"
+              ],
+              "staffId": 4,
+              "staffName": "Lê Thị Mai (CSKH Liệu Trình 1-3-7-14-21)",
+              "staffCode": "CS01",
+              "totalOrders": 0,
+              "totalSpent": 0,
+              "vipLevel": "POTENTIAL",
+              "vipLabel": "Tiềm năng",
+              "status": "Tiềm năng",
+              "careStatus": "Đang chăm sóc",
+              "zaloUid": null,
+              "facebookUrl": null,
+              "lastOrderDate": null,
+              "createdAt": "2026-11-07T09:04:03.785Z"
+            },
+            "isNew": true,
+            "matchMethod": "CREATED_NEW"
+          },
+          "assignedStaff": {
+            "id": 2,
+            "name": "Nguyễn Minh Tuấn (Leader Sale 01)",
+            "code": "S001"
+          },
+          "timestamp": "2026-11-07T09:04:03.785Z"
+        }
+      },
+      "order_care_tasks_sync": {
+        "tasks_before_count": 42,
+        "order_created_ok": true,
+        "order_code": "DH-261107-3634",
+        "tasks_after_count": 42
+      },
+      "sale_can_access_financial_api": {
+        "status": 200,
+        "ok": true,
+        "has_net_profit": true,
+        "has_cogs": false
+      },
+      "sale_can_open_settings_page": true,
+      "sale_can_open_reports_page": true,
+      "kho_can_access_inbox_api": {
+        "status": 200,
+        "ok": true,
+        "conversations_count": 443
+      }
+    }
+  }
+}

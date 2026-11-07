@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import productList from "@/lib/productList.json";
+import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 
 export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }) {
+  const [customerName, setCustomerName] = useState("");
+  const [phone, setPhone] = useState("");
   const [selectedItems, setSelectedItems] = useState({});
   const [address, setAddress] = useState("");
   const [discount, setDiscount] = useState(0);
@@ -11,6 +14,16 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
   const [targetPlatform, setTargetPlatform] = useState("KIOTVIET");
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      setCustomerName(customer?.fullName || customer?.name || "");
+      const candidatePhone = customer?.phone ? normalizePhone(customer.phone) : "";
+      setPhone(isValidVietnamPhone(candidatePhone) ? candidatePhone : "");
+      setAddress(customer?.address || "");
+      setErrorMsg("");
+    }
+  }, [isOpen, customer]);
 
   if (!isOpen) return null;
 
@@ -57,6 +70,12 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
       })
       .filter(Boolean);
 
+    const normalizedPhone = normalizePhone(phone);
+    if (!isValidVietnamPhone(normalizedPhone)) {
+      setErrorMsg("Vui lòng nhập số điện thoại khách hàng chuẩn 10 số Việt Nam (VD: 0912345678).");
+      return;
+    }
+
     if (items.length === 0) {
       setErrorMsg("Vui lòng chọn ít nhất 1 sản phẩm vào đơn hàng.");
       return;
@@ -68,10 +87,10 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerName: customer?.name || "Khách Zalo",
-          phone: customer?.phone || customer?.id || "",
+          customerName: customerName.trim() || customer?.name || "Khách hàng ADDP",
+          phone: normalizedPhone,
           address,
-          channel: "ZALO_PERSONAL",
+          channel: customer?.channel || "ZALO_PERSONAL",
           items,
           totalAmount: subtotal,
           discount: Number(discount) || 0,
@@ -128,18 +147,32 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
           )}
 
           {/* Customer Info Card */}
-          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">Khách hàng:</span>
-              <span className="font-bold text-white">{customer?.name || "Khách Zalo"}</span>
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5 space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-400 font-medium">Họ tên khách hàng:</label>
+                <input
+                  type="text"
+                  required
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Nhập họ tên khách hàng..."
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-400 font-medium">Số điện thoại định danh (10 số):</label>
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="VD: 0912345678"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs font-mono text-blue-400 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
             </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400">Số điện thoại định danh:</span>
-              <span className="font-mono font-bold text-blue-400">
-                {customer?.phone || customer?.id || "Chưa có SĐT"}
-              </span>
-            </div>
-            <div className="space-y-1 pt-1">
+            <div className="space-y-1 pt-0.5">
               <label className="text-[11px] text-slate-400 font-medium">Địa chỉ giao hàng:</label>
               <input
                 type="text"

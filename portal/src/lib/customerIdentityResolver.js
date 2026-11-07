@@ -96,33 +96,45 @@ export async function resolveCustomerIdentity(input = {}) {
     }
   }
 
+  // Tuân thủ Điều 3 & Điều 11 AGENTS.md: Tuyệt đối không sinh SĐT giả ngẫu nhiên
+  if (!normalizedPhone && !input.zaloUid && !input.facebookId) {
+    throw new Error("Bắt buộc phải có Số điện thoại chuẩn 10 số Việt Nam để định danh Khách hàng 360.");
+  }
+
   // 3. Nếu chưa tồn tại, tạo mới hồ sơ Khách hàng 360 & phân bổ Sale tự động
+  const preferredStaffId = input.staffId || input.assignedStaffId || null;
   const routing = await routeLeadToStaff({
     channelAccountId: input.channelAccountId,
-    preferredStaffId: input.staffId,
+    preferredStaffId,
   });
 
   const nextId = dynamicCustomersStore.length > 0 ? Math.max(...dynamicCustomersStore.map((c) => c.id)) + 1 : 1001;
   const newCode = `KH${String(nextId).slice(-3).padStart(3, "0")}`;
   const vipCalc = calculateVipLevel(0, 0);
 
+  const effectiveName = (input.fullName || input.name || "").trim() || "Khách hàng mới";
+  const effectivePathology =
+    (input.pathology || input.initialPathology || "").trim() || "Cần tư vấn bệnh lý";
+  const effectiveSource = input.source || input.channel || "OTHER";
+
   const newCustomer = {
     id: nextId,
     code: newCode,
-    fullName: input.fullName || "Khách hàng mới",
-    phone: normalizedPhone || `09${Math.floor(10000000 + Math.random() * 90000000)}`,
+    fullName: effectiveName,
+    phone: normalizedPhone || "",
     age: input.age || null,
     gender: input.gender || "Chưa rõ",
     province: input.province || "Chưa cập nhật",
     address: input.address || "",
-    pathology: input.pathology || "Cần tư vấn bệnh lý",
+    pathology: effectivePathology,
     initialGlucose: input.initialGlucose || null,
     currentGlucose: input.currentGlucose || null,
-    weeklyFeedback: "Vừa tiếp nhận qua kênh " + (input.source || "Trực tiếp"),
+    weeklyFeedback:
+      input.notes || input.note || "Vừa tiếp nhận qua kênh " + (effectiveSource || "Trực tiếp"),
     feedbackRating: "NONE",
-    source: input.source || "OTHER",
-    channelLabel: input.channelLabel || input.source || "Trực tiếp",
-    tags: ["Khách Mới", input.source || "Tư vấn"],
+    source: effectiveSource,
+    channelLabel: input.channelLabel || effectiveSource || "Trực tiếp",
+    tags: ["Khách Mới", effectiveSource || "Tư vấn"],
     staffId: routing.staffId,
     staffName: routing.staffName,
     staffCode: routing.staffCode,

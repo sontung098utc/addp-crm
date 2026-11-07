@@ -39,24 +39,34 @@ export async function processMagentoFormSubmission(payload) {
   });
 
   // 2. Gộp & định danh Khách Hàng 360 (CustomerIdentityResolver - WBS-25)
-  const customer = await resolveCustomerIdentity({
+  const customerResult = await resolveCustomerIdentity({
     phone: cleanPhone,
+    fullName,
     name: fullName,
     email: payload.email || "",
     channel: "WEBSITE_MAGENTO",
     channelIdentity: `mgn_form_${Date.now()}`,
     source: `Form Website: ${category}`,
+    staffId: assignedStaff?.id || 1,
     assignedStaffId: assignedStaff?.id || 1,
     assignedStaffName: assignedStaff?.name || "Trần Thu Hà",
-    initialPathology: note.includes("tiểu đường") || category.includes("tiểu đường") ? "Tiểu đường tuýp 2" : "",
+    pathology:
+      note.toLowerCase().includes("tiểu đường") || category.toLowerCase().includes("tiểu đường")
+        ? "Tiểu đường tuýp 2"
+        : category || "Cần tư vấn bệnh lý",
     notes: `Đăng ký từ Form ADDP.vn (${category}): "${note}"`,
   });
 
   return {
     success: true,
     type: "FORM_SUBMISSION",
-    customer,
-    assignedStaff,
+    customer: customerResult.customer || customerResult,
+    isNewCustomer: customerResult.isNew,
+    assignedStaff: {
+      id: customerResult.customer?.staffId || assignedStaff?.id,
+      name: customerResult.customer?.staffName || assignedStaff?.name,
+      code: customerResult.customer?.staffCode || assignedStaff?.code,
+    },
     timestamp: new Date().toISOString(),
   };
 }

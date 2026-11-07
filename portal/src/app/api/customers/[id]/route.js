@@ -16,8 +16,14 @@ export async function GET(request, { params }) {
     }
 
     const currentStaff = await getSessionStaff(request);
+    if (!currentStaff) {
+      return NextResponse.json(
+        { ok: false, error: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." },
+        { status: 401 }
+      );
+    }
     // RBAC check
-    if (currentStaff && !canAccessStaffData(currentStaff, customer.staffId)) {
+    if (!canAccessStaffData(currentStaff, customer.staffId)) {
       return NextResponse.json(
         { ok: false, error: "Từ chối truy cập: Bạn không phụ trách khách hàng này" },
         { status: 403 }

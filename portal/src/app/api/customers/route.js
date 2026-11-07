@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getAllCustomers, resolveCustomerIdentity } from "@/lib/customerIdentityResolver";
+import {
+  getAllCustomers,
+  resolveCustomerIdentity,
+  normalizePhone,
+  isValidVietnamPhone,
+} from "@/lib/customerIdentityResolver";
 import { getSessionStaff } from "@/lib/auth";
 import { filterRecordsByRbac } from "@/lib/rbac";
 
@@ -62,7 +67,18 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const result = await resolveCustomerIdentity(body);
+    const cleanPhone = normalizePhone(body?.phone);
+    if (!isValidVietnamPhone(cleanPhone)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Số điện thoại không hợp lệ. Vui lòng nhập SĐT chuẩn 10 số Việt Nam (bắt đầu bằng 03, 05, 07, 08, 09).",
+        },
+        { status: 400 }
+      );
+    }
+
+    const result = await resolveCustomerIdentity({ ...body, phone: cleanPhone });
 
     return NextResponse.json({
       ok: true,

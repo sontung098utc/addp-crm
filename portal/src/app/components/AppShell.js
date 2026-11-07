@@ -1,38 +1,86 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import { canAccessModule } from "@/lib/auth";
+import { ShieldAlert, ArrowLeft } from "lucide-react";
+
+function resolveModuleKeyFromPathname(pathname) {
+  if (!pathname || pathname === "/") return "dashboard";
+  if (pathname.startsWith("/inbox")) return "inbox";
+  if (pathname.startsWith("/customers")) return "customers";
+  if (pathname.startsWith("/work-tracking")) return "work-tracking";
+  if (pathname.startsWith("/broadcast")) return "broadcast";
+  if (pathname.startsWith("/orders")) return "orders";
+  if (pathname.startsWith("/inventory")) return "inventory";
+  if (pathname.startsWith("/channels")) return "channels";
+  if (pathname.startsWith("/reports")) return "reports";
+  if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/guide")) return "guide";
+  return "dashboard";
+}
 
 export default function AppShell({ children }) {
   const pathname = usePathname();
+  const router = useRouter();
   const isLoginPage = pathname === "/login";
   const isInboxPage = pathname?.startsWith("/inbox");
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [currentUser, setCurrentUser] = useState({
-    id: "staff_admin",
-    name: "Quản Trị Viên ADDP",
-    code: "ADMIN",
-    role: "ADMIN",
-    roleLabel: "Quản trị viên (Toàn quyền)",
-  });
+  const [authChecked, setAuthChecked] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    if (isLoginPage) return;
-    fetch("/api/auth/me")
-      .then((res) => (res.ok ? res.json() : null))
+    if (isLoginPage) {
+      setAuthChecked(true);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
       .then((data) => {
-        if (data?.authenticated) {
+        if (cancelled) return;
+        if (data?.authenticated && data?.user) {
           setCurrentUser(data.user);
+          setAuthChecked(true);
+        } else {
+          setCurrentUser(null);
+          setAuthChecked(false);
+          router.replace("/login");
         }
       })
-      .catch(() => {});
-  }, [pathname, isLoginPage]);
+      .catch(() => {
+        if (!cancelled) {
+          router.replace("/login");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, isLoginPage, router]);
 
   if (isLoginPage) {
     return <>{children}</>;
   }
+
+  if (!authChecked || !currentUser) {
+    return (
+      <div suppressHydrationWarning className="h-screen w-screen flex items-center justify-center bg-slate-950 text-slate-300 text-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span>Đang kiểm tra phiên đăng nhập ADDP CRM...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const activeModuleKey = resolveModuleKeyFromPathname(pathname);
+  const hasPermission = canAccessModule(currentUser.role, activeModuleKey);
 
   return (
     <div suppressHydrationWarning className="h-screen overflow-hidden flex bg-slate-950 text-slate-100">
@@ -49,7 +97,34 @@ export default function AppShell({ children }) {
             isInboxPage ? "overflow-hidden p-3" : "overflow-y-auto p-6"
           }`}
         >
-          {children}
+          {hasPermission ? (
+            children
+          ) : (
+            <div className="h-full flex items-center justify-center p-6">
+              <div className="max-w-md w-full rounded-2xl border border-rose-500/30 bg-slate-900/90 p-6 text-center space-y-4 shadow-xl">
+                <div className="h-12 w-12 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-base font-bold text-white">
+                    Từ chối truy cập phân hệ (RBAC Security)
+                  </h2>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Tài khoản <strong>{currentUser.name} ({currentUser.code})</strong> với vai trò{" "}
+                    <strong className="text-rose-400">{currentUser.roleLabel || currentUser.role}</strong>{" "}
+                    không được cấp quyền truy cập phân hệ <code>{activeModuleKey}</code> theo Điều 5 - AGENTS.md.
+                  </p>
+                </div>
+                <Link
+                  href="/"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-bold text-white transition-colors"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Quay về Trang Tổng Quan</span>
+                </Link>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

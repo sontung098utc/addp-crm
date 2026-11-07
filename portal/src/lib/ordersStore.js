@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { normalizePhone } from "./customerIdentityResolver.js";
-import { generateCareTasks } from "./careAutomation.js";
+import { normalizePhone, getAllCustomers } from "./customerIdentityResolver.js";
+import { getAllCareTasks, appendOrderCareTasks } from "./careAutomation.js";
+import { broadcastMessage } from "./unifiedMessageRouter.js";
 
 const ORDERS_FILE_PATH = path.join(process.cwd(), ".data", "orders.json");
 
@@ -90,15 +91,15 @@ export function createOrder({
   orders.unshift(newOrder);
   saveStoredOrders(orders);
 
-  // Kích hoạt Engine tạo Lịch chăm sóc tự động (WBS-28)
+  // Kích hoạt Engine tạo Lịch chăm sóc tự động 7 mốc (WBS-28)
   try {
-    generateCareTasks({
-      id: newOrder.id,
-      customerName: newOrder.customerName,
-      phone: newOrder.phone,
-      staffId: newOrder.staffId,
-      orderCode: newOrder.orderCode,
-      createdAt: newOrder.createdAt,
+    getAllCareTasks(getAllCustomers());
+    appendOrderCareTasks(newOrder);
+    broadcastMessage({
+      type: "NEW_ORDER",
+      order: newOrder,
+      channel: newOrder.channel,
+      text: `Đơn ${newOrder.orderCode} (${newOrder.customerName} - ${newOrder.phone}) đã tạo thành công & tự sinh 7 mốc chăm sóc`,
     });
   } catch (e) {
     console.error("Lỗi sinh care tasks cho đơn hàng:", e);
@@ -122,5 +123,13 @@ export function updateOrderStatus(orderId, statusUpdate) {
   };
 
   saveStoredOrders(orders);
+
+  if (orders[idx].status === "DELIVERED") {
+    try {
+      getAllCareTasks(getAllCustomers());
+      appendOrderCareTasks(orders[idx]);
+    } catch {}
+  }
+
   return orders[idx];
 }
