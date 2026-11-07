@@ -23,34 +23,76 @@ import {
   Plus,
   X,
   CircleDot,
+  Users,
 } from "lucide-react";
 
 /**
  * ADDP Omnichannel AI CRM — Hộp Thư Hội Thoại Hợp Nhất 3 Cột Chuẩn Zalo / Messenger (WBS-21 -> WBS-25)
- * Cột 1: Danh sách Hội thoại Đa kênh (Conversations List)
+ * Cột 1: Danh sách Hội thoại Đa kênh (Conversations List) + Bộ lọc từng Fanpage & Nhãn phân biệt Page
  * Cột 2: Khung Chat 2 Chiều Thời Gian Thực (Message Stream & Composer)
  * Cột 3: Hồ Sơ Khách Hàng 360 & Thông Tin Hội Thoại (Customer 360 Side Panel)
  */
 
-function getChannelMeta(channel) {
+const FANPAGE_PALETTE = [
+  {
+    dot: "bg-blue-500",
+    badge: "bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30",
+    activeFilter: "bg-blue-600 text-white border-blue-500 shadow-xs",
+    avatarBadge: "bg-blue-600",
+  },
+  {
+    dot: "bg-emerald-500",
+    badge: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30",
+    activeFilter: "bg-emerald-600 text-white border-emerald-500 shadow-xs",
+    avatarBadge: "bg-emerald-600",
+  },
+  {
+    dot: "bg-purple-500",
+    badge: "bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30",
+    activeFilter: "bg-purple-600 text-white border-purple-500 shadow-xs",
+    avatarBadge: "bg-purple-600",
+  },
+  {
+    dot: "bg-amber-500",
+    badge: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30",
+    activeFilter: "bg-amber-600 text-white border-amber-500 shadow-xs",
+    avatarBadge: "bg-amber-600",
+  },
+];
+
+function getFanpagePalette(pageId, connectedPages = []) {
+  if (!pageId) return FANPAGE_PALETTE[0];
+  const idx = connectedPages.findIndex((p) => String(p.pageId) === String(pageId));
+  if (idx >= 0) {
+    return FANPAGE_PALETTE[idx % FANPAGE_PALETTE.length];
+  }
+  const s = String(pageId);
+  if (s.endsWith("8537")) return FANPAGE_PALETTE[1];
+  if (s.endsWith("2091")) return FANPAGE_PALETTE[2];
+  return FANPAGE_PALETTE[0];
+}
+
+function getChannelMeta(channel, pageId = "", connectedPages = []) {
   switch (channel) {
     case "FACEBOOK":
-    case "MESSENGER":
+    case "MESSENGER": {
+      const pal = getFanpagePalette(pageId, connectedPages);
       return {
         code: "FB",
         label: "Fanpage FB",
         avatarLetter: "f",
-        badgeBg: "bg-blue-600",
-        pillClass: "bg-blue-600/20 text-blue-400 border border-blue-500/30",
-        dotColor: "bg-blue-500",
+        badgeBg: pal.avatarBadge,
+        pillClass: pal.badge,
+        dotColor: pal.dot,
       };
+    }
     case "ZALO_OA":
       return {
         code: "OA",
         label: "Zalo OA",
         avatarLetter: "OA",
         badgeBg: "bg-sky-500",
-        pillClass: "bg-sky-500/20 text-sky-400 border border-sky-500/30",
+        pillClass: "bg-sky-500/15 text-sky-600 dark:text-sky-300 border border-sky-500/30",
         dotColor: "bg-sky-400",
       };
     case "LIVECHAT":
@@ -60,7 +102,7 @@ function getChannelMeta(channel) {
         label: "Website ADDP.vn",
         avatarLetter: "W",
         badgeBg: "bg-amber-600",
-        pillClass: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+        pillClass: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30",
         dotColor: "bg-amber-400",
       };
     default:
@@ -68,21 +110,23 @@ function getChannelMeta(channel) {
         code: "ZALO",
         label: "Zalo Cá Nhân",
         avatarLetter: "Z",
-        badgeBg: "bg-blue-500",
-        pillClass: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
-        dotColor: "bg-blue-400",
+        badgeBg: "bg-cyan-600",
+        pillClass: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 border border-cyan-500/30",
+        dotColor: "bg-cyan-400",
       };
   }
 }
 
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
+  const [connectedPages, setConnectedPages] = useState([]);
   const [loadingConv, setLoadingConv] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeConv, setActiveConv] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all"); // 'all' | 'need_human' | 'ai_handling' | 'unread'
   const [channelFilter, setChannelFilter] = useState("ALL"); // 'ALL' | 'ZALO_PERSONAL' | 'ZALO_OA' | 'FACEBOOK'
+  const [selectedPageId, setSelectedPageId] = useState("ALL"); // 'ALL' | pageId cụ thể của từng Fanpage
 
   // WBS-25: Hồ Sơ Khách Hàng 360 liên kết với hội thoại
   const [matchedCustomer, setMatchedCustomer] = useState(null);
@@ -96,6 +140,8 @@ export default function LiveZaloInbox() {
 
   // Hiển thị panel thông tin khách hàng (Cột 3)
   const [showSidePanel, setShowSidePanel] = useState(true);
+  // Mở rộng danh bạ chưa có tin nhắn
+  const [showContactsSection, setShowContactsSection] = useState(false);
 
   // Thông báo nhanh
   const [toast, setToast] = useState(null);
@@ -109,6 +155,8 @@ export default function LiveZaloInbox() {
 
   const messagesEndRef = useRef(null);
   const activeConvRef = useRef(activeConv);
+  const convSignatureRef = useRef("");
+  const prevMsgCountRef = useRef(0);
 
   useEffect(() => {
     activeConvRef.current = activeConv;
@@ -150,8 +198,9 @@ export default function LiveZaloInbox() {
               if (idx !== -1) {
                 const target = {
                   ...prev[idx],
+                  isContactOnly: false,
                   lastMessage: newMsg.text,
-                  lastActive: "Vừa xong",
+                  lastActive: "Vài giây",
                   timestamp: Date.now(),
                 };
                 const filtered = prev.filter((_, i) => i !== idx);
@@ -169,56 +218,68 @@ export default function LiveZaloInbox() {
     };
   }, []);
 
-  // Cuộn xuống tin nhắn mới nhất
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
+  // Chỉ tự động cuộn xuống đáy khi có tin nhắn mới thêm vào hoặc đổi cuộc trò chuyện
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length !== prevMsgCountRef.current) {
+      prevMsgCountRef.current = messages.length;
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
-  // 1. Tải danh sách cuộc hội thoại thực tế
+  // 1. Tải danh sách cuộc hội thoại thực tế (chống nhảy danh sách khi poll ngầm)
   const loadConversations = async (showLoading = true, forceRefresh = false) => {
     try {
       if (showLoading) setLoadingConv(true);
-      else setIsRefreshing(true);
+      else if (forceRefresh) setIsRefreshing(true);
 
       const url = `/api/channels/zalo/conversations${forceRefresh ? "?refresh=1" : ""}`;
       const resConv = await fetch(url);
       const dataConv = await resConv.json();
 
+      if (Array.isArray(dataConv.connectedPages) && dataConv.connectedPages.length > 0) {
+        setConnectedPages(dataConv.connectedPages);
+      }
+
       let list = [];
       if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
         list = dataConv.conversations;
-      } else {
-        const resContacts = await fetch("/api/channels/zalo/contacts");
-        const dataContacts = await resContacts.json();
-        if (dataContacts.ok && Array.isArray(dataContacts.contacts)) {
-          list = dataContacts.contacts.map((c, idx) => ({
-            id: c.userId,
-            name: c.name,
-            phone: c.phone,
-            avatar: c.avatar,
-            lastMessage: "Đã kết nối qua Zalo Cá Nhân",
-            lastActive: "Gần đây",
-            rawIndex: idx,
-            channel: "ZALO_PERSONAL",
-            channelLabel: "Zalo Cá Nhân",
-          }));
-        }
       }
 
       if (list.length > 0) {
-        setConversations(list);
-        try {
-          sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
-        } catch {}
+        // Tạo chữ ký kiểm tra thay đổi để tránh render thừa gây giật/nhảy danh sách khi poll ngầm
+        const activeTopSignature = list
+          .filter((c) => !c.isContactOnly)
+          .slice(0, 60)
+          .map((c) => `${c.channel}:${c.id}:${c.timestamp}:${c.lastMessage}:${c.unreadCount || 0}`)
+          .join("|");
+
+        const hasChanged = forceRefresh || showLoading || activeTopSignature !== convSignatureRef.current;
+        if (hasChanged) {
+          convSignatureRef.current = activeTopSignature;
+          setConversations(list);
+          try {
+            sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
+          } catch {}
+        } else {
+          // Chỉ cập nhật nhẹ nhãn thời gian (lastActive) mà không đổi thứ tự mảng
+          setConversations((prev) => {
+            if (prev.length !== list.length) return list;
+            const byKey = new Map(list.map((item) => [`${item.channel}_${item.id}`, item]));
+            return prev.map((oldItem) => {
+              const updated = byKey.get(`${oldItem.channel}_${oldItem.id}`);
+              return updated ? { ...oldItem, lastActive: updated.lastActive } : oldItem;
+            });
+          });
+        }
+
         setActiveConv((prev) => {
-          if (prev && list.some((c) => c.id === prev.id)) {
-            return list.find((c) => c.id === prev.id) || prev;
+          if (prev) {
+            const matched = list.find(
+              (c) => String(c.id) === String(prev.id) && c.channel === prev.channel
+            );
+            if (matched) return matched;
           }
-          return list[0];
+          return list.find((c) => !c.isContactOnly) || list[0];
         });
       }
     } catch (err) {
@@ -237,17 +298,17 @@ export default function LiveZaloInbox() {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setConversations(parsed);
-          setActiveConv(parsed[0]);
+          setActiveConv(parsed.find((c) => !c.isContactOnly) || parsed[0]);
           setLoadingConv(false);
           hasLocal = true;
         }
       }
     } catch {}
 
-    // Luôn gọi refresh=1 khi mở trang để đồng bộ mới nhất từ Zalo & Fanpage FB
+    // Luôn gọi refresh=1 khi mở trang để đồng bộ mới nhất từ Zalo & 3 Fanpage FB
     loadConversations(!hasLocal, true);
 
-    // Tự động đồng bộ danh sách hội thoại mới mỗi 12 giây
+    // Tự động đồng bộ danh sách hội thoại mới mỗi 12 giây (chạy ngầm, không gây giật UI)
     const pollTimer = setInterval(() => {
       loadConversations(false, false);
     }, 12000);
@@ -255,23 +316,37 @@ export default function LiveZaloInbox() {
     return () => clearInterval(pollTimer);
   }, []);
 
-  // Tự động chọn hội thoại đầu tiên của kênh khi người dùng bấm lọc Kênh (Zalo QR / Fanpage FB)
+  // Tự động chọn hội thoại đầu tiên phù hợp khi người dùng bấm lọc Kênh hoặc lọc Fanpage
   useEffect(() => {
-    if (channelFilter !== "ALL" && conversations.length > 0) {
-      if (!activeConv || activeConv.channel !== channelFilter) {
-        const firstMatch = conversations.find((c) => c.channel === channelFilter);
-        if (firstMatch) setActiveConv(firstMatch);
-      }
-    }
-  }, [channelFilter, conversations]);
+    if (conversations.length === 0) return;
 
-  // 2. Tải lịch sử tin nhắn khi đổi người chat (Tuyệt đối không chèn tin nhắn giả)
+    const matchesCurrentFilter = (c) => {
+      if (channelFilter !== "ALL" && c.channel !== channelFilter) return false;
+      if (selectedPageId !== "ALL") {
+        if (c.channel !== "FACEBOOK" || String(c.pageId) !== String(selectedPageId)) return false;
+      }
+      return true;
+    };
+
+    if (!activeConv || !matchesCurrentFilter(activeConv)) {
+      const firstMatch =
+        conversations.find((c) => !c.isContactOnly && matchesCurrentFilter(c)) ||
+        conversations.find((c) => matchesCurrentFilter(c));
+      if (firstMatch) setActiveConv(firstMatch);
+    }
+  }, [channelFilter, selectedPageId, conversations]);
+
+  // 2. Tải lịch sử tin nhắn khi đổi người chat & tự động làm mới ngầm cho hội thoại đang mở
   useEffect(() => {
     if (!activeConv?.id) return;
+    let isCancelled = false;
 
-    async function loadHistory() {
+    async function fetchMessagesForActive(silent = false) {
       try {
-        setLoadingMessages(true);
+        if (!silent) {
+          setLoadingMessages(true);
+          prevMsgCountRef.current = 0;
+        }
         const res = await fetch(
           `/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}&type=${encodeURIComponent(
             activeConv.type || "DIRECT"
@@ -280,19 +355,41 @@ export default function LiveZaloInbox() {
           )}`
         );
         const data = await res.json();
-        if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
-          setMessages(data.messages);
-        } else {
+        if (isCancelled) return;
+
+        if (data.ok && Array.isArray(data.messages)) {
+          setMessages((prev) => {
+            if (
+              silent &&
+              prev.length === data.messages.length &&
+              prev[prev.length - 1]?.id === data.messages[data.messages.length - 1]?.id
+            ) {
+              return prev;
+            }
+            return data.messages;
+          });
+        } else if (!silent) {
           setMessages([]);
         }
       } catch {
-        setMessages([]);
+        if (!silent && !isCancelled) setMessages([]);
       } finally {
-        setLoadingMessages(false);
+        if (!silent && !isCancelled) setLoadingMessages(false);
       }
     }
-    loadHistory();
-  }, [activeConv]);
+
+    fetchMessagesForActive(false);
+
+    // Tự động làm mới ngầm tin nhắn của cuộc trò chuyện đang mở mỗi 7 giây
+    const msgPoll = setInterval(() => {
+      fetchMessagesForActive(true);
+    }, 7000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(msgPoll);
+    };
+  }, [activeConv?.id, activeConv?.channel, activeConv?.pageId]);
 
   // WBS-25: Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat
   useEffect(() => {
@@ -332,9 +429,9 @@ export default function LiveZaloInbox() {
     return () => {
       isCancelled = true;
     };
-  }, [activeConv]);
+  }, [activeConv?.id, activeConv?.phone, activeConv?.name]);
 
-  // 3. Gửi tin nhắn 2 chiều
+  // 3. Gửi tin nhắn 2 chiều (Hỗ trợ cả DM, Group Zalo & từng Fanpage FB)
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
     if (!inputMessage.trim() || !activeConv || sending) return;
@@ -348,7 +445,7 @@ export default function LiveZaloInbox() {
       id: tempId,
       text: messageText,
       isMe: true,
-      senderName: activeConv.accountName || "ADDP CRM",
+      senderName: activeConv.accountName || "Sơn Tùng",
       time: nowTime,
       date: "Hôm nay",
       status: "sending",
@@ -366,6 +463,7 @@ export default function LiveZaloInbox() {
           recipient: activeConv.id,
           recipientId: activeConv.recipientId || activeConv.id,
           pageId: activeConv.pageId || "",
+          type: activeConv.type || "DIRECT",
           message: messageText,
           channel: activeConv.channel || "ZALO_PERSONAL",
         }),
@@ -376,14 +474,22 @@ export default function LiveZaloInbox() {
         setMessages((prev) =>
           prev.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m))
         );
-        // Cập nhật lastMessage của active conversation
-        setConversations((prev) =>
-          prev.map((c) =>
-            c.id === activeConv.id
-              ? { ...c, lastMessage: messageText, lastActive: "Vừa xong" }
-              : c
-          )
-        );
+        // Cập nhật lastMessage và đưa hội thoại đang chat lên đầu danh sách
+        setConversations((prev) => {
+          const idx = prev.findIndex(
+            (c) => String(c.id) === String(activeConv.id) && c.channel === activeConv.channel
+          );
+          if (idx === -1) return prev;
+          const updatedConv = {
+            ...prev[idx],
+            isContactOnly: false,
+            lastMessage: `Bạn: ${messageText}`,
+            lastActive: "Vài giây",
+            timestamp: Date.now(),
+          };
+          const others = prev.filter((_, i) => i !== idx);
+          return [updatedConv, ...others];
+        });
       } else {
         setToast({ type: "error", text: data.error || "Không thể gửi tin nhắn." });
         setMessages((prev) =>
@@ -440,13 +546,38 @@ export default function LiveZaloInbox() {
     }
   };
 
+  // Danh sách các Fanpage phục vụ thanh lọc Page (tự động lấy từ API hoặc gom từ conversations)
+  const effectivePages = (() => {
+    if (connectedPages.length > 0) return connectedPages;
+    const map = new Map();
+    for (const c of conversations) {
+      if (c.channel === "FACEBOOK" && c.pageId && !map.has(String(c.pageId))) {
+        const shortId = String(c.pageId).slice(-4);
+        map.set(String(c.pageId), {
+          pageId: String(c.pageId),
+          shortId,
+          name: c.pageName || "Fanpage FB",
+          displayName: c.pageDisplay || `${c.pageName || "Fanpage"} (#${shortId})`,
+        });
+      }
+    }
+    return Array.from(map.values());
+  })();
+
+  const fbTotalCount = conversations.filter((c) => c.channel === "FACEBOOK").length;
+  const zaloActiveCount = conversations.filter(
+    (c) => c.channel === "ZALO_PERSONAL" && !c.isContactOnly
+  ).length;
+
   const filteredConversations = conversations.filter((c) => {
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
     const matchSearch =
+      !q ||
       (c.name && c.name.toLowerCase().includes(q)) ||
       (c.lastMessage && c.lastMessage.toLowerCase().includes(q)) ||
       (c.phone && c.phone.includes(q)) ||
-      (c.id && c.id.includes(q));
+      (c.accountName && c.accountName.toLowerCase().includes(q)) ||
+      (c.id && String(c.id).includes(q));
 
     if (!matchSearch) return false;
 
@@ -457,18 +588,143 @@ export default function LiveZaloInbox() {
       if (channelFilter === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
     }
 
+    // Lọc theo từng Fanpage cụ thể
+    if (selectedPageId !== "ALL") {
+      if (c.channel !== "FACEBOOK" || String(c.pageId) !== String(selectedPageId)) return false;
+    }
+
     // Lọc theo Trạng thái (WBS-23)
-    if (activeTab === "unread") return c.unread > 0;
-    if (activeTab === "need_human") return c.handlerState === "NEED_HUMAN" || c.needsHuman;
+    if (activeTab === "unread") return (c.unread || c.unreadCount || 0) > 0;
+    if (activeTab === "need_human")
+      return c.handlerState === "NEED_HUMAN" || c.needsHuman || c.status === "need_human";
     if (activeTab === "ai_handling") return c.handlerState === "AI_HANDLING" || c.isAiHandling;
-    if (activeTab === "human_handling") return c.handlerState === "HUMAN_HANDLING";
 
     return true;
   });
 
+  // Tách bạch: Hội thoại có tin nhắn thật (sắp xếp chuẩn theo thời gian thực) vs Danh bạ chưa có tin nhắn
+  const activeChatList = filteredConversations.filter((c) => !c.isContactOnly);
+  const contactOnlyList = filteredConversations.filter((c) => c.isContactOnly);
+
+  // Khi lọc riêng Zalo QR, ưu tiên đưa các hội thoại Ghim (Pinned: Nhóm Học Tập, My Documents) lên đầu giống hệt Zalo PC
+  const displayedActiveChats = (() => {
+    if (channelFilter === "ZALO_PERSONAL") {
+      const pinned = activeChatList.filter((c) => c.isPinned);
+      const unpinned = activeChatList.filter((c) => !c.isPinned);
+      return [...pinned, ...unpinned];
+    }
+    return activeChatList;
+  })();
+
   const activeChannelName = activeConv
-    ? activeConv.accountName || activeConv.channelLabel || getChannelMeta(activeConv.channel).label
+    ? activeConv.accountName || activeConv.channelLabel || getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).label
     : "Zalo Cá Nhân (Sơn Tùng)";
+
+  const renderConversationRow = (conv) => {
+    const isSelected = activeConv?.id === conv.id && activeConv?.channel === conv.channel;
+    const convMeta = getChannelMeta(conv.channel, conv.pageId, effectivePages);
+    const pagePal = conv.channel === "FACEBOOK" ? getFanpagePalette(conv.pageId, effectivePages) : null;
+
+    // Nhãn nguồn (Fanpage cụ thể hoặc Zalo cá nhân) hiển thị ngay trên từng dòng hội thoại
+    const sourceBadgeText =
+      conv.channel === "FACEBOOK"
+        ? conv.pageDisplay ||
+          (conv.pageName && conv.pageShortId
+            ? `${conv.pageName} (#${conv.pageShortId})`
+            : conv.pageName || "Fanpage FB")
+        : conv.channel === "ZALO_OA"
+        ? "Zalo OA Official"
+        : "Zalo • Sơn Tùng";
+
+    return (
+      <button
+        key={`${conv.channel}_${conv.id}`}
+        type="button"
+        onClick={() => setActiveConv(conv)}
+        className={`w-full text-left px-3 py-2.5 transition-colors flex items-start gap-2.5 cursor-pointer ${
+          isSelected
+            ? "bg-blue-50/90 dark:bg-slate-800/95 border-l-4 border-blue-500"
+            : "hover:bg-slate-100 dark:hover:bg-slate-800/40"
+        }`}
+      >
+        {/* Avatar */}
+        <div className="relative flex-shrink-0 mt-0.5">
+          {conv.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={conv.avatar}
+              alt={conv.name}
+              className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700"
+            />
+          ) : (
+            <div
+              className={`h-10 w-10 rounded-full ${
+                conv.channel === "FACEBOOK"
+                  ? pagePal?.avatarBadge || "bg-blue-600"
+                  : conv.type === "GROUP"
+                  ? "bg-indigo-600"
+                  : "bg-cyan-600"
+              } border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white badge-solid-white`}
+            >
+              {conv.name.slice(0, 2).toUpperCase()}
+            </div>
+          )}
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black badge-solid-white`}
+            title={sourceBadgeText}
+          >
+            {convMeta.avatarLetter}
+          </span>
+        </div>
+
+        {/* Tên, Nhãn Fanpage/Zalo & Tin nhắn gần nhất */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-1 mb-0.5">
+            <div className="flex items-center gap-1 min-w-0">
+              {conv.isPinned && (
+                <Pin
+                  className="w-3 h-3 text-amber-400 shrink-0 rotate-45"
+                  title="Hội thoại đã ghim trên Zalo"
+                />
+              )}
+              {conv.type === "GROUP" && (
+                <span className="rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 text-[9px] font-bold px-1 py-0.2 flex-shrink-0 inline-flex items-center gap-0.5">
+                  <Users className="w-2.5 h-2.5" />
+                  <span>{conv.memberCount > 0 ? conv.memberCount : "Nhóm"}</span>
+                </span>
+              )}
+              <span className="font-semibold text-xs text-slate-900 dark:text-white truncate">
+                {conv.name}
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 flex-shrink-0 tabular-nums">
+              {conv.lastActive || "Gần đây"}
+            </span>
+          </div>
+
+          {/* Nhãn phân biệt Fanpage / Tài khoản Zalo rõ ràng trên từng hội thoại */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <span
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[9px] font-semibold truncate max-w-full ${convMeta.pillClass}`}
+              title={`Nguồn hội thoại: ${sourceBadgeText}${conv.pageId ? ` (ID: ${conv.pageId})` : ""}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${convMeta.dotColor}`} />
+              <span className="truncate">{sourceBadgeText}</span>
+            </span>
+            {(conv.unreadCount > 0 || conv.unread > 0) && (
+              <span className="rounded-full bg-rose-500 px-1.5 py-0.2 text-[9px] font-bold text-white badge-solid-white tabular-nums">
+                {conv.unreadCount || conv.unread}
+              </span>
+            )}
+          </div>
+
+          <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
+            {conv.lastMessage}
+          </p>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
@@ -500,9 +756,9 @@ export default function LiveZaloInbox() {
         {/* ========================================================================= */}
         {/* CỘT 1: DANH SÁCH HỘI THOẠI (CONVERSATIONS LIST)                           */}
         {/* ========================================================================= */}
-        <div className="w-80 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
+        <div className="w-84 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
           {/* Header & Tìm kiếm */}
-          <div className="p-3.5 border-b border-slate-800 space-y-2.5 shrink-0">
+          <div className="p-3 border-b border-slate-800 space-y-2 shrink-0">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs shrink-0 badge-solid-white">
@@ -512,7 +768,9 @@ export default function LiveZaloInbox() {
                   <h2 className="text-sm font-bold text-white tracking-tight truncate">Hộp Thư Đa Kênh</h2>
                   <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1 truncate">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse shrink-0" />
-                    <span className="truncate">Zalo Sơn Tùng &amp; 3 Fanpage FB</span>
+                    <span className="truncate">
+                      Zalo Sơn Tùng ({zaloActiveCount}) &amp; {effectivePages.length || 3} Fanpage ({fbTotalCount})
+                    </span>
                   </p>
                 </div>
               </div>
@@ -522,7 +780,7 @@ export default function LiveZaloInbox() {
                   type="button"
                   onClick={() => loadConversations(false, true)}
                   aria-label="Làm mới danh sách hội thoại"
-                  title="Làm mới danh sách hội thoại từ Zalo & Fanpage FB"
+                  title="Đồng bộ mới nhất từ Zalo & 3 Fanpage FB"
                   className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-400" : ""}`} />
@@ -542,12 +800,22 @@ export default function LiveZaloInbox() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Tìm kiếm cuộc trò chuyện, bạn bè..."
+                placeholder="Tìm tên khách, nhóm Zalo, SĐT, tên Page..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400 pointer-events-none" />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Xóa tìm kiếm"
+                  className="absolute right-2 top-2 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Tabs trạng thái hội thoại (WBS-23: Cần bạn, A.I. xử lý, Chưa đọc) */}
@@ -603,50 +871,145 @@ export default function LiveZaloInbox() {
               <span className="text-slate-500 text-[10px] font-medium">Kênh:</span>
               <button
                 type="button"
-                onClick={() => setChannelFilter("ALL")}
+                onClick={() => {
+                  setChannelFilter("ALL");
+                  setSelectedPageId("ALL");
+                }}
                 className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
-                  channelFilter === "ALL" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
+                  channelFilter === "ALL" && selectedPageId === "ALL"
+                    ? "bg-blue-600 text-white font-semibold badge-solid-white"
+                    : "bg-slate-800 hover:text-white"
                 }`}
               >
                 Tất cả
               </button>
               <button
                 type="button"
-                onClick={() => setChannelFilter("ZALO_PERSONAL")}
-                className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
+                onClick={() => {
+                  setChannelFilter("ZALO_PERSONAL");
+                  setSelectedPageId("ALL");
+                }}
+                className={`px-2 py-0.5 rounded-md inline-flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "ZALO_PERSONAL"
-                    ? "bg-blue-600 text-white font-semibold"
+                    ? "bg-cyan-600 text-white font-semibold badge-solid-white"
                     : "bg-slate-800 hover:text-white"
                 }`}
               >
-                Zalo QR
+                <span>Zalo QR</span>
+                {zaloActiveCount > 0 && (
+                  <span className="rounded-full bg-black/25 px-1.5 text-[9px] font-bold tabular-nums">
+                    {zaloActiveCount}
+                  </span>
+                )}
               </button>
               <button
                 type="button"
-                onClick={() => setChannelFilter("ZALO_OA")}
+                onClick={() => {
+                  setChannelFilter("ZALO_OA");
+                  setSelectedPageId("ALL");
+                }}
                 className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
-                  channelFilter === "ZALO_OA" ? "bg-blue-600 text-white font-semibold" : "bg-slate-800 hover:text-white"
+                  channelFilter === "ZALO_OA"
+                    ? "bg-blue-600 text-white font-semibold badge-solid-white"
+                    : "bg-slate-800 hover:text-white"
                 }`}
               >
                 Zalo OA
               </button>
               <button
                 type="button"
-                onClick={() => setChannelFilter("FACEBOOK")}
+                onClick={() => {
+                  setChannelFilter("FACEBOOK");
+                  setSelectedPageId("ALL");
+                }}
                 className={`px-2 py-0.5 rounded-md inline-flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "FACEBOOK"
-                    ? "bg-blue-600 text-white font-semibold"
+                    ? "bg-blue-600 text-white font-semibold badge-solid-white"
                     : "bg-slate-800 hover:text-white"
                 }`}
               >
                 <span>Fanpage FB</span>
-                {conversations.filter((c) => c.channel === "FACEBOOK").length > 0 && (
-                  <span className="rounded-full bg-blue-500/30 px-1.5 text-[9px] text-blue-200 font-bold tabular-nums">
-                    {conversations.filter((c) => c.channel === "FACEBOOK").length}
+                {fbTotalCount > 0 && (
+                  <span className="rounded-full bg-black/25 px-1.5 text-[9px] font-bold tabular-nums">
+                    {fbTotalCount}
                   </span>
                 )}
               </button>
             </div>
+
+            {/* Bộ chọn phân biệt từng Fanpage (Hiện khi ở tab Tất cả hoặc Fanpage FB) */}
+            {(channelFilter === "FACEBOOK" || channelFilter === "ALL") && effectivePages.length > 0 && (
+              <div className="pt-1 border-t border-slate-800/70 space-y-1">
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span className="font-semibold text-slate-400">Chọn Fanpage ({effectivePages.length} Page):</span>
+                  {selectedPageId !== "ALL" && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPageId("ALL")}
+                      className="text-[10px] text-blue-400 hover:underline cursor-pointer"
+                    >
+                      Xem tất cả Page
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChannelFilter("FACEBOOK");
+                      setSelectedPageId("ALL");
+                    }}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer border ${
+                      channelFilter === "FACEBOOK" && selectedPageId === "ALL"
+                        ? "bg-blue-600 text-white border-blue-500 badge-solid-white"
+                        : "bg-slate-950/80 text-slate-300 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    Tất cả Page ({fbTotalCount})
+                  </button>
+                  {effectivePages.map((pg) => {
+                    const count = conversations.filter(
+                      (c) => c.channel === "FACEBOOK" && String(c.pageId) === String(pg.pageId)
+                    ).length;
+                    const isPageActive = String(selectedPageId) === String(pg.pageId);
+                    const pal = getFanpagePalette(pg.pageId, effectivePages);
+                    const shortCode = pg.shortId || String(pg.pageId).slice(-4);
+                    return (
+                      <button
+                        key={pg.pageId}
+                        type="button"
+                        onClick={() => {
+                          setChannelFilter("FACEBOOK");
+                          setSelectedPageId(String(pg.pageId));
+                        }}
+                        title={`${pg.name} (Page ID: ${pg.pageId})${pg.category ? ` • ${pg.category}` : ""}`}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                          isPageActive
+                            ? `${pal.activeFilter} badge-solid-white`
+                            : "bg-slate-950/80 text-slate-300 border-slate-800 hover:border-slate-700"
+                        }`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full shrink-0 ${
+                            isPageActive ? "bg-white" : pal.dot
+                          }`}
+                        />
+                        <span className="truncate max-w-[135px]">
+                          {pg.name} <span className="opacity-75">#{shortCode}</span>
+                        </span>
+                        <span
+                          className={`rounded-full px-1.5 text-[9px] font-bold tabular-nums ${
+                            isPageActive ? "bg-black/25 text-white" : "bg-slate-800 text-slate-300"
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Danh sách các cuộc trò chuyện */}
@@ -654,81 +1017,47 @@ export default function LiveZaloInbox() {
             {loadingConv ? (
               <div className="p-8 text-center text-xs text-slate-500 space-y-2">
                 <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p>Đang tải danh sách cuộc trò chuyện...</p>
+                <p>Đang đồng bộ hội thoại thực tế...</p>
               </div>
-            ) : filteredConversations.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-500">
-                Không tìm thấy cuộc trò chuyện phù hợp.
+            ) : displayedActiveChats.length === 0 && contactOnlyList.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-500 space-y-2">
+                <p>Không tìm thấy cuộc trò chuyện nào trong mục này.</p>
+                {selectedPageId !== "ALL" && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPageId("ALL")}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer badge-solid-white"
+                  >
+                    Xem tất cả Fanpage ({fbTotalCount})
+                  </button>
+                )}
               </div>
             ) : (
-              filteredConversations.map((conv) => {
-                const isSelected = activeConv?.id === conv.id;
-                const convMeta = getChannelMeta(conv.channel);
-                const displayTime = (() => {
-                  const s = String(conv.lastActive || "").trim();
-                  if (/\b\d{5}\b/.test(s) || /588\d{2}/.test(s) || s.includes("5881") || s.includes("588")) {
-                    const timeMatch = s.match(/\d{1,2}:\d{2}/);
-                    return timeMatch ? timeMatch[0] : "Hôm nay";
-                  }
-                  return s || "Gần đây";
-                })();
-                return (
-                  <button
-                    key={conv.id}
-                    type="button"
-                    onClick={() => setActiveConv(conv)}
-                    className={`w-full text-left p-3 transition-colors flex items-center gap-3 cursor-pointer ${
-                      isSelected
-                        ? "bg-blue-50/90 dark:bg-slate-800/90 border-l-4 border-blue-500"
-                        : "hover:bg-slate-100 dark:hover:bg-slate-800/40"
-                    }`}
-                  >
-                    {/* Avatar */}
-                    <div className="relative flex-shrink-0">
-                      {conv.avatar ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={conv.avatar}
-                          alt={conv.name}
-                          className="h-11 w-11 rounded-full object-cover border border-slate-300 dark:border-slate-700"
-                        />
-                      ) : (
-                        <div className="h-11 w-11 rounded-full bg-gradient-to-tr from-blue-700 to-indigo-600 border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white badge-solid-white">
-                          {conv.name.slice(0, 2).toUpperCase()}
-                        </div>
-                      )}
-                      <span
-                        className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black badge-solid-white`}
-                        title={convMeta.label}
-                      >
-                        {convMeta.avatarLetter}
-                      </span>
-                    </div>
+              <>
+                {/* 1. Danh sách hội thoại có tin nhắn thực tế (chuẩn thứ tự thời gian thực) */}
+                {displayedActiveChats.map((conv) => renderConversationRow(conv))}
 
-                    {/* Tên & Tin nhắn gần nhất */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <div className="flex items-center gap-1 min-w-0">
-                          {conv.type === "GROUP" && (
-                            <span className="rounded bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 text-[9px] font-semibold px-1 py-0.2 flex-shrink-0">
-                              Nhóm
-                            </span>
-                          )}
-                          <span className="font-semibold text-xs text-slate-900 dark:text-white truncate">
-                            {conv.name}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-500 dark:text-slate-400 flex-shrink-0 ml-1 tabular-nums">
-                          {displayTime}
-                        </span>
+                {/* 2. Danh bạ & Nhóm chưa có tin nhắn (Thu gọn ở dưới đáy để không làm nhảy danh sách chính) */}
+                {contactOnlyList.length > 0 && (
+                  <div className="bg-slate-950/40">
+                    <button
+                      type="button"
+                      onClick={() => setShowContactsSection(!showContactsSection)}
+                      className="w-full px-3 py-2 text-left text-[11px] font-semibold text-slate-400 hover:text-white flex items-center justify-between bg-slate-900/80 cursor-pointer"
+                    >
+                      <span>Danh bạ Zalo &amp; Nhóm khác ({contactOnlyList.length})</span>
+                      <span className="text-[10px] text-blue-400">
+                        {showContactsSection || searchQuery.trim() ? "Thu gọn ▲" : "Mở xem ▼"}
+                      </span>
+                    </button>
+                    {(showContactsSection || Boolean(searchQuery.trim())) && (
+                      <div className="divide-y divide-slate-800/40">
+                        {contactOnlyList.map((conv) => renderConversationRow(conv))}
                       </div>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                        {conv.lastMessage}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -751,7 +1080,11 @@ export default function LiveZaloInbox() {
                         className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700"
                       />
                     ) : (
-                      <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white badge-solid-white">
+                      <div
+                        className={`h-10 w-10 rounded-full ${
+                          getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).badgeBg
+                        } flex items-center justify-center text-xs font-bold text-white badge-solid-white`}
+                      >
                         {activeConv.name.slice(0, 2).toUpperCase()}
                       </div>
                     )}
@@ -763,17 +1096,28 @@ export default function LiveZaloInbox() {
                       <span className="truncate">{activeConv.name}</span>
                       <span
                         className={`rounded-md text-[10px] font-semibold px-2 py-0.5 whitespace-nowrap flex-shrink-0 ${
-                          getChannelMeta(activeConv.channel).pillClass
+                          getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
                         }`}
                       >
-                        {activeConv.channelLabel || getChannelMeta(activeConv.channel).label}
+                        {activeConv.channel === "FACEBOOK"
+                          ? `Fanpage: ${
+                              activeConv.pageDisplay ||
+                              (activeConv.pageName && activeConv.pageShortId
+                                ? `${activeConv.pageName} (#${activeConv.pageShortId})`
+                                : activeConv.pageName || "Facebook")
+                            }`
+                          : activeConv.channelLabel || "Zalo Cá Nhân (Sơn Tùng)"}
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                      {activeConv.phone ? `SĐT: ${activeConv.phone}` : `ID: ${activeConv.id}`} •{" "}
-                      {activeConv.accountName
-                        ? `Tài khoản: ${activeConv.accountName}`
-                        : `Kênh: ${getChannelMeta(activeConv.channel).label}`}
+                      {activeConv.type === "GROUP" && activeConv.memberCount > 0
+                        ? `Nhóm ${activeConv.memberCount} thành viên • `
+                        : activeConv.phone
+                        ? `SĐT: ${activeConv.phone} • `
+                        : `ID: ${activeConv.id} • `}
+                      {activeConv.channel === "FACEBOOK" && activeConv.pageId
+                        ? `Page ID: ${activeConv.pageId} (${activeConv.pageName})`
+                        : `Tài khoản: ${activeConv.accountName || "Zalo Cá Nhân (Sơn Tùng)"}`}
                     </p>
                   </div>
                 </div>
@@ -839,7 +1183,9 @@ export default function LiveZaloInbox() {
                 {/* Dấu mốc ngày tháng */}
                 <div className="flex justify-center">
                   <span className="rounded-full bg-slate-200/90 dark:bg-slate-800/80 px-3 py-1 text-[11px] text-slate-600 dark:text-slate-400 font-medium border border-slate-300 dark:border-slate-700/60 shadow-xs">
-                    {messages[0]?.date ? `Ngày ${messages[0].date}` : "Hôm nay"}
+                    {messages[messages.length - 1]?.date
+                      ? `Ngày ${messages[messages.length - 1].date}`
+                      : "Hôm nay"}
                   </span>
                 </div>
 
@@ -897,7 +1243,10 @@ export default function LiveZaloInbox() {
                         className={`flex items-end gap-2.5 ${isMe ? "justify-end" : "justify-start"}`}
                       >
                         {!isMe && (
-                          <div className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300 flex-shrink-0">
+                          <div
+                            className="h-7 w-7 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-200 flex-shrink-0 badge-solid-white"
+                            title={m.senderName || activeConv.name}
+                          >
                             {m.senderName ? m.senderName.slice(0, 1).toUpperCase() : activeConv.name.slice(0, 1)}
                           </div>
                         )}
@@ -910,7 +1259,7 @@ export default function LiveZaloInbox() {
                           }`}
                         >
                           {!isMe && activeConv.type === "GROUP" && m.senderName && (
-                            <p className="text-[10px] font-semibold text-blue-400 mb-1">
+                            <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mb-1">
                               {m.senderName}
                             </p>
                           )}
@@ -987,7 +1336,7 @@ export default function LiveZaloInbox() {
                     onClick={handleAiCompose}
                     disabled={aiComposing || sending}
                     title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
-                    className="h-11 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer"
+                    className="h-11 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
                   >
                     {aiComposing ? (
                       <>
@@ -1005,7 +1354,7 @@ export default function LiveZaloInbox() {
                   <button
                     type="submit"
                     disabled={sending || !inputMessage.trim()}
-                    className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer"
+                    className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
                   >
                     {sending ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1041,15 +1390,28 @@ export default function LiveZaloInbox() {
                   className="h-16 w-16 rounded-full object-cover border-2 border-blue-500 mx-auto"
                 />
               ) : (
-                <div className="h-16 w-16 rounded-full bg-blue-600 border-2 border-blue-400 flex items-center justify-center text-base font-bold text-white mx-auto badge-solid-white">
+                <div
+                  className={`h-16 w-16 rounded-full ${
+                    getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).badgeBg
+                  } border-2 border-blue-400 flex items-center justify-center text-base font-bold text-white mx-auto badge-solid-white`}
+                >
                   {activeConv.name.slice(0, 2).toUpperCase()}
                 </div>
               )}
-              <div>
+              <div className="space-y-1">
                 <h4 className="font-bold text-sm text-slate-900 dark:text-white">{activeConv.name}</h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                   {activeConv.phone || `ID: ${activeConv.id}`}
                 </p>
+                <div className="pt-0.5">
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                      getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
+                    }`}
+                  >
+                    {activeChannelName}
+                  </span>
+                </div>
               </div>
 
               {/* Action buttons */}
@@ -1164,7 +1526,7 @@ export default function LiveZaloInbox() {
                     <button
                       type="button"
                       onClick={() => setIsOrderModalOpen(true)}
-                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer badge-solid-white"
                     >
                       <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                       <span>Lên Đơn Hàng Nhanh</span>
@@ -1190,7 +1552,7 @@ export default function LiveZaloInbox() {
                     <button
                       type="button"
                       onClick={() => setIsOrderModalOpen(true)}
-                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full text-center rounded-xl bg-emerald-600 hover:bg-emerald-500 py-2.5 text-xs font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-1.5 cursor-pointer badge-solid-white"
                     >
                       <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                       <span>Lên Đơn Hàng Nhanh</span>

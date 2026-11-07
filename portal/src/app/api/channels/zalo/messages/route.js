@@ -1,20 +1,22 @@
 import { NextResponse } from "next/server";
-import { runZaloCommand, getActiveZaloHome, ensureZaloMcpDaemon } from "../../../../../lib/zaloRunner.js";
+import {
+  runZaloCommand,
+  getActiveZaloHome,
+  ensureZaloMcpDaemon,
+  getAllZaloHistoryFiles,
+} from "../../../../../lib/zaloRunner.js";
 import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
-import path from "path";
-import readline from "readline";
 
 /**
- * ADDP Omnichannel AI CRM — API Lịch Sử Tin Nhắn Zalo Thật 100% (WBS-21 -> WBS-25)
- * Tuân thủ Điều 11 AGENTS.md: Trích xuất tin nhắn thật từ history.jsonl thời gian thực.
- * Tốc độ tải siêu tốc (<5ms) thay vì chờ WebSocket timeout.
+ * ADDP Omnichannel AI CRM — API Lịch Sử Tin Nhắn Đa Kênh Thật 100% (WBS-21 -> WBS-25)
+ * Tuân thủ Điều 11 AGENTS.md: Trích xuất tin nhắn thật từ history.jsonl, crm-group-history.jsonl & Meta Graph API.
+ * Tuyệt đối không mở kết nối WebSocket trùng lặp (tránh lỗi CLOSE_DUPLICATE 3000).
  */
 
 function formatMessageTime(timestamp) {
   if (!timestamp) return { time: "Vừa xong", date: "Hôm nay" };
   let rawTs = Number(timestamp) || Date.now();
-  // Nếu bị nhân 1000 thừa (vượt quá năm 2035 ~ 2.05e12 ms) hoặc thiếu ms
   const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
   const d = new Date(ts);
   const now = new Date();
@@ -36,31 +38,34 @@ function formatMessageTime(timestamp) {
   };
 }
 
-async function getThreadMessagesFromHistory(zaloHome, threadId) {
-  const historyPath = path.join(zaloHome, ".zalo-agent-cli", "history.jsonl");
+function getThreadMessagesFromAllHistories(zaloHome, threadId, ownId = "1781287338457243967") {
+  const historyFiles = getAllZaloHistoryFiles(zaloHome);
   const messages = [];
+  const seenIds = new Set();
 
-  if (!fs.existsSync(historyPath)) {
-    return messages;
-  }
+  for (const filePath of historyFiles) {
+    try {
+      const content = fs.readFileSync(filePath, "utf8");
+      const lines = content.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const msg = JSON.parse(trimmed);
+          if (String(msg.threadId) !== String(threadId)) continue;
 
-  try {
-    const fileStream = fs.createReadStream(historyPath, { encoding: "utf8" });
-    const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+          const rawTs = Number(msg.timestamp) || Date.now();
+          const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+          const id = String(msg.msgId || msg.cliMsgId || `${ts}_${messages.length}`);
+          if (seenIds.has(id)) continue;
+          seenIds.add(id);
 
-    for await (const line of rl) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const msg = JSON.parse(trimmed);
-        if (String(msg.threadId) === String(threadId)) {
-          const ts = Number(msg.timestamp) || Date.now();
           const { time, date } = formatMessageTime(ts);
-          const isMe = Boolean(msg.isSelf);
+          const isMe = Boolean(msg.isSelf || (ownId && String(msg.senderId) === String(ownId)));
 
           messages.push({
-            id: String(msg.msgId || msg.cliMsgId || ts),
-            text: msg.text || (msg.type === "chat.photo" ? msg.text || "[Hình ảnh]" : "[Tin nhắn]"),
+            id,
+            text: msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]"),
             senderId: String(msg.senderId || ""),
             senderName: msg.senderName || (isMe ? "Sơn Tùng" : "Khách"),
             isMe,
@@ -70,15 +75,14 @@ async function getThreadMessagesFromHistory(zaloHome, threadId) {
             type: msg.type || "text",
             status: "sent",
           });
-        }
-      } catch {}
+        } catch {}
+      }
+    } catch (err) {
+      console.error("[ZALO_MESSAGES_HISTORY_READ_ERROR]", filePath, err.message);
     }
-  } catch (err) {
-    console.error("[ZALO_MESSAGES_HISTORY_READ_ERROR]", err);
   }
 
-  // Sắp xếp tăng dần theo thời gian (cũ ở trên, mới nhất ở dưới đáy)
-  messages.sort((a, b) => a.timestamp - b.timestamp);
+  messages.sort((a, b) => a.timestamp - b.timestamp || String(a.id).localeCompare(String(b.id)));
   return messages;
 }
 
@@ -123,65 +127,19 @@ export async function GET(request) {
     }
 
     const targetHome = getActiveZaloHome();
-    const daemonRunning = ensureZaloMcpDaemon(targetHome);
+    ensureZaloMcpDaemon(targetHome);
 
-    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ history.jsonl (siêu tốc <5ms)
-    const localMessages = await getThreadMessagesFromHistory(targetHome, threadId);
-    if (localMessages.length > 0) {
-      return NextResponse.json({
-        ok: true,
-        source: "realtime_history",
-        threadId,
-        count: localMessages.length,
-        messages: localMessages,
-      });
-    }
+    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ tất cả các file history JSONL (siêu tốc <5ms)
+    const localMessages = getThreadMessagesFromAllHistories(targetHome, threadId);
 
-    // 3. Dự phòng: Chỉ gọi CLI msg history khi daemon chưa chạy (tránh xung đột WebSocket code 3000)
-    if (!daemonRunning) {
-      const isGroup = searchParams.get("type") === "GROUP";
-      const typeArgs = isGroup ? ["-t", "1"] : ["-t", "0"];
-      const result = await runZaloCommand(["msg", "history", threadId, ...typeArgs, "--limit", "40", "--json"], {
-        homeDir: targetHome,
-        timeout: 10000,
-      });
-
-      if (result.ok && result.data && Array.isArray(result.data.messages)) {
-        const formatted = result.data.messages.map((m) => {
-          const ts = Number(m.timestamp) || Date.now();
-          const { time, date } = formatMessageTime(ts);
-          const isMe = m.isMe === true;
-          return {
-            id: String(m.msgId || ts),
-            text: m.text || "[Tin nhắn]",
-            senderId: String(m.senderId || ""),
-            senderName: m.senderName || (isMe ? "Sơn Tùng" : "Khách"),
-            isMe,
-            timestamp: ts,
-            time,
-            date,
-            type: m.type || "text",
-            status: "sent",
-          };
-        });
-
-        return NextResponse.json({
-          ok: true,
-          source: "cli_history",
-          threadId,
-          count: formatted.length,
-          messages: formatted,
-        });
-      }
-    }
-
-    // 4. Fallback: Lấy tin nhắn từ Unified Message Router (Zalo OA / Webchat)
+    // 3. Kèm theo tin nhắn vừa gửi từ CRM trong phiên làm việc (Unified Message Router)
     const omniMsgs = await getThreadMessages(threadId, channel, pageId);
-    if (omniMsgs.length > 0) {
-      const formatted = omniMsgs.map((m) => {
+    const seenIds = new Set(localMessages.map((m) => String(m.id)));
+    for (const m of omniMsgs) {
+      if (!seenIds.has(String(m.id))) {
         const { time, date } = formatMessageTime(m.timestamp);
-        return {
-          id: m.id,
+        localMessages.push({
+          id: String(m.id),
           text: m.text,
           senderId: m.senderId,
           senderName: m.senderName,
@@ -192,16 +150,54 @@ export async function GET(request) {
           type: m.type || "text",
           mediaUrl: m.mediaUrl,
           status: "sent",
-        };
-      });
+        });
+      }
+    }
 
+    if (localMessages.length > 0) {
+      localMessages.sort((a, b) => a.timestamp - b.timestamp);
       return NextResponse.json({
         ok: true,
-        source: "omnichannel_router",
+        source: "realtime_history",
         threadId,
-        count: formatted.length,
-        messages: formatted,
+        count: localMessages.length,
+        messages: localMessages,
       });
+    }
+
+    // 4. Nếu là Nhóm Zalo mà chưa kịp đồng bộ -> Gọi `group history` qua HTTP REST (không chạm WebSocket)
+    if (searchParams.get("type") === "GROUP") {
+      const gRes = await runZaloCommand(["group", "history", threadId, "-n", "30", "--json"], {
+        homeDir: targetHome,
+        timeout: 10000,
+      });
+      if (gRes.ok && Array.isArray(gRes.data?.messages)) {
+        const formatted = gRes.data.messages.map((m) => {
+          const ts = Number(m.timestamp) || Date.now();
+          const { time, date } = formatMessageTime(ts);
+          const isMe = Boolean(m.isSelf);
+          return {
+            id: String(m.msgId || m.cliMsgId || ts),
+            text: typeof m.content === "string" ? m.content : "[Tệp đính kèm]",
+            senderId: String(m.fromUid || ""),
+            senderName: isMe ? "Sơn Tùng" : `Thành viên (${String(m.fromUid || "").slice(-4)})`,
+            isMe,
+            timestamp: ts,
+            time,
+            date,
+            type: m.msgType || "text",
+            status: "sent",
+          };
+        });
+        formatted.sort((a, b) => a.timestamp - b.timestamp);
+        return NextResponse.json({
+          ok: true,
+          source: "group_http_history",
+          threadId,
+          count: formatted.length,
+          messages: formatted,
+        });
+      }
     }
 
     return NextResponse.json({ ok: true, threadId, count: 0, messages: [] });

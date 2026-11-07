@@ -17,7 +17,7 @@ import path from "path";
 export async function POST(request) {
   try {
     const body = await request.json();
-    let { recipient, recipientId, pageId, message, homeDir, channel = "ZALO_PERSONAL" } = body;
+    let { recipient, recipientId, pageId, type = "DIRECT", message, homeDir, channel = "ZALO_PERSONAL" } = body;
 
     if (!recipient || !String(recipient).trim()) {
       return NextResponse.json(
@@ -63,9 +63,11 @@ export async function POST(request) {
       });
     }
 
-    // Mặc định: Gửi qua Zalo Cá Nhân
+    // Mặc định: Gửi qua Zalo Cá Nhân (hỗ trợ cả chat 1-1 và nhóm Zalo với -t 1)
     const startTime = Date.now();
-    const result = await runZaloCommand(["msg", "send", recipient, message, "--json"], {
+    const isGroup = String(type).toUpperCase() === "GROUP";
+    const sendArgs = ["msg", "send", recipient, message, ...(isGroup ? ["-t", "1"] : ["-t", "0"]), "--json"];
+    const result = await runZaloCommand(sendArgs, {
       homeDir,
       timeout: 15000,
     });
@@ -92,9 +94,10 @@ export async function POST(request) {
       const histFile = path.join(histDir, "history.jsonl");
       const record =
         JSON.stringify({
-          msgId: `sent_${Date.now()}`,
+          msgId: String(result.data?.message?.msgId || `sent_${Date.now()}`),
           threadId: String(recipient),
-          senderId: "0",
+          threadType: isGroup ? "group" : "dm",
+          senderId: "1781287338457243967",
           senderName: "Sơn Tùng",
           isSelf: true,
           text: message,

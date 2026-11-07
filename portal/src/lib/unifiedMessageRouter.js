@@ -145,6 +145,43 @@ const FB_CACHE_TTL_MS = 15000;
 const fbThreadMetaMap = new Map();
 
 /**
+ * Lấy danh sách toàn bộ các Fanpage Facebook đang kết nối để hiển thị bộ lọc & nhãn phân biệt từng Page
+ */
+export function getConnectedFacebookPages() {
+  const channels = listAllChannels();
+  const fbChannels = channels.filter(
+    (c) => c.platform === "FACEBOOK" && c.config?.pageId && c.config?.pageAccessToken
+  );
+
+  // Kiểm tra nếu có các Fanpage trùng tên (chỉ khác chữ hoa/thường như "Dược Phẩm ADDP" và "Dược phẩm ADDP")
+  const nameCounts = new Map();
+  for (const ch of fbChannels) {
+    const norm = String(ch.name || "").trim().toLowerCase();
+    nameCounts.set(norm, (nameCounts.get(norm) || 0) + 1);
+  }
+
+  return fbChannels.map((fbCh, idx) => {
+    const pageId = String(fbCh.config.pageId).trim();
+    const shortId = pageId.slice(-4);
+    const rawName = String(fbCh.name || `Fanpage ${shortId}`).trim();
+    const isDuplicateName = (nameCounts.get(rawName.toLowerCase()) || 0) > 1;
+    const category = fbCh.config.category || "";
+    const displayName = isDuplicateName ? `${rawName} (#${shortId})` : rawName;
+
+    return {
+      id: fbCh.id,
+      pageId,
+      shortId,
+      name: rawName,
+      displayName,
+      fullLabel: `${rawName} • ID #${shortId}`,
+      category,
+      colorIndex: idx,
+    };
+  });
+}
+
+/**
  * Đồng bộ danh sách hội thoại thật 100% từ tất cả các Fanpage Facebook đã kết nối qua Meta Graph API
  */
 export async function fetchLiveFacebookConversations(forceRefresh = false) {
@@ -162,13 +199,18 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
     return [];
   }
 
+  const connectedPages = getConnectedFacebookPages();
+  const pageInfoMap = new Map(connectedPages.map((p) => [p.pageId, p]));
   const results = [];
 
   await Promise.all(
     fbChannels.map(async (fbCh) => {
       const pageId = String(fbCh.config.pageId).trim();
+      const shortId = pageId.slice(-4);
       const token = String(fbCh.config.pageAccessToken).trim();
-      const pageName = fbCh.name || `Fanpage ${pageId}`;
+      const pageMeta = pageInfoMap.get(pageId);
+      const pageName = fbCh.name || `Fanpage ${shortId}`;
+      const pageDisplay = pageMeta?.displayName || `${pageName} (#${shortId})`;
       try {
         const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(
           pageId
@@ -189,6 +231,7 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
               pageId,
               psid,
               pageName,
+              pageDisplay,
               token,
               customerName: custName,
             });
@@ -198,6 +241,7 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
                 pageId,
                 psid,
                 pageName,
+                pageDisplay,
                 token,
                 customerName: custName,
               });
@@ -207,9 +251,12 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
               id: String(conv.id),
               recipientId: psid || String(conv.id),
               pageId,
+              pageShortId: shortId,
               pageName,
+              pageDisplay,
+              accountName: pageDisplay,
               channel: "FACEBOOK",
-              channelLabel: `Fanpage: ${pageName}`,
+              channelLabel: `Page: ${pageDisplay}`,
               channelIcon: "📘",
               name: custName,
               type: "DIRECT",
@@ -229,7 +276,7 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
     })
   );
 
-  results.sort((a, b) => b.timestamp - a.timestamp);
+  results.sort((a, b) => b.timestamp - a.timestamp || String(a.id).localeCompare(String(b.id)));
   cachedFbConversations = results;
   lastFbFetchTime = now;
   return results;
@@ -338,11 +385,16 @@ export async function getOmnichannelConversations(forceRefresh = false) {
     const existing = convMap.get(key);
 
     if (!existing || m.timestamp >= existing.timestamp) {
+      const resolvedPageId = existing?.pageId || m.channelId || "";
+      const shortId = resolvedPageId ? String(resolvedPageId).slice(-4) : "";
+      const pageDisplay =
+        existing?.pageDisplay ||
+        (m.channelName && shortId ? `${m.channelName} (#${shortId})` : m.channelName || "");
       let icon = "🌐";
       let channelLabel = m.channelName || m.channel;
       if (m.channel === "FACEBOOK") {
         icon = "📘";
-        channelLabel = m.channelName ? `Fanpage: ${m.channelName}` : "Fanpage Facebook";
+        channelLabel = pageDisplay ? `Page: ${pageDisplay}` : "Fanpage Facebook";
       } else if (m.channel === "ZALO_OA") {
         icon = "🏢";
         channelLabel = "Zalo OA";
@@ -351,7 +403,11 @@ export async function getOmnichannelConversations(forceRefresh = false) {
       convMap.set(key, {
         id: m.threadId,
         recipientId: existing?.recipientId || m.senderId || m.threadId,
-        pageId: existing?.pageId || m.channelId || "",
+        pageId: resolvedPageId,
+        pageShortId: existing?.pageShortId || shortId,
+        pageName: existing?.pageName || m.channelName || "",
+        pageDisplay,
+        accountName: pageDisplay || existing?.accountName || channelLabel,
         channel: m.channel,
         channelLabel,
         channelIcon: icon,
