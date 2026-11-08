@@ -35,11 +35,10 @@ function sanitizeHumanChatText(rawText = "") {
  */
 export function calculateTypingDelayMs(replyText = "") {
   const charCount = String(replyText || "").length;
-  // Base 3000ms + tối đa 1500ms theo độ dài văn bản + dao động ngẫu nhiên 0-500ms (luôn trong khoảng 3-5 giây)
-  const lengthFactor = Math.min(1500, Math.floor((charCount / 280) * 1500));
-  const jitter = Math.floor(Math.random() * 501);
-  const total = 3000 + lengthFactor + jitter;
-  return Math.max(3000, Math.min(5000, total));
+  // Thời gian chờ typing delay chuẩn ~3s (3000 - 3500ms)
+  const lengthFactor = Math.min(300, Math.floor((charCount / 300) * 300));
+  const jitter = Math.floor(Math.random() * 201);
+  return 3000 + lengthFactor + jitter;
 }
 
 /**
@@ -171,7 +170,7 @@ function buildContextualPharmacistReply({
   // 3. Tư vấn chuyên sâu về Sữa hạt Glucare Plus
   if (isGlucare || matched.includes("glucare_plus")) {
     if (isAskingPrice) {
-      return `${greetingPrefix} dòng ${glucare.name} chuyên biệt cho người tiểu đường và tiền tiểu đường bên em hiện có giá ${glucare.pricingAndPromo} Đa số cô chú anh chị bên em đều chọn Combo 3 lon để uống đều đặn giúp bình ổn đường huyết lúc đói và được tặng ngay bình lắc giữ nhiệt kèm miễn phí giao hàng tận nhà ạ. ${
+      return `${greetingPrefix} dòng ${glucare.name} (sử dụng đường Hạt Isomalt chỉ số đường huyết thấp GI ~32) chuyên biệt cho người tiểu đường và tiền tiểu đường bên em hiện có giá 450.000đ/lon 900g ạ. Khi lấy Combo 3 lon mình sẽ được tặng ngay bình lắc giữ nhiệt kèm miễn phí giao hàng tận nhà để duy trì bình ổn đường huyết lúc đói hiệu quả nhất. ${
         customerPhone
           ? `${displayName} muốn em Thảo lên đơn 1 lon dùng thử hay lấy Combo 3 lon để em gửi về số ${customerPhone} cho mình ạ?`
           : `Không biết hiện tại chỉ số đường huyết lúc đói của ${displayName} đang khoảng bao nhiêu mmol/L để em Thảo hướng dẫn liều uống phù hợp nhất ạ?`
@@ -179,18 +178,18 @@ function buildContextualPharmacistReply({
     }
 
     if (isAskingUsage) {
-      return `${greetingPrefix} khi pha ${glucare.name}, mình lấy 4 muỗng gạt ngang pha cùng 180ml nước ấm khoảng 45 đến 50°C rồi khuấy đều là dùng được ngay ạ. Mình lưu ý giúp em Thảo là tuyệt đối không pha bằng nước sôi 100°C để giữ trọn vẹn 28 Vitamin, khoáng chất và chất xơ hòa tan FOS/Inulin nhé. Mỗi ngày ${displayName} duy trì uống 1 đến 2 ly vào bữa phụ hoặc sau bữa ăn chính 2 giờ sẽ giúp no lâu, đỡ thèm ngọt mà không lo tăng đường huyết ạ.`;
+      return `${greetingPrefix} khi pha ${glucare.name} (đường Hạt Isomalt GI ~32, giá 450.000đ/lon 900g), mình lấy 4 muỗng gạt ngang pha cùng 180ml nước ấm khoảng 45 đến 50°C rồi khuấy đều là dùng được ngay ạ. Mình lưu ý giúp em Thảo là tuyệt đối không pha bằng nước sôi 100°C để giữ trọn vẹn 28 Vitamin, khoáng chất và chất xơ hòa tan FOS/Inulin nhé. Mỗi ngày ${displayName} duy trì uống 1 đến 2 ly vào bữa phụ hoặc sau bữa ăn chính 2 giờ sẽ giúp no lâu, đỡ thèm ngọt mà không lo tăng đường huyết ạ.`;
     }
 
     if (isAskingIngredients) {
-      return `${greetingPrefix} ${glucare.name} sử dụng hệ đường Hạt Isomalt năng lượng thấp có chỉ số đường huyết GI rất thấp chỉ khoảng 32, kết hợp cùng Đạm thực vật tinh khiết từ Hạnh nhân, Óc chó, Đậu nành phân lập, chất béo tốt MUFA & PUFA, chất xơ hòa tan FOS/Inulin và 28 Vitamin khoáng chất ạ. Nhờ vậy khi uống vào cơ thể hấp thu chậm, giúp người tiểu đường Tuýp 1, Tuýp 2 hay người có đường huyết lúc đói trên 7.0 mmol/L bổ sung đủ chất, hết mệt mỏi mà đường huyết vẫn êm ru ạ.`;
+      return `${greetingPrefix} ${glucare.name} sử dụng hệ đường Hạt Isomalt năng lượng thấp có chỉ số đường huyết GI rất thấp chỉ khoảng 32, kết hợp cùng Đạm thực vật tinh khiết từ Hạnh nhân, Óc chó, Đậu nành phân lập, chất béo tốt MUFA & PUFA, chất xơ hòa tan FOS/Inulin và 28 Vitamin khoáng chất ạ (lon 900g giá 450.000đ/lon, Combo 3 lon tặng bình lắc giữ nhiệt và miễn phí giao hàng). Nhờ vậy khi uống vào cơ thể hấp thu chậm, giúp người tiểu đường Tuýp 1, Tuýp 2 hay người có đường huyết lúc đói trên 7.0 mmol/L bổ sung đủ chất, hết mệt mỏi mà đường huyết vẫn êm ru ạ.`;
     }
 
     if (isAskingReplaceMedicine) {
-      return `${greetingPrefix} em Thảo xin chia sẻ thật kỹ để mình yên tâm là ${glucare.name} là dòng dinh dưỡng chuyên biệt hỗ trợ kiểm soát đường huyết chứ không thay thế thuốc tây điều trị của bác sĩ ạ. Tuy nhiên khi ${displayName} duy trì uống đều đặn 1 đến 2 ly mỗi ngày trong khoảng 10 đến 14 ngày kết hợp chế độ ăn giảm tinh bột trắng thì đường huyết lúc đói sẽ bình ổn rõ rệt, cơ thể khỏe khoắn và giảm hẳn cảm giác mệt mỏi, đói run tay chân đó ạ.`;
+      return `${greetingPrefix} em Thảo xin chia sẻ thật kỹ để mình yên tâm là ${glucare.name} (đường Hạt Isomalt GI ~32, giá 450.000đ/lon 900g) là dòng dinh dưỡng chuyên biệt hỗ trợ kiểm soát đường huyết chứ không thay thế thuốc tây điều trị của bác sĩ ạ. Tuy nhiên khi ${displayName} duy trì uống đều đặn 1 đến 2 ly mỗi ngày trong khoảng 10 đến 14 ngày kết hợp chế độ ăn giảm tinh bột trắng thì đường huyết lúc đói sẽ bình ổn rõ rệt, cơ thể khỏe khoắn và giảm hẳn cảm giác mệt mỏi, đói run tay chân đó ạ.`;
     }
 
-    return `${greetingPrefix} bên em có dòng ${glucare.name} là dinh dưỡng chuyên biệt dành riêng cho người tiểu đường Tuýp 1, Tuýp 2 và tiền đái tháo đường có đường huyết lúc đói trên 7.0 mmol/L ạ. Sữa dùng đường Hạt Isomalt chỉ số GI thấp (~32) cùng đạm thực vật Hạnh nhân, Óc chó, chất xơ FOS/Inulin và 28 Vitamin khoáng chất nên uống rất thơm ngon mà không làm tăng đường huyết sau ăn. Mình duy trì ngày 1-2 ly (pha 4 muỗng gạt ngang với 180ml nước ấm 45-50°C) tầm 10-14 ngày kết hợp giảm tinh bột trắng là đường huyết đói êm hơn và đỡ mệt mỏi hẳn ạ. Hiện lon 900g có giá 450.000đ, mua Combo 3 lon được tặng kèm bình lắc giữ nhiệt và miễn phí giao hàng. Không biết hiện tại đường huyết của ${displayName} đang ở mức bao nhiêu để em Thảo tư vấn kỹ hơn cho mình ạ?`;
+    return `${greetingPrefix} bên em có dòng ${glucare.name} là dinh dưỡng chuyên biệt dành riêng cho người tiểu đường Tuýp 1, Tuýp 2 và tiền đái tháo đường có đường huyết lúc đói trên 7.0 mmol/L ạ. Sữa dùng đường Hạt Isomalt chỉ số GI thấp (~32) cùng đạm thực vật Hạnh nhân, Óc chó, chất xơ FOS/Inulin và 28 Vitamin khoáng chất nên uống rất thơm ngon mà không làm tăng đường huyết sau ăn. Mình duy trì ngày 1-2 ly (pha 4 muỗng gạt ngang với 180ml nước ấm 45-50°C) tầm 10-14 ngày kết hợp giảm tinh bột trắng là đường huyết đói êm hơn và đỡ mệt mỏi hẳn ạ. Hiện lon 900g có giá 450.000đ/lon, mua Combo 3 lon được tặng kèm bình lắc giữ nhiệt và miễn phí giao hàng. Không biết hiện tại đường huyết của ${displayName} đang ở mức bao nhiêu để em Thảo tư vấn kỹ hơn cho mình ạ?`;
   }
 
   // 4. Nếu khách hỏi cả 2 sản phẩm hoặc câu hỏi mở đầu chung

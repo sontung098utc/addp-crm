@@ -11,8 +11,9 @@
  * Tự động gắn thẻ Tag màu (WBS-34): Bóc tách SĐT, bệnh lý, địa chỉ.
  */
 
-import { searchSecondBrain, SECOND_BRAIN_WIKI } from "./secondBrain.js";
+import { searchSecondBrain } from "./secondBrain.js";
 import { extractPhoneNumbersFromText } from "./customerIdentityResolver.js";
+import { generateHumanLikeReply } from "./ai/chatBotEngine.js";
 
 export const AI_MODES = {
   AUTO_REPLY: {
@@ -106,53 +107,33 @@ export async function generateAiDraftResponse({
   customerName = "Anh/Chị",
   context = "",
 } = {}) {
-  const query = customerMessage.trim();
+  const query = String(customerMessage || "").trim();
   const matchedDocs = searchSecondBrain(query);
   const references = matchedDocs.slice(0, 2).map((d) => d.title);
 
-  const textLower = query.toLowerCase();
-
-  // 1. Nếu khách hỏi về giá / combo
-  if (textLower.includes("giá") || textLower.includes("bao nhiêu") || textLower.includes("combo")) {
-    const glucare = SECOND_BRAIN_WIKI.find((d) => d.id === "kb_prod_glucare_plus");
-    return {
-      replyText: `Dạ em chào ${customerName}! Dạ dòng Sữa Hạt Tiểu Đường Glucare Plus bên em hiện có giá niêm yết là 590.000đ/hộp 800g (dùng được khoảng nửa tháng ạ). Hiện công ty đang có chương trình trợ giá đặc biệt: khi mua Combo Liệu trình 3 tặng 1 (tổng 4 hộp) giá chỉ 1.770.000đ, hoặc Combo 5 tặng 2 tặng kèm 1 hộp Trà Mát Gan giải độc. Em xin phép gửi thông tin chi tiết để ${customerName} tham khảo nhé ạ!`,
-      references: ["Sữa Hạt Tiểu Đường Glucare Plus", "Bảng giá Combo"],
-      tags: ["Hỏi giá & Combo"],
-    };
-  }
-
-  // 2. Nếu khách chê đắt hoặc băn khoăn về giá
-  if (textLower.includes("đắt") || textLower.includes("cao quá") || textLower.includes("sao đắt thế")) {
-    const obj = SECOND_BRAIN_WIKI.find((d) => d.id === "kb_objection_price");
-    return {
-      replyText: obj ? obj.script.replace(/anh\/chị/g, customerName) : "",
-      references: ["Xử lý từ chối: Khách chê giá đắt"],
-      tags: ["Khách chê giá"],
-    };
-  }
-
-  // 3. Nếu khách hỏi cách uống / cách pha
-  if (textLower.includes("pha") || textLower.includes("uống thế nào") || textLower.includes("hướng dẫn") || textLower.includes("cách dùng")) {
-    return {
-      replyText: `Dạ cách pha sữa Glucare Plus rất đơn giản và chuẩn theo hướng dẫn của Dược sĩ bên em như sau ạ:\n- ${customerName} lấy 2 muỗng gạt ngang (khoảng 25g bột sữa).\n- Pha với 150ml - 180ml nước ấm khoảng 50°C (nước ấm vừa, không pha nước sôi 100 độ để giữ trọn vẹn vitamin và đạm hạt tự nhiên ạ).\n- Khuấy đều và uống ấm. Mình duy trì uống 1 - 2 ly mỗi ngày: ly sáng thay bữa ăn sáng và ly chiều sau ăn tối 1 tiếng là tốt nhất ạ!`,
-      references: ["Hướng dẫn sử dụng Glucare Plus"],
-      tags: ["Hỏi cách pha"],
-    };
-  }
-
-  // 4. Nếu Sale gõ ý thô (Nút ✨ A.I. Soạn): Biến ý thô thành câu tư vấn lịch sự hoàn chỉnh
-  if (query) {
-    return {
-      replyText: `Dạ em chào ${customerName}, Dược sĩ bên ADDP xin phép giải đáp chi tiết cho mình ạ: ${query}. Nếu trong quá trình sử dụng có bất kỳ thắc mắc nào về chỉ số đường huyết hay dinh dưỡng, ${customerName} cứ nhắn lại để em hỗ trợ mình theo dõi sát sao nhé ạ!`,
-      references: references.length > 0 ? references : ["Kiến thức Dược sĩ ADDP"],
-      tags: ["Tư vấn bệnh lý"],
-    };
-  }
+  const aiResult = await generateHumanLikeReply({
+    customerMessage: query,
+    customerProfile: {
+      fullName: customerName || "Anh/Chị",
+      pathology: context || "",
+    },
+    conversationHistory: [],
+  });
 
   return {
-    replyText: `Dạ em chào ${customerName}, Dược sĩ ADDP luôn sẵn sàng hỗ trợ mình kiểm soát đường huyết và tư vấn chế độ dinh dưỡng an toàn ạ. Anh/chị đang quan tâm đến vấn đề nào nhắn em hỗ trợ ngay nhé!`,
-    references: ["Chào hỏi mở đầu"],
-    tags: ["Tư vấn"],
+    replyText: aiResult.replyText,
+    typingDelayMs: aiResult.typingDelayMs,
+    detectedPhone: aiResult.detectedPhone,
+    references:
+      aiResult.matchedProducts?.length > 0
+        ? aiResult.matchedProducts
+        : references.length > 0
+        ? references
+        : ["Kho Tri Thức Dược Phẩm ADDP"],
+    tags: aiResult.matchedProducts?.includes("glucare_plus")
+      ? ["Sữa hạt Glucare Plus", "Tiểu đường"]
+      : aiResult.matchedProducts?.includes("dovital")
+      ? ["Mát Gan Dovital", "Bệnh gan"]
+      : ["Tư vấn dược sĩ"],
   };
 }

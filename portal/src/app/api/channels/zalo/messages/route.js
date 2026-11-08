@@ -171,6 +171,7 @@ export async function GET(request) {
       ) {
         processIncomingZaloMessageWithBot({
           msgId: lastMsg.id,
+          timestamp: lastMsg.timestamp,
           threadId,
           senderName: lastMsg.senderName || "Khách Zalo",
           text: lastMsg.text,

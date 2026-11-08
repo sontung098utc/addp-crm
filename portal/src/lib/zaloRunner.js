@@ -655,6 +655,7 @@ if (!globalThis.__zaloBotLoggedHumanSkipIds) {
  */
 export async function processIncomingZaloMessageWithBot({
   msgId,
+  timestamp,
   threadId,
   senderName = "Anh/Chị",
   text = "",
@@ -676,7 +677,9 @@ export async function processIncomingZaloMessageWithBot({
     return { skipped: true, reason: "GROUP_OR_EMPTY_OR_SYSTEM" };
   }
 
-  const dedupKey = String(msgId || `${threadId}_${cleanText}`);
+  // 1. Cơ chế Dedup: Bắt buộc kết hợp threadId + msgId (hoặc timestamp), TUYỆT ĐỐI KHÔNG chặn theo nội dung văn bản text
+  const msgToken = String(msgId || timestamp || Date.now());
+  const dedupKey = `${threadId}_${msgToken}`;
   if (!forceReply) {
     if (globalThis.__zaloBotRepliedMsgIds.has(dedupKey)) {
       return { skipped: true, reason: "ALREADY_PROCESSED" };
@@ -694,7 +697,7 @@ export async function processIncomingZaloMessageWithBot({
     return { skipped: true, reason: "SELF_MESSAGE" };
   }
 
-  // 1. Tự động bóc tách SĐT và cập nhật vào Hồ sơ 360
+  // 2. Tự động bóc tách SĐT và cập nhật vào Hồ sơ 360
   const detectedPhone = extractCustomerPhoneFromMessage(cleanText);
   let customerRecord = null;
   if (detectedPhone) {
@@ -706,12 +709,12 @@ export async function processIncomingZaloMessageWithBot({
     });
   }
 
-  // 2. Kiểm tra trạng thái Bot trên kênh & hội thoại và in log rõ ràng
+  // 3. Kiểm tra trạng thái Bot trên kênh & hội thoại và in log rõ ràng
   if (effectiveMode === "HUMAN") {
     if (!globalThis.__zaloBotLoggedHumanSkipIds.has(dedupKey)) {
       globalThis.__zaloBotLoggedHumanSkipIds.add(dedupKey);
       console.log(
-        `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, isMe: ${Boolean(isMe)})`
+        `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, msgId: ${msgToken}, isMe: ${Boolean(isMe)})`
       );
       console.log(
         `[Zalo AI Bot] Mode: HUMAN (channelEnabled: ${channelEnabled}, botState: ${JSON.stringify(convState)})`
@@ -724,11 +727,11 @@ export async function processIncomingZaloMessageWithBot({
 
   try {
     console.log(
-      `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, isMe: ${Boolean(isMe)})`
+      `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, msgId: ${msgToken}, isMe: ${Boolean(isMe)})`
     );
     console.log(`[Zalo AI Bot] Mode: ${effectiveMode}`);
 
-    // 3. Gọi ngay lập tức generateHumanLikeReply (Persona Dược sĩ Thảo + RAG)
+    // 4. Đấu nối chuẩn RAG Dược sĩ Thảo: gọi trực tiếp generateHumanLikeReply từ chatBotEngine.js
     const aiResult = await generateHumanLikeReply({
       customerMessage: cleanText,
       customerProfile: customerRecord || {
@@ -738,16 +741,13 @@ export async function processIncomingZaloMessageWithBot({
       conversationHistory,
     });
 
-    // Thời gian chờ phản hồi chỉ áp dụng typingDelayMs (3000 - 5000ms = 3-5 giây) để tạo cảm giác người thật đang gõ,
-    // TUYỆT ĐỐI KHÔNG áp dụng giãn cách 45-120s của Smart Broadcast vào luồng chat 1-1 trực tiếp này.
-    const rawDelay = Number(aiResult.typingDelayMs) || 3500;
-    const delayMs = Math.max(3000, Math.min(5000, rawDelay));
-
+    // Thời gian chờ typing delay 3s (3000ms) trước khi gửi tin
+    const delayMs = 3000;
     console.log(`[Zalo AI Bot] Đang trả lời sau ${delayMs} ms: ${aiResult.replyText}`);
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
 
-    // 4. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
+    // 5. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
     if (!isChannelBotEnabled(channelId)) {
       console.log(`[Zalo AI Bot] Đã hủy gửi vì kênh ${channelId} vừa tắt Bot trong lúc chờ gõ phím.`);
       return { skipped: true, reason: "CHANNEL_DISABLED_DURING_TYPING" };
@@ -760,17 +760,21 @@ export async function processIncomingZaloMessageWithBot({
       return { skipped: true, reason: "HUMAN_TOOK_OVER_DURING_TYPING", state: afterDelayState };
     }
 
-    // 5. Gọi trực tiếp hàm gửi tin nhắn sendTextMessage về cho khách
+    // 6. Gọi trực tiếp hàm gửi tin nhắn sendTextMessage về cho khách
     const targetHome = homeDir || getActiveZaloHome();
     const sendRes = await sendTextMessage(
       "Dược sĩ Thảo (AI)",
       String(threadId),
       String(aiResult.replyText),
-      { homeDir: targetHome }
+      {
+        homeDir: targetHome,
+        minTimestamp: Number(timestamp || Date.now()) + 1,
+      }
     );
 
     if (sendRes.ok) {
       globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+      console.log(`[Zalo AI Bot] Trả lời RAG thành công: ${aiResult.replyText}`);
     }
 
     return {
@@ -845,10 +849,10 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
             );
             const text = String(msg.text || "").trim();
 
-            // Khi khởi động server lần đầu: đánh dấu các tin nhắn cũ (> 3 phút trước) đã xử lý để không trả lời lại tin cũ
+            // Khi khởi động server lần đầu: chỉ đánh dấu theo `${tid}_${msgId}` cho tin nhắn cũ (> 3 phút trước),
+            // TUYỆT ĐỐI KHÔNG chặn theo nội dung văn bản text
             if (isInitialSeed && now - ts > 180000) {
-              globalThis.__zaloBotRepliedMsgIds.add(msgId);
-              globalThis.__zaloBotRepliedMsgIds.add(`${tid}_${text}`);
+              globalThis.__zaloBotRepliedMsgIds.add(`${tid}_${msgId}`);
             }
 
             if (!threadsHistory.has(tid)) {
@@ -863,6 +867,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
               text,
               type: msg.type || "text",
               timestamp: ts,
+              seq: threadsHistory.get(tid).length,
             });
           } catch {}
         }
@@ -877,8 +882,13 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
       // Không tự trả lời vào Cloud của tôi (threadId === ownId)
       if (ownId && tid === ownId) continue;
 
-      msgs.sort((a, b) => a.timestamp - b.timestamp);
-      const lastMsg = msgs[msgs.length - 1];
+      // Ưu tiên tin nhắn nằm ở dòng cuối cùng trong file history.jsonl của hội thoại (tránh lệch múi giờ/clock skew giữa VPS và Zalo)
+      const lastAppendedMsg = msgs[msgs.length - 1];
+      const sortedMsgs = [...msgs].sort((a, b) => a.timestamp - b.timestamp || a.seq - b.seq);
+      const lastMsg =
+        lastAppendedMsg && !lastAppendedMsg.isMe
+          ? lastAppendedMsg
+          : sortedMsgs[sortedMsgs.length - 1];
 
       // Nếu tin nhắn cuối cùng trong hội thoại là của khách (!isMe), thuộc loại văn bản và gửi trong vòng 15 phút gần đây
       if (
@@ -890,13 +900,14 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
       ) {
         processIncomingZaloMessageWithBot({
           msgId: lastMsg.id,
+          timestamp: lastMsg.timestamp,
           threadId: tid,
           senderName: lastMsg.senderName || "Khách Zalo",
           text: lastMsg.text,
           isMe: false,
           type: "DIRECT",
           channelId: "ZALO_PERSONAL",
-          conversationHistory: msgs.slice(-8),
+          conversationHistory: sortedMsgs.slice(-8),
           homeDir: targetHome,
         }).catch((err) => {
           console.error("[Zalo AI Bot] Lỗi xử lý tự động trả lời:", err.message);
