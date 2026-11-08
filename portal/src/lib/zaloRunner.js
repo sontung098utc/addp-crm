@@ -5,6 +5,7 @@ import os from "os";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 import { getOrCreateCustomerByPhone } from "./customerIdentityResolver.js";
+import { syncCustomerMedicalStateFromMessage } from "./customerStore.js";
 
 /**
  * ADDP Omnichannel AI CRM — High Performance Zalo CLI & Direct Sync Runner (Cross-Platform)
@@ -690,6 +691,7 @@ export async function processIncomingZaloMessageWithBot({
   timestamp,
   threadId,
   senderName = "",
+  senderPhone = "",
   avatarUrl = "",
   genderFromProfile = "",
   accountName = "",
@@ -732,16 +734,31 @@ export async function processIncomingZaloMessageWithBot({
     return { skipped: true, reason: "SELF_MESSAGE" };
   }
 
-  // 2. Tự động bóc tách SĐT và cập nhật vào Hồ sơ 360
+  // 2. Tự động Định danh Khách hàng 360 & Bóc tách Thực thể Y khoa (Universal Upsert)
+  // Lưu trực tiếp `medicalRecord` (bloodSugar, duration, symptoms, goals) & Auto Tags vào `.data/customers.json`
   const detectedPhone = extractCustomerPhoneFromMessage(cleanText);
+  let syncedResult = null;
   let customerRecord = null;
-  if (detectedPhone) {
-    customerRecord = getOrCreateCustomerByPhone({
-      phone: detectedPhone,
-      fullName: senderName || "Khách Zalo",
-      source: "ZALO_PERSONAL",
-      note: `Tự động cập nhật SĐT từ tin nhắn Zalo: "${cleanText.slice(0, 100)}"`,
+  try {
+    syncedResult = await syncCustomerMedicalStateFromMessage({
+      threadId: String(threadId),
+      senderName: senderName || "Khách Zalo",
+      senderPhone: senderPhone || detectedPhone || "",
+      messageText: cleanText,
+      source: channelId || "ZALO_PERSONAL",
+      avatarUrl,
     });
+    customerRecord = syncedResult?.customer || null;
+  } catch (syncErr) {
+    console.error("[Zalo AI Bot] Lỗi đồng bộ Medical State:", syncErr.message);
+    if (detectedPhone) {
+      customerRecord = await getOrCreateCustomerByPhone({
+        phone: detectedPhone,
+        fullName: senderName || "Khách Zalo",
+        source: "ZALO_PERSONAL",
+        note: `Tự động cập nhật SĐT từ tin nhắn Zalo: "${cleanText.slice(0, 100)}"`,
+      });
+    }
   }
 
   // 3. Kiểm tra trạng thái Bot trên kênh & hội thoại và in log rõ ràng
@@ -755,7 +772,13 @@ export async function processIncomingZaloMessageWithBot({
         `[Zalo AI Bot] Mode: HUMAN (channelEnabled: ${channelEnabled}, botState: ${JSON.stringify(convState)})`
       );
     }
-    return { skipped: true, reason: "HUMAN_TAKEOVER_ACTIVE", state: convState };
+    return {
+      skipped: true,
+      reason: "HUMAN_TAKEOVER_ACTIVE",
+      state: convState,
+      customer: customerRecord,
+      medicalRecord: syncedResult?.medicalRecord || null,
+    };
   }
 
   globalThis.__zaloBotInFlightMsgIds.add(dedupKey);
@@ -769,15 +792,16 @@ export async function processIncomingZaloMessageWithBot({
     );
     console.log(`[Zalo AI Bot] Mode: ${effectiveMode}`);
 
-    // 4. Đấu nối chuẩn RAG Chuyên viên Tư vấn Dinh dưỡng ADDP: gọi trực tiếp generateHumanLikeReply từ chatBotEngine.js
+    // 4. Đấu nối chuẩn State-Aware Prompting: truyền đầy đủ customerProfile (kèm medicalRecord vừa đồng bộ)
     const aiResult = await generateHumanLikeReply({
       customerMessage: cleanText,
       customerProfile: {
         ...(customerRecord || {}),
         fullName: senderName || customerRecord?.fullName || "",
-        phone: detectedPhone || customerRecord?.phone || null,
+        phone: detectedPhone || senderPhone || customerRecord?.phone || null,
         avatar: avatarUrl || customerRecord?.avatar || "",
         gender: genderFromProfile || customerRecord?.gender || "",
+        medicalRecord: customerRecord?.medicalRecord || syncedResult?.medicalRecord || {},
       },
       accountName: effectiveAccountName,
       channelConfig: {
@@ -831,6 +855,9 @@ export async function processIncomingZaloMessageWithBot({
       replyText: aiResult.replyText,
       typingDelayMs: delayMs,
       detectedPhone: aiResult.detectedPhone || detectedPhone,
+      customer: customerRecord,
+      medicalRecord: aiResult.medicalRecord,
+      autoTags: aiResult.autoTags,
       error: sendRes.error || null,
     };
   } finally {
@@ -963,6 +990,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
           timestamp: lastMsg.timestamp,
           threadId: tid,
           senderName: resolvedCustomerName,
+          senderPhone: friendInfo?.phoneNumber || "",
           avatarUrl: friendInfo?.avatar || "",
           accountName: activeAccountName,
           text: lastMsg.text,

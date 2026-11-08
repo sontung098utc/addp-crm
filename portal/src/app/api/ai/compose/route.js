@@ -40,6 +40,7 @@ export async function POST(request) {
     const mergedTags = Array.from(
       new Set([
         ...(judge.detectedTags || []),
+        ...(aiResult.autoTags || []),
         ...(aiResult.matchedProducts?.includes("glucare_plus") ? ["Sữa hạt Glucare Plus"] : []),
         ...(aiResult.matchedProducts?.includes("dovital") ? ["Mát Gan Dovital"] : []),
       ])
@@ -51,6 +52,7 @@ export async function POST(request) {
       typingDelayMs: aiResult.typingDelayMs,
       references: aiResult.matchedProducts,
       tags: mergedTags,
+      medicalRecord: aiResult.medicalRecord,
       decision: judge.decision,
       judgeReason: judge.reason,
       detectedPhone: aiResult.detectedPhone || judge.detectedPhone,

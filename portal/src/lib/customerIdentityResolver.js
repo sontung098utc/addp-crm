@@ -17,9 +17,9 @@ export { normalizePhone, isValidVietnamPhone };
 import { calculateVipLevel } from "./customerTiers.js";
 import { routeLeadToStaff } from "./leadRouting.js";
 
-const CUSTOMERS_FILE_PATH = fs.existsSync(path.join(process.cwd(), ".data"))
-  ? path.join(process.cwd(), ".data", "customers.json")
-  : path.join(process.cwd(), "portal", ".data", "customers.json");
+const CUSTOMERS_FILE_PATH = fs.existsSync(path.join(process.cwd(), "portal", "package.json"))
+  ? path.join(process.cwd(), "portal", ".data", "customers.json")
+  : path.join(process.cwd(), ".data", "customers.json");
 
 export const STANDARD_CUSTOMER_TAGS = [
   "Tiểu Đường Tuýp 2",
@@ -155,6 +155,119 @@ export function findCustomerByPhone(rawPhone) {
 export async function getOrCreateCustomerByPhone(input = {}) {
   const result = await resolveCustomerIdentity(input);
   return result.customer;
+}
+
+/**
+ * Tìm kiếm hoặc tạo mới hồ sơ Khách hàng 360 qua threadId (Zalo/FB), SĐT hoặc Tên (Universal Upsert cho Chat Bot)
+ */
+export async function upsertCustomerByThreadOrPhone(input = {}) {
+  dynamicCustomersStore = loadPersistedCustomers();
+  const normalizedPhone = normalizePhone(input.phone);
+  const tid = String(input.threadId || input.zaloUid || "").trim();
+  const nameClean = String(input.fullName || input.name || "").trim();
+
+  // 1. Tìm theo SĐT chuẩn 10 số
+  if (normalizedPhone) {
+    const byPhone = dynamicCustomersStore.find((c) => c.phone === normalizedPhone);
+    if (byPhone) {
+      if (tid && !byPhone.zaloUid) byPhone.zaloUid = tid;
+      savePersistedCustomers(dynamicCustomersStore);
+      return byPhone;
+    }
+  }
+
+  // 2. Tìm theo threadId / zaloUid / facebookId
+  if (tid) {
+    const byTid = dynamicCustomersStore.find(
+      (c) =>
+        String(c.zaloUid || "") === tid ||
+        String(c.zaloThreadId || "") === tid ||
+        String(c.facebookId || "") === tid ||
+        String(c.psid || "") === tid
+    );
+    if (byTid) {
+      if (normalizedPhone && !byTid.phone) byTid.phone = normalizedPhone;
+      savePersistedCustomers(dynamicCustomersStore);
+      return byTid;
+    }
+  }
+
+  // 3. Tìm theo Họ tên nếu chưa có SĐT và threadId chưa khớp (tránh trùng khách đang chat)
+  if (
+    nameClean &&
+    !["khách", "khách hàng", "khách zalo", "khách fb"].includes(nameClean.toLowerCase())
+  ) {
+    const byName = dynamicCustomersStore.find(
+      (c) => String(c.fullName || "").toLowerCase().trim() === nameClean.toLowerCase()
+    );
+    if (byName) {
+      if (tid && !byName.zaloUid) byName.zaloUid = tid;
+      if (normalizedPhone && !byName.phone) byName.phone = normalizedPhone;
+      savePersistedCustomers(dynamicCustomersStore);
+      return byName;
+    }
+  }
+
+  // 4. Tạo mới hồ sơ Khách hàng 360
+  const routing = await routeLeadToStaff({
+    channelAccountId: input.channelAccountId,
+    preferredStaffId: input.staffId || null,
+  });
+
+  const nextId =
+    dynamicCustomersStore.length > 0
+      ? Math.max(...dynamicCustomersStore.map((c) => Number(c.id) || 1000)) + 1
+      : 1001;
+  const newCode = `KH${String(nextId).slice(-3).padStart(3, "0")}`;
+  const vipCalc = calculateVipLevel(0, 0);
+  const effectiveSource = input.source || input.channel || "ZALO_PERSONAL";
+
+  const newCustomer = ensureCustomerTagsArray({
+    id: nextId,
+    code: newCode,
+    fullName: nameClean || "Khách Zalo",
+    phone: normalizedPhone || "",
+    age: input.age || null,
+    gender: input.gender || "UNKNOWN",
+    pronoun: input.pronoun || "mình",
+    province: input.province || "Chưa cập nhật",
+    address: input.address || "",
+    pathology: input.pathology || "Đang tư vấn dinh dưỡng tiểu đường",
+    initialGlucose: input.initialGlucose || null,
+    currentGlucose: input.currentGlucose || null,
+    medicalRecord: input.medicalRecord || {
+      bloodSugar: null,
+      bloodSugarNumeric: null,
+      duration: null,
+      symptoms: [],
+      goals: [],
+    },
+    weeklyFeedback:
+      input.notes || input.note || "Tiếp nhận tự động qua kênh " + effectiveSource,
+    feedbackRating: "NONE",
+    source: effectiveSource,
+    channelLabel: input.channelLabel || effectiveSource,
+    tags: ["Khách Mới", effectiveSource],
+    staffId: routing.staffId,
+    staffName: routing.staffName,
+    staffCode: routing.staffCode,
+    totalOrders: 0,
+    totalSpent: 0,
+    vipLevel: vipCalc.code,
+    vipLabel: vipCalc.label,
+    status: "Tiềm năng",
+    careStatus: "Đang chăm sóc",
+    zaloUid: tid || null,
+    zaloThreadId: tid || null,
+    facebookUrl: input.facebookUrl || null,
+    avatar: input.avatar || "",
+    lastOrderDate: null,
+    createdAt: new Date().toISOString(),
+  });
+
+  dynamicCustomersStore.unshift(newCustomer);
+  savePersistedCustomers(dynamicCustomersStore);
+  return newCustomer;
 }
 
 /**

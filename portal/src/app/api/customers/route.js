@@ -38,13 +38,15 @@ export async function GET(request) {
       customers = customers.filter((c) => c.status === status || c.careStatus === status);
     }
 
-    // 5. Tìm kiếm theo Tên, SĐT, Bệnh lý
+    // 5. Tìm kiếm theo Tên, SĐT, Bệnh lý, hoặc Zalo UID / Thread ID
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       customers = customers.filter(
         (c) =>
-          c.fullName.toLowerCase().includes(q) ||
-          c.phone.includes(q) ||
+          (c.fullName && c.fullName.toLowerCase().includes(q)) ||
+          (c.phone && c.phone.includes(q)) ||
+          (c.zaloUid && String(c.zaloUid).toLowerCase() === q) ||
+          (c.zaloThreadId && String(c.zaloThreadId).toLowerCase() === q) ||
           (c.pathology && c.pathology.toLowerCase().includes(q)) ||
           (c.code && c.code.toLowerCase().includes(q))
       );

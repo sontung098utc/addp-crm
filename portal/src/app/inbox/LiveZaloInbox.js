@@ -436,7 +436,7 @@ export default function LiveZaloInbox() {
     async function loadCustomerProfile() {
       try {
         setLoadingCustomer(true);
-        const searchParam = effectivePhone || activeConv.name || "";
+        const searchParam = effectivePhone || activeConv.id || activeConv.name || "";
         if (!searchParam) {
           setMatchedCustomer(null);
           return;
@@ -448,9 +448,19 @@ export default function LiveZaloInbox() {
             data.customers.find(
               (c) =>
                 (effectivePhone && c.phone === effectivePhone) ||
+                String(c.zaloUid || "") === String(activeConv.id) ||
+                String(c.zaloThreadId || "") === String(activeConv.id) ||
                 c.fullName.toLowerCase() === activeConv.name.toLowerCase()
             ) || data.customers[0];
           setMatchedCustomer(matched);
+        } else if (!isCancelled && activeConv.name && searchParam !== activeConv.name) {
+          const resByName = await fetch(`/api/customers?search=${encodeURIComponent(activeConv.name)}`);
+          const dataByName = await resByName.json();
+          if (!isCancelled && dataByName.ok && Array.isArray(dataByName.customers) && dataByName.customers.length > 0) {
+            setMatchedCustomer(dataByName.customers[0]);
+          } else if (!isCancelled) {
+            setMatchedCustomer(null);
+          }
         } else if (!isCancelled) {
           setMatchedCustomer(null);
         }
