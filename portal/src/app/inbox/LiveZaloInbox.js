@@ -641,6 +641,8 @@ export default function LiveZaloInbox() {
           customerMessage: lastCustMsg ? lastCustMsg.text : inputMessage,
           draftIdea: inputMessage,
           customerName: activeConv.name,
+          accountName: activeConv.channelLabel || activeConv.accountName || "",
+          conversationHistory: messages.slice(-8),
           channel: activeConv.channel || "ZALO_PERSONAL",
         }),
       });

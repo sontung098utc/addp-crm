@@ -3,6 +3,7 @@ import {
   runZaloCommand,
   getActiveZaloHome,
   getOwnIdForHome,
+  getActiveZaloAccountName,
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
   processIncomingZaloMessageWithBot,
@@ -173,12 +174,13 @@ export async function GET(request) {
           msgId: lastMsg.id,
           timestamp: lastMsg.timestamp,
           threadId,
-          senderName: lastMsg.senderName || "Khách Zalo",
+          senderName: lastMsg.senderName && lastMsg.senderName !== "Khách" ? lastMsg.senderName : "",
+          accountName: getActiveZaloAccountName(targetHome),
           text: lastMsg.text,
           isMe: false,
           type: "DIRECT",
           channelId: channel || "ZALO_PERSONAL",
-          conversationHistory: localMessages.slice(-8),
+          conversationHistory: localMessages.slice(-10),
           homeDir: targetHome,
         }).catch((err) => {
           console.error("[Zalo AI Bot] Lỗi xử lý tại messages API:", err.message);

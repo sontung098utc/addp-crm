@@ -1,21 +1,201 @@
 /**
- * ADDP Omnichannel AI CRM — Bộ Não AI Trả Lời Tự Nhiên Như Người Thật & Giả Lập Độ Trễ Gõ Phím
- * Persona: Dược sĩ Thảo - Chuyên viên tư vấn y khoa ADDP
- * Kết hợp RAG Dược phẩm (Sữa hạt Glucare Plus, Mát Gan Dovital) + Hồ sơ Khách hàng 360 + Bóc tách SĐT.
+ * ADDP Omnichannel AI CRM — Bộ Não AI Chuyên Viên Tư Vấn Dinh Dưỡng Dược Phẩm ADDP
+ * Nâng cấp toàn diện theo "QUY TRÌNH GỌI ĐIỆN CHĂM SÓC KHÁCH HÀNG TIỂU ĐƯỜNG":
+ * 1. Nhận diện giới tính khách hàng (chị / anh) & Chỉ chào 1 lần duy nhất trong ngày.
+ * 2. Tự động lấy danh xưng theo tên tài khoản đang trực (Sơn Tùng, Thuỷ Tiên... hoặc bên Dược phẩm ADDP).
+ * 3. Định vị vai trò: Chuyên viên tư vấn dinh dưỡng của Công ty Dược phẩm ADDP (TUYỆT ĐỐI KHÔNG xưng bác sĩ, dược sĩ, chuyên gia).
+ * 4. Câu trả lời súc tích 2-3 câu ngắn (< 45 từ), luôn kết thúc bằng 1 câu hỏi thăm dò mở.
  */
 
 import { retrieveRelevantKnowledge, PHARMA_KNOWLEDGE_BASE } from "./knowledgeBase.js";
 import { extractPhoneNumbersFromText, normalizePhone } from "../customerIdentityResolver.js";
 
-export const DUOC_SI_THAO_SYSTEM_PROMPT = `Bạn là Dược sĩ Thảo - Chuyên viên tư vấn y khoa tại Dược phẩm ADDP.
-Nguyên tắc giao tiếp bắt buộc:
-1. Văn phong giống người thật đang gõ phím trò chuyện 100%: Xưng hô ấm áp, lễ phép ("Dạ em Thảo chào anh/chị...", "Dạ anh/chị ơi..."), biết lắng nghe và đồng cảm với tình trạng sức khỏe của khách hàng.
-2. Tuyệt đối KHÔNG dùng văn phong liệt kê gạch đầu dòng máy móc kiểu tổng đài robot, KHÔNG dùng ký tự markdown thô như dấu sao (*), dấu thăng (#), gạch đầu dòng (-). Hãy viết thành các câu văn liền mạch, ngắt câu tự nhiên.
-3. Tư vấn chuẩn xác dựa trên Kho Tri Thức Dược Phẩm ADDP (Sữa hạt Glucare Plus và Mát Gan Thanh Nhiệt Dovital). Không tự bịa đặt công dụng hoặc giá bán ngoài kho tri thức.
-4. Nếu khách chưa để lại số điện thoại và đang quan tâm sâu về bệnh lý hoặc đặt hàng, khéo léo xin số điện thoại để em Thảo tiện kết bạn Zalo hoặc gọi tư vấn kỹ hơn.`;
+const FEMALE_NAME_KEYWORDS = new Set([
+  "thị", "quyên", "hằng", "ý", "thảo", "trang", "nga", "mai", "lan", "vy",
+  "linh", "dung", "loan", "huệ", "hoa", "yến", "ngọc", "phương", "oanh", "giang",
+  "hương", "thúy", "thuý", "thủy", "thuỷ", "tiên", "nhung", "hạnh", "ngân", "trâm",
+  "quỳnh", "nhi", "trinh", "diệp", "tuyết", "cúc", "đào", "liễu", "huyền", "my",
+  "thư", "châu", "hiền", "lệ", "bích", "kiều", "diễm", "thắm", "hồng", "tâm",
+  "vân", "nhàn", "phụng", "xuyến", "nguyệt", "thơ", "tươi", "xoan", "nương", "sương",
+  "nhài", "trà", "ly", "hà", "thu",
+]);
+
+const MALE_NAME_KEYWORDS = new Set([
+  "văn", "hùng", "dũng", "tùng", "tuấn", "cường", "thắng", "hoàng", "minh", "đức",
+  "long", "nam", "hải", "sơn", "thành", "phúc", "trung", "trọng", "hiếu", "huy",
+  "quân", "kiên", "khánh", "bình", "tài", "đạt", "lộc", "vinh", "khải", "hưng",
+  "thịnh", "phát", "nghĩa", "bảo", "khang", "khoa", "phong", "vũ", "toàn", "tâm",
+  "hào", "luân", "tiến", "lâm", "tân", "nhật", "dương", "công", "quyết", "chiến",
+]);
 
 /**
- * Làm sạch mọi ký tự markdown hoặc gạch đầu dòng nếu LLM trả về để đảm bảo văn phong chat tự nhiên 100%
+ * Xác định cách xưng hô giới tính khách hàng ("chị" / "anh" / "mình") và tên ngắn gọn (ví dụ "chị Quyên", "anh Tuấn")
+ * @param {string} customerName
+ * @param {string} [avatarUrl]
+ * @param {string} [genderFromProfile]
+ * @returns {{
+ *   gender: "FEMALE"|"MALE"|"UNKNOWN",
+ *   pronoun: string,
+ *   shortName: string,
+ *   addressWithName: string,
+ *   capitalizedPronoun: string,
+ *   capitalizedAddressWithName: string
+ * }}
+ */
+export function detectCustomerPronoun(customerName = "", avatarUrl = "", genderFromProfile = "") {
+  const rawName = String(customerName || "").trim();
+  const normalizedGender = String(genderFromProfile || "").toLowerCase().trim();
+
+  // Loại bỏ các nhãn mặc định không phải tên thật
+  const isGenericName =
+    !rawName ||
+    /^(khách|khách hàng|khách zalo|khách fb|bạn bè|anh\/chị|cô\/chú|user|unknown)/i.test(rawName);
+
+  const cleanTokens = isGenericName
+    ? []
+    : rawName
+        .replace(/[()[\].,-]/g, " ")
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean);
+
+  const shortName = cleanTokens.length > 0 ? cleanTokens[cleanTokens.length - 1] : "";
+  const lowerTokens = cleanTokens.map((t) => t.toLowerCase());
+  const firstToken = lowerTokens[0] || "";
+
+  let gender = "UNKNOWN";
+
+  if (["female", "nữ", "nu", "f", "chị", "chi", "cô", "co"].includes(normalizedGender)) {
+    gender = "FEMALE";
+  } else if (["male", "nam", "m", "anh", "chú", "chu"].includes(normalizedGender)) {
+    gender = "MALE";
+  } else if (firstToken === "chị" || firstToken === "cô") {
+    gender = "FEMALE";
+  } else if (firstToken === "anh" || firstToken === "chú") {
+    gender = "MALE";
+  } else if (lowerTokens.length > 0) {
+    // Ưu tiên kiểm tra tên chính (từ cuối cùng) trước, sau đó kiểm tra tên đệm
+    const givenNameLower = lowerTokens[lowerTokens.length - 1];
+    if (FEMALE_NAME_KEYWORDS.has(givenNameLower)) {
+      gender = "FEMALE";
+    } else if (MALE_NAME_KEYWORDS.has(givenNameLower)) {
+      gender = "MALE";
+    } else {
+      for (const token of lowerTokens) {
+        if (FEMALE_NAME_KEYWORDS.has(token)) {
+          gender = "FEMALE";
+          break;
+        }
+        if (MALE_NAME_KEYWORDS.has(token)) {
+          gender = "MALE";
+          break;
+        }
+      }
+    }
+  }
+
+  const pronoun = gender === "FEMALE" ? "chị" : gender === "MALE" ? "anh" : "mình";
+  const capitalizedPronoun =
+    pronoun.charAt(0).toUpperCase() + pronoun.slice(1);
+
+  let addressWithName = pronoun;
+  if (shortName) {
+    if (gender === "FEMALE") {
+      addressWithName = `chị ${shortName}`;
+    } else if (gender === "MALE") {
+      addressWithName = `anh ${shortName}`;
+    } else {
+      addressWithName = `mình`;
+    }
+  }
+
+  const capitalizedAddressWithName =
+    addressWithName.charAt(0).toUpperCase() + addressWithName.slice(1);
+
+  return {
+    gender,
+    pronoun,
+    shortName,
+    addressWithName,
+    capitalizedPronoun,
+    capitalizedAddressWithName,
+  };
+}
+
+/**
+ * Chuẩn hóa tên tài khoản đang trực để xưng tên tự nhiên:
+ * - "Zalo Cá Nhân (Sơn Tùng)" hoặc "Zalo: Sơn Tùng" -> "Sơn Tùng"
+ * - "Thuỷ Tiên" -> "Thuỷ Tiên"
+ * - Nếu không có tên cụ thể -> null (xưng "em bên Dược phẩm ADDP")
+ */
+export function resolveActiveStaffDisplayName(accountOrChannelName = "") {
+  const raw = String(accountOrChannelName || "").trim();
+  if (!raw) return null;
+
+  // Bóc tên trong ngoặc đơn: "Zalo Cá Nhân (Sơn Tùng)" -> "Sơn Tùng"
+  const parenMatch = raw.match(/\(([^)]+)\)/);
+  if (parenMatch && parenMatch[1]) {
+    const inside = parenMatch[1]
+      .replace(/^(dược sĩ|bác sĩ|chuyên gia|chuyên viên|sale|cskh|ai|multi-qr)\s*/i, "")
+      .trim();
+    if (
+      inside &&
+      !/^(multi-qr|ai|zalo|facebook|fanpage|official|connected|\d+)$/i.test(inside)
+    ) {
+      return inside;
+    }
+  }
+
+  // Bóc sau dấu hai chấm hoặc gạch ngang: "Zalo: Sơn Tùng" hoặc "Zalo Tư Vấn 01 - Thu Hà"
+  const splitParts = raw.split(/[:\-–]/).map((s) => s.trim()).filter(Boolean);
+  const candidate = (splitParts.length > 1 ? splitParts[splitParts.length - 1] : raw)
+    .replace(/^(zalo cá nhân|zalo oa|zalo|fanpage|dược sĩ|bác sĩ|chuyên gia|chuyên viên|nhân viên|tư vấn)\s*/gi, "")
+    .replace(/\(\d+\)/g, "")
+    .trim();
+
+  if (
+    !candidate ||
+    /^(addp|dược phẩm addp|official|account|khách|admin|quản trị viên|default|ai|bot|\d+)$/i.test(
+      candidate
+    )
+  ) {
+    return null;
+  }
+
+  return candidate;
+}
+
+/**
+ * Kiểm tra xem trong ngày hôm nay hệ thống/nhân viên đã gửi tin nhắn chào hoặc phản hồi cho khách chưa
+ * để tuân thủ quy tắc: CHỈ CHÀO 1 LẦN DUY NHẤT TRONG NGÀY.
+ */
+export function hasAlreadyGreetedToday(conversationHistory = []) {
+  if (!Array.isArray(conversationHistory) || conversationHistory.length === 0) {
+    return false;
+  }
+  const now = new Date();
+  const todayStr = now.toDateString();
+
+  for (const msg of conversationHistory) {
+    if (!msg) continue;
+    const isStaffOrBot = Boolean(msg.isMe || msg.isSelf || msg.role === "assistant");
+    if (!isStaffOrBot) continue;
+
+    if (!msg.timestamp) {
+      return true;
+    }
+    const rawTs = Number(msg.timestamp) || 0;
+    const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs > 0 && rawTs < 1e11 ? rawTs * 1000 : rawTs;
+    if (ts > 0 && new Date(ts).toDateString() === todayStr) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Làm sạch mọi ký tự markdown, loại bỏ các danh xưng cấm ("dược sĩ", "bác sĩ", "chuyên gia")
+ * và giới hạn câu trả lời ngắn gọn (2-3 câu).
  */
 function sanitizeHumanChatText(rawText = "") {
   return String(rawText || "")
@@ -23,28 +203,23 @@ function sanitizeHumanChatText(rawText = "") {
     .replace(/__+/g, "")
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^\s*[-*•+]\s+/gm, "")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\b(em\s+dược\s+sĩ|dược\s+sĩ\s+thảo|dược\s+sĩ|bác\s+sĩ|chuyên\s+gia)\b/gi, "em")
+    .replace(/\s{2,}/g, " ")
     .trim();
 }
 
 /**
- * Tính toán độ trễ giả lập người thật đang gõ phím (từ 3000ms đến 5000ms tùy độ dài câu trả lời).
- * TUYỆT ĐỐI KHÔNG áp dụng giãn cách 45-120s của Smart Broadcast vào luồng chat 1-1 trực tiếp.
- * @param {string} replyText
- * @returns {number} typingDelayMs (3000 - 5000)
+ * Tính toán độ trễ giả lập người thật đang gõ phím (~3 giây)
  */
 export function calculateTypingDelayMs(replyText = "") {
   const charCount = String(replyText || "").length;
-  // Thời gian chờ typing delay chuẩn ~3s (3000 - 3500ms)
-  const lengthFactor = Math.min(300, Math.floor((charCount / 300) * 300));
-  const jitter = Math.floor(Math.random() * 201);
+  const lengthFactor = Math.min(300, Math.floor((charCount / 200) * 200));
+  const jitter = Math.floor(Math.random() * 150);
   return 3000 + lengthFactor + jitter;
 }
 
 /**
  * Bóc tách số điện thoại Việt Nam chuẩn 10 số từ tin nhắn khách gửi
- * @param {string} text
- * @returns {string|null}
  */
 export function extractCustomerPhoneFromMessage(text = "") {
   if (!text || typeof text !== "string") return null;
@@ -61,37 +236,85 @@ export function extractCustomerPhoneFromMessage(text = "") {
 }
 
 /**
- * Sinh câu trả lời tự nhiên chuẩn Dược sĩ Thảo dựa trên ngữ cảnh khách hàng & RAG
+ * Sinh câu trả lời ngắn gọn (2-3 câu, < 45 từ) đúng kịch bản Quy trình Chăm sóc Tiểu đường ADDP
  */
-function buildContextualPharmacistReply({
+function buildContextualNutritionAdvisorReply({
   customerMessage = "",
-  customerName = "anh/chị",
-  customerPhone = null,
+  customerName = "",
+  avatarUrl = "",
+  genderFromProfile = "",
+  accountName = "",
   detectedPhoneInMsg = null,
   pathology = "",
   ragResult,
   conversationHistory = [],
 }) {
   const msgLower = String(customerMessage || "").toLowerCase().trim();
-  const displayName =
-    customerName &&
-    !["khách", "khách hàng", "khách zalo", "anh/chị"].includes(
-      String(customerName).toLowerCase().trim()
-    )
-      ? `anh/chị ${customerName}`
-      : "anh/chị";
+  const pronounInfo = detectCustomerPronoun(customerName, avatarUrl, genderFromProfile);
+  const { pronoun, addressWithName, capitalizedAddressWithName } = pronounInfo;
 
-  const hasGreetedBefore =
-    Array.isArray(conversationHistory) &&
-    conversationHistory.some((m) => m && m.isMe);
+  const staffName = resolveActiveStaffDisplayName(accountName);
+  const staffSelfIntro = staffName
+    ? `em là ${staffName} tư vấn bên Dược phẩm ADDP`
+    : `em bên chăm sóc sức khỏe Dược phẩm ADDP`;
 
-  const greetingPrefix = hasGreetedBefore
-    ? `Dạ ${displayName} ơi,`
-    : `Dạ em Thảo chào ${displayName} ạ,`;
+  const alreadyGreeted = hasAlreadyGreetedToday(conversationHistory);
 
-  const glucare = PHARMA_KNOWLEDGE_BASE.glucare_plus;
-  const dovital = PHARMA_KNOWLEDGE_BASE.dovital;
+  // Prefix chào hỏi: Chỉ xuất hiện ở tin nhắn ĐẦU TIÊN trong ngày, các tin sau bỏ hoàn toàn câu chào
+  const firstTimeGreeting = alreadyGreeted
+    ? "Dạ "
+    : `Dạ em chào ${addressWithName} ạ, ${staffSelfIntro}. `;
 
+  // 1. Khi khách thắc mắc / khó chịu vì câu trả lời lặp ("Sao tl giống nhau thế", "trả lời giống nhau", "bot à")
+  const isComplainingRepetitive =
+    msgLower.includes("giống nhau") ||
+    msgLower.includes("tl giống") ||
+    msgLower.includes("trả lời giống") ||
+    msgLower.includes("lặp lại") ||
+    msgLower.includes("nhai lại") ||
+    msgLower.includes("máy trả lời") ||
+    msgLower.includes("bot à");
+
+  if (isComplainingRepetitive) {
+    return `Dạ ${pronoun} thông cảm cho em nhé, em đang đối chiếu lại chỉ số sức khỏe của ${pronoun} để tư vấn cho chuẩn xác ạ. ${capitalizedAddressWithName} cho em hỏi thăm thêm là hiện tại đường huyết lúc đói của mình khoảng mấy chấm rồi ạ?`;
+  }
+
+  // 2. Khi khách vừa gửi số điện thoại trong tin nhắn
+  if (detectedPhoneInMsg) {
+    return `Dạ em đã lưu số Zalo ${detectedPhoneInMsg} của ${addressWithName} rồi ạ. Hiện tại đường huyết của ${pronoun} đang khoảng mấy chấm để em gửi thực đơn và hướng dẫn chi tiết qua cho ${pronoun} nhé?`;
+  }
+
+  // 3. Khi khách hỏi vị sữa ("Sữa vị gì đấy ngon k?", "có dễ uống không", "vị thế nào")
+  const isAskingTaste =
+    msgLower.includes("vị gì") ||
+    msgLower.includes("vị thế nào") ||
+    msgLower.includes("vị sao") ||
+    msgLower.includes("ngon k") ||
+    msgLower.includes("ngon không") ||
+    msgLower.includes("dễ uống") ||
+    msgLower.includes("ngọt không") ||
+    msgLower.includes("có ngọt") ||
+    msgLower.includes("mùi vị");
+
+  if (isAskingTaste) {
+    return `Dạ dòng sữa hạt bên em có vị hạt tự nhiên thơm bùi, vị ngọt thanh thanh từ đường ăn kiêng Isomalt rất dễ uống ${pronoun} nhé. Hiện tại ${pronoun} thích uống ngọt nhẹ hay không ngọt hẳn ạ?`;
+  }
+
+  // 4. Khi khách bảo muốn tăng cân / bị sụt cân ("T muốn tăng cân", "muốn lên cân", "sụt cân", "tụt cân", "gầy quá")
+  const isWantingWeightGain =
+    msgLower.includes("tăng cân") ||
+    msgLower.includes("lên cân") ||
+    msgLower.includes("sụt cân") ||
+    msgLower.includes("tụt cân") ||
+    msgLower.includes("gầy") ||
+    msgLower.includes("ốm quá") ||
+    msgLower.includes("teo cơ");
+
+  if (isWantingWeightGain) {
+    return `Dạ người tiểu đường thường hấp thu kém nên dễ bị tụt cân, teo cơ và mệt mỏi đó ${pronoun}. Hiện tại ${pronoun} muốn cải thiện tăng khoảng mấy cân và tối ngủ có hay bị tê bì chân tay không ${pronoun}?`;
+  }
+
+  // 5. Khi khách hỏi giá / khuyến mãi / combo ("Sữa Glucare Plus giá bao nhiêu em?", "nhiêu tiền")
   const isAskingPrice =
     msgLower.includes("giá") ||
     msgLower.includes("bao nhiêu") ||
@@ -99,105 +322,75 @@ function buildContextualPharmacistReply({
     msgLower.includes("khuyến mãi") ||
     msgLower.includes("ưu đãi") ||
     msgLower.includes("combo") ||
-    msgLower.includes("mua");
+    msgLower.includes("mấy tiền");
 
+  const matched = ragResult?.matchedProducts || [];
+  const isDovital =
+    matched.includes("dovital") ||
+    (!matched.includes("glucare_plus") && String(pathology || "").toLowerCase().includes("gan"));
+
+  if (isAskingPrice) {
+    if (isDovital && !matched.includes("glucare_plus")) {
+      return `Dạ viên uống Mát Gan Dovital hộp 60 viên giá 250.000đ, lấy combo 3 hộp ưu đãi còn 650.000đ và miễn phí giao hàng ${pronoun} ạ. Hiện tại ${pronoun} đang gặp tình trạng men gan cao hay nóng trong, mẩn ngứa vậy ạ?`;
+    }
+    return `Dạ sữa lon 900g giá 450.000đ ${pronoun} ạ. Bên em đang có combo 3 lon chỉ 1.250.000đ tặng kèm bình lắc giữ nhiệt và miễn ship tận nhà. Hiện tại chỉ số đường huyết của ${pronoun} đang khoảng mấy chấm rồi để em hướng dẫn liều uống phù hợp nhất cho ${pronoun} ạ?`;
+  }
+
+  // 6. Khi khách hỏi cách pha / cách dùng
   const isAskingUsage =
     msgLower.includes("cách dùng") ||
     msgLower.includes("cách uống") ||
     msgLower.includes("cách pha") ||
     msgLower.includes("pha thế nào") ||
     msgLower.includes("liều lượng") ||
-    msgLower.includes("liệu trình") ||
-    msgLower.includes("mấy viên") ||
-    msgLower.includes("mấy muỗng");
+    msgLower.includes("mấy muỗng") ||
+    msgLower.includes("mấy ly");
 
-  const isAskingIngredients =
-    msgLower.includes("thành phần") ||
-    msgLower.includes("làm từ gì") ||
-    msgLower.includes("chất gì") ||
-    msgLower.includes("nguồn gốc");
+  if (isAskingUsage) {
+    if (isDovital && !matched.includes("glucare_plus")) {
+      return `Dạ ${pronoun} uống ngày 2 lần, mỗi lần 1-2 viên sau bữa ăn 30 phút để hỗ trợ hạ men gan và mát gan tốt nhất nhé. Hiện tại chỉ số men gan của ${pronoun} đang ở mức bao nhiêu rồi ạ?`;
+    }
+    return `Dạ mỗi lần ${pronoun} pha 4 muỗng gạt ngang với 180ml nước ấm 45-50 độ C, uống 1-2 ly vào bữa phụ giúp no lâu mà ổn định đường huyết nhé. Bình thường tầm xế chiều ${pronoun} có hay bị đói lả hay mệt người không ạ?`;
+  }
 
-  const isAskingReplaceMedicine =
-    msgLower.includes("thay thuốc") ||
-    msgLower.includes("bỏ thuốc") ||
+  // 7. Khi khách hỏi đang uống thuốc tây / thuốc bệnh viện
+  const isAskingMedicine =
     msgLower.includes("thuốc tây") ||
-    msgLower.includes("bao lâu") ||
-    msgLower.includes("hiệu quả");
+    msgLower.includes("thuốc viện") ||
+    msgLower.includes("thuốc bệnh viện") ||
+    msgLower.includes("thay thuốc") ||
+    msgLower.includes("tiêm insulin");
 
-  const matched = ragResult?.matchedProducts || [];
-  const isDovital =
-    matched.includes("dovital") ||
-    (!matched.includes("glucare_plus") &&
-      String(pathology || "").toLowerCase().includes("gan"));
-  const isGlucare =
-    matched.includes("glucare_plus") ||
-    (!isDovital &&
-      (matched.length === 0 &&
-        String(pathology || "").toLowerCase().includes("tiểu đường")));
-
-  // 1. Trường hợp khách vừa gửi SĐT trong tin nhắn
-  if (detectedPhoneInMsg) {
-    if (isDovital && !isGlucare) {
-      return `${greetingPrefix} em Thảo đã nhận được số điện thoại ${detectedPhoneInMsg} của mình rồi ạ. Dòng ${dovital.name} bên em hiện đang có giá ${dovital.pricingAndPromo} Em Thảo xin phép liên hệ qua số này để hỏi kỹ hơn về chỉ số men gan hiện tại và lên liệu trình phù hợp nhất cho ${displayName} nhé ạ!`;
-    }
-    if (isGlucare) {
-      return `${greetingPrefix} em Thảo đã lưu lại số điện thoại ${detectedPhoneInMsg} của mình rồi ạ. Với dòng ${glucare.name} chuyên biệt cho người tiểu đường (${glucare.pricingAndPromo}), em Thảo xin phép gọi hoặc nhắn Zalo qua số này để tư vấn kỹ hơn theo mức đường huyết hiện tại của ${displayName} nha!`;
-    }
-    return `${greetingPrefix} em Thảo đã nhận được số điện thoại ${detectedPhoneInMsg} của ${displayName} rồi ạ. Em xin phép lưu vào hồ sơ sức khỏe và liên hệ hỗ trợ mình chi tiết ngay bây giờ nhé ạ!`;
+  if (isAskingMedicine) {
+    return `Dạ thuốc bác sĩ kê mình vẫn duy trì đều đặn, còn sữa hạt bên em là dinh dưỡng bữa phụ giúp bù đạm thực vật để ${pronoun} không bị sụt cân hay mệt mỏi ạ. Đợt này uống thuốc tây ${pronoun} có hay thấy nóng trong hay cồn cào ruột không ạ?`;
   }
 
-  // 2. Tư vấn chuyên sâu về Mát Gan Thanh Nhiệt Dovital
+  // 8. Khi khách hỏi về chế độ ăn / thực đơn tiểu đường
+  const isAskingDiet =
+    msgLower.includes("ăn gì") ||
+    msgLower.includes("kiêng gì") ||
+    msgLower.includes("thực đơn") ||
+    msgLower.includes("chế độ ăn");
+
+  if (isAskingDiet) {
+    return `Dạ ${pronoun} áp dụng chế độ ăn đảo ngược: ăn rau xanh trước, thức ăn đạm sau rồi mới ăn lưng bát cơm cuối cùng để đường không tăng vọt sau ăn nhé. Hiện tại bữa ăn hàng ngày ${pronoun} có đang kiêng khem tinh bột quá mức không ạ?`;
+  }
+
+  // 9. Khi khách hỏi về Gan / Mát gan Dovital
   if (isDovital && !matched.includes("glucare_plus")) {
-    if (isAskingPrice) {
-      return `${greetingPrefix} hiện tại sản phẩm ${dovital.name} bên em có quy cách ${dovital.pricingAndPromo} Với tình trạng men gan cao, gan nhiễm mỡ hoặc hay dùng bia rượu, nóng trong mẩn ngứa thì mình dùng Combo 3 hộp sẽ vừa đủ liệu trình 2 đến 3 tháng bảo vệ nhu mô gan bền vững và tiết kiệm được 100.000đ luôn đó ạ. ${
-        customerPhone
-          ? `Anh/chị muốn lấy thử trước 1 hộp hay lấy luôn Combo 3 hộp để em Thảo lên đơn gửi về số ${customerPhone} cho mình ạ?`
-          : `Hiện tại ${displayName} đang gặp tình trạng men gan cao hay nóng trong mẩn ngứa để em Thảo tư vấn liệu trình chuẩn nhất cho mình ạ?`
-      }`;
-    }
-
-    if (isAskingUsage) {
-      return `${greetingPrefix} cách dùng ${dovital.name} rất tiện lợi ạ, mình uống ngày 2 lần, mỗi lần từ 1 đến 2 viên sau bữa ăn khoảng 30 phút. Để các thảo dược như Cao Cà gai leo chuẩn hóa, Diệp hạ châu đắng, Actiso Đà Lạt và Silymarin chiết xuất Kế sữa giúp phục hồi nhu mô gan và hạ men gan AST, ALT ổn định thì em Thảo khuyến nghị mình duy trì đều đặn liệu trình từ 2 đến 3 tháng nhé ạ.`;
-    }
-
-    if (isAskingIngredients) {
-      return `${greetingPrefix} viên uống ${dovital.name} được chiết xuất từ bộ thảo dược bảo vệ nhu mô gan rất lành tính gồm Cao Cà gai leo chuẩn hóa, Diệp hạ châu đắng, Actiso Đà Lạt kết hợp cùng hoạt chất Silymarin từ Kế sữa, L-Arginine HCl và các Vitamin nhóm B ạ. Nhờ công thức này nên sản phẩm hỗ trợ hạ men gan, giảm gan nhiễm mỡ và làm dịu nhanh tình trạng nóng trong, mẩn ngứa mề đay hay mệt mỏi sau khi dùng bia rượu đó ạ.`;
-    }
-
-    return `${greetingPrefix} với tình trạng cần giải độc gan, hạ men gan hay hay bị nóng trong mẩn ngứa, bên em có dòng ${dovital.name} rất phù hợp cho mình ạ. Sản phẩm kết hợp Cao Cà gai leo chuẩn hóa, Diệp hạ châu đắng, Actiso Đà Lạt và Silymarin chiết xuất Kế sữa giúp bảo vệ nhu mô gan và hạ chỉ số AST, ALT an toàn. Mình chỉ cần uống ngày 2 lần, mỗi lần 1-2 viên sau ăn 30 phút thôi ạ, hộp 60 viên giá 250.000đ hoặc Combo 3 hộp giá ưu đãi 650.000đ cho liệu trình 2-3 tháng. Không biết hiện tại ${displayName} có đang gặp triệu chứng mẩn ngứa hay mới xét nghiệm thấy men gan tăng không ạ?`;
+    return `${firstTimeGreeting}Dòng Mát Gan Dovital bên em chiết xuất Cà gai leo, Kế sữa và Actiso giúp hạ men gan, giảm nóng trong mẩn ngứa rất êm ${pronoun} ạ. Hiện tại ${pronoun} đang bị men gan cao, gan nhiễm mỡ hay hay nóng nhiệt mất ngủ vậy ạ?`;
   }
 
-  // 3. Tư vấn chuyên sâu về Sữa hạt Glucare Plus
-  if (isGlucare || matched.includes("glucare_plus")) {
-    if (isAskingPrice) {
-      return `${greetingPrefix} dòng ${glucare.name} (sử dụng đường Hạt Isomalt chỉ số đường huyết thấp GI ~32) chuyên biệt cho người tiểu đường và tiền tiểu đường bên em hiện có giá 450.000đ/lon 900g ạ. Khi lấy Combo 3 lon mình sẽ được tặng ngay bình lắc giữ nhiệt kèm miễn phí giao hàng tận nhà để duy trì bình ổn đường huyết lúc đói hiệu quả nhất. ${
-        customerPhone
-          ? `${displayName} muốn em Thảo lên đơn 1 lon dùng thử hay lấy Combo 3 lon để em gửi về số ${customerPhone} cho mình ạ?`
-          : `Không biết hiện tại chỉ số đường huyết lúc đói của ${displayName} đang khoảng bao nhiêu mmol/L để em Thảo hướng dẫn liều uống phù hợp nhất ạ?`
-      }`;
-    }
-
-    if (isAskingUsage) {
-      return `${greetingPrefix} khi pha ${glucare.name} (đường Hạt Isomalt GI ~32, giá 450.000đ/lon 900g), mình lấy 4 muỗng gạt ngang pha cùng 180ml nước ấm khoảng 45 đến 50°C rồi khuấy đều là dùng được ngay ạ. Mình lưu ý giúp em Thảo là tuyệt đối không pha bằng nước sôi 100°C để giữ trọn vẹn 28 Vitamin, khoáng chất và chất xơ hòa tan FOS/Inulin nhé. Mỗi ngày ${displayName} duy trì uống 1 đến 2 ly vào bữa phụ hoặc sau bữa ăn chính 2 giờ sẽ giúp no lâu, đỡ thèm ngọt mà không lo tăng đường huyết ạ.`;
-    }
-
-    if (isAskingIngredients) {
-      return `${greetingPrefix} ${glucare.name} sử dụng hệ đường Hạt Isomalt năng lượng thấp có chỉ số đường huyết GI rất thấp chỉ khoảng 32, kết hợp cùng Đạm thực vật tinh khiết từ Hạnh nhân, Óc chó, Đậu nành phân lập, chất béo tốt MUFA & PUFA, chất xơ hòa tan FOS/Inulin và 28 Vitamin khoáng chất ạ (lon 900g giá 450.000đ/lon, Combo 3 lon tặng bình lắc giữ nhiệt và miễn phí giao hàng). Nhờ vậy khi uống vào cơ thể hấp thu chậm, giúp người tiểu đường Tuýp 1, Tuýp 2 hay người có đường huyết lúc đói trên 7.0 mmol/L bổ sung đủ chất, hết mệt mỏi mà đường huyết vẫn êm ru ạ.`;
-    }
-
-    if (isAskingReplaceMedicine) {
-      return `${greetingPrefix} em Thảo xin chia sẻ thật kỹ để mình yên tâm là ${glucare.name} (đường Hạt Isomalt GI ~32, giá 450.000đ/lon 900g) là dòng dinh dưỡng chuyên biệt hỗ trợ kiểm soát đường huyết chứ không thay thế thuốc tây điều trị của bác sĩ ạ. Tuy nhiên khi ${displayName} duy trì uống đều đặn 1 đến 2 ly mỗi ngày trong khoảng 10 đến 14 ngày kết hợp chế độ ăn giảm tinh bột trắng thì đường huyết lúc đói sẽ bình ổn rõ rệt, cơ thể khỏe khoắn và giảm hẳn cảm giác mệt mỏi, đói run tay chân đó ạ.`;
-    }
-
-    return `${greetingPrefix} bên em có dòng ${glucare.name} là dinh dưỡng chuyên biệt dành riêng cho người tiểu đường Tuýp 1, Tuýp 2 và tiền đái tháo đường có đường huyết lúc đói trên 7.0 mmol/L ạ. Sữa dùng đường Hạt Isomalt chỉ số GI thấp (~32) cùng đạm thực vật Hạnh nhân, Óc chó, chất xơ FOS/Inulin và 28 Vitamin khoáng chất nên uống rất thơm ngon mà không làm tăng đường huyết sau ăn. Mình duy trì ngày 1-2 ly (pha 4 muỗng gạt ngang với 180ml nước ấm 45-50°C) tầm 10-14 ngày kết hợp giảm tinh bột trắng là đường huyết đói êm hơn và đỡ mệt mỏi hẳn ạ. Hiện lon 900g có giá 450.000đ/lon, mua Combo 3 lon được tặng kèm bình lắc giữ nhiệt và miễn phí giao hàng. Không biết hiện tại đường huyết của ${displayName} đang ở mức bao nhiêu để em Thảo tư vấn kỹ hơn cho mình ạ?`;
+  // 10. Câu hỏi tư vấn tiểu đường / chào hỏi chung (Tuân thủ Bước 1 & Phần 3 Quy trình mới)
+  if (!alreadyGreeted) {
+    return `Dạ em chào ${addressWithName} ạ, ${staffSelfIntro}. Hiện tại ${pronoun} đang muốn ổn định chỉ số đường huyết hay đang bị sụt cân, mệt mỏi cần bổ sung dinh dưỡng tăng cân an toàn vậy ${pronoun}?`;
   }
 
-  // 4. Nếu khách hỏi cả 2 sản phẩm hoặc câu hỏi mở đầu chung
-  return `${greetingPrefix} em là Dược sĩ Thảo phụ trách tư vấn sức khỏe tại Dược phẩm ADDP ạ. Hiện bên em đang đồng hành chăm sóc chuyên sâu 2 dòng sản phẩm chủ lực là ${glucare.name} dành cho người tiểu đường, tiền tiểu đường (450.000đ/lon 900g, Combo 3 lon tặng bình lắc giữ nhiệt và miễn phí ship) và viên thảo dược ${dovital.name} giúp hạ men gan, giải độc gan, giảm mẩn ngứa (250.000đ/hộp 60 viên, Combo 3 hộp 650.000đ). Không biết hiện tại ${displayName} đang quan tâm cải thiện vấn đề đường huyết hay chức năng gan để em Thảo tư vấn chi tiết cho mình ạ?`;
+  return `Dạ dòng sữa hạt Glucare Plus bên em dùng đường Isomalt và đạm hạt kết hợp Đông trùng hạ thảo giúp bồi bổ thể trạng mà giữ đường huyết rất êm ${pronoun} ạ. Hiện tại đường huyết lúc đói của ${pronoun} khoảng mấy chấm và mình phát hiện tiểu đường lâu chưa ${pronoun}?`;
 }
 
 /**
- * Gọi LLM nếu hệ thống có cấu hình OPENAI_API_KEY, nếu không hoặc lỗi mạng thì dùng bộ máy RAG Dược sĩ Thảo nội bộ
+ * Gọi LLM nếu hệ thống có cấu hình OPENAI_API_KEY, ép buộc tuân thủ nghiêm ngặt quy chuẩn xưng hô & độ dài < 45 từ
  */
 async function callExternalLlmIfAvailable({
   systemPrompt,
@@ -230,8 +423,8 @@ async function callExternalLlmIfAvailable({
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         messages,
-        temperature: 0.5,
-        max_tokens: 350,
+        temperature: 0.4,
+        max_tokens: 120,
       }),
     });
 
@@ -245,24 +438,54 @@ async function callExternalLlmIfAvailable({
 }
 
 /**
- * Hàm chính sinh câu trả lời tự nhiên chuẩn Dược sĩ Thảo + độ trễ gõ phím + bóc tách SĐT
- * @param {object} params
- * @param {string} params.customerMessage
- * @param {object} [params.customerProfile]
- * @param {Array} [params.conversationHistory]
- * @returns {Promise<{
- *   replyText: string,
- *   typingDelayMs: number,
- *   detectedPhone: string | null,
- *   matchedProducts: string[],
- *   ragContext: string,
- *   persona: string
- * }>}
+ * Xây dựng System Prompt động theo tên tài khoản đang trực, giới tính khách và trạng thái đã chào trong ngày
+ */
+export function buildNutritionAdvisorSystemPrompt({
+  staffName = null,
+  pronounInfo,
+  alreadyGreeted = false,
+  ragContext = "",
+  customerPhone = null,
+  pathology = "",
+} = {}) {
+  const pronoun = pronounInfo?.pronoun || "mình";
+  const addressWithName = pronounInfo?.addressWithName || "mình";
+  const staffIntro = staffName
+    ? `Tên của bạn là "${staffName}" — Chuyên viên tư vấn dinh dưỡng của Công ty Dược phẩm ADDP.`
+    : `Bạn là Chuyên viên tư vấn dinh dưỡng bên chăm sóc sức khỏe Dược phẩm ADDP (xưng là "em").`;
+
+  return [
+    staffIntro,
+    "QUY TẮC BẮT BUỘC TUYỆT ĐỐI:",
+    "1. ĐỊNH VỊ VAI TRÒ: Tuyệt đối KHÔNG BAO GIỜ xưng là 'dược sĩ', 'bác sĩ', hay 'chuyên gia'. Chỉ xưng là 'em' hoặc chuyên viên tư vấn bên Dược phẩm ADDP.",
+    `2. XƯNG HÔ GIỚI TÍNH: Khách hàng này xưng hô là "${pronoun}" (gọi đầy đủ là "${addressWithName}"). Tuyệt đối không dùng cụm vô cảm "anh/chị".`,
+    alreadyGreeted
+      ? `3. KHÔNG CHÀO LẠI: Hôm nay đã chào khách rồi. BỎ HOÀN TOÀN câu chào mở đầu ("Dạ chào ${pronoun}...", "Dạ ${addressWithName} ơi..."). Hãy trả lời thẳng vào câu hỏi của khách (bắt đầu bằng "Dạ...").`
+      : `3. CHÀO LẦN ĐẦU: Đây là tin nhắn đầu tiên trong ngày, hãy chào ngắn gọn: "Dạ em chào ${addressWithName} ạ, ${
+          staffName ? `em là ${staffName} tư vấn bên Dược phẩm ADDP.` : "em bên Dược phẩm ADDP ạ."
+        }"`,
+    "4. ĐỘ DÀI NGẮN GỌN: Tối đa 2 đến 3 câu ngắn (dưới 45 từ). Không xả đoạn văn dài như bài báo y khoa. Không dùng ký tự markdown (*, #, -).",
+    "5. KẾT THÚC BẰNG CÂU HỎI MỞ: Luôn kết thúc bằng 1 câu hỏi thăm dò nhẹ nhàng về tình trạng sức khỏe (chỉ số đường huyết mấy chấm, muốn tăng mấy cân, có tê bì mất ngủ không...) để khách chia sẻ tiếp.",
+    "",
+    "--- HỒ SƠ KHÁCH HÀNG ---",
+    `- Cách gọi khách: ${addressWithName}`,
+    `- Số điện thoại: ${customerPhone || "Chưa có"}`,
+    `- Ghi chú bệnh lý: ${pathology || "Chưa ghi nhận"}`,
+    "",
+    "--- KHO TRI THỨC & KỊCH BẢN TIỂU ĐƯỜNG ADDP ---",
+    ragContext,
+  ].join("\n");
+}
+
+/**
+ * Hàm chính sinh câu trả lời tự nhiên của Chuyên viên Tư vấn Dinh dưỡng ADDP + độ trễ gõ phím + bóc tách SĐT
  */
 export async function generateHumanLikeReply({
   customerMessage = "",
   customerProfile = {},
   conversationHistory = [],
+  channelConfig = {},
+  accountName = "",
 } = {}) {
   const cleanMessage = String(customerMessage || "").trim();
   const detectedPhone = extractCustomerPhoneFromMessage(cleanMessage);
@@ -272,7 +495,9 @@ export async function generateHumanLikeReply({
     customerProfile?.fullName ||
     customerProfile?.name ||
     customerProfile?.customerName ||
-    "anh/chị";
+    "";
+  const avatarUrl = customerProfile?.avatar || customerProfile?.avatarUrl || "";
+  const genderFromProfile = customerProfile?.gender || "";
   const customerPhone =
     detectedPhone ||
     customerProfile?.phone ||
@@ -283,29 +508,61 @@ export async function generateHumanLikeReply({
     (Array.isArray(customerProfile?.tags) ? customerProfile.tags.join(", ") : "") ||
     "";
 
-  const fullSystemPrompt = [
-    DUOC_SI_THAO_SYSTEM_PROMPT,
-    "",
-    "--- NGỮ CẢNH HỒ SƠ KHÁCH HÀNG ---",
-    `- Tên khách hàng: ${customerName}`,
-    `- Số điện thoại đã nhận diện: ${customerPhone || "Chưa có"}`,
-    `- Lịch sử bệnh lý / Ghi chú: ${pathology || "Chưa ghi nhận"}`,
-    "",
-    "--- KHO TRI THỨC DƯỢC PHẨM RAG ---",
-    ragResult.contextPrompt,
-  ].join("\n");
+  const effectiveAccountName =
+    accountName ||
+    channelConfig?.accountName ||
+    channelConfig?.channelLabel ||
+    channelConfig?.name ||
+    customerProfile?.accountName ||
+    "";
 
-  let replyText = await callExternalLlmIfAvailable({
-    systemPrompt: fullSystemPrompt,
-    userPrompt: cleanMessage || "Chào shop, tư vấn giúp mình với",
-    conversationHistory,
+  const pronounInfo = detectCustomerPronoun(customerName, avatarUrl, genderFromProfile);
+  const staffName = resolveActiveStaffDisplayName(effectiveAccountName);
+  const alreadyGreeted = hasAlreadyGreetedToday(conversationHistory);
+
+  // Ưu tiên khớp trực tiếp các kịch bản chuẩn trong tài liệu Quy trình ADDP (hỏi vị, hỏi giá, muốn tăng cân, phàn nàn lặp tin...)
+  const msgLower = cleanMessage.toLowerCase();
+  const isDirectProtocolScenario =
+    msgLower.includes("vị gì") ||
+    msgLower.includes("ngon k") ||
+    msgLower.includes("ngon không") ||
+    msgLower.includes("dễ uống") ||
+    msgLower.includes("tăng cân") ||
+    msgLower.includes("lên cân") ||
+    msgLower.includes("sụt cân") ||
+    msgLower.includes("tụt cân") ||
+    msgLower.includes("giá") ||
+    msgLower.includes("bao nhiêu") ||
+    msgLower.includes("nhiêu tiền") ||
+    msgLower.includes("giống nhau") ||
+    msgLower.includes("tl giống") ||
+    msgLower.includes("lặp lại");
+
+  const fullSystemPrompt = buildNutritionAdvisorSystemPrompt({
+    staffName,
+    pronounInfo,
+    alreadyGreeted,
+    ragContext: ragResult.contextPrompt,
+    customerPhone,
+    pathology,
   });
 
+  let replyText = null;
+  if (!isDirectProtocolScenario) {
+    replyText = await callExternalLlmIfAvailable({
+      systemPrompt: fullSystemPrompt,
+      userPrompt: cleanMessage || "Tư vấn giúp mình",
+      conversationHistory,
+    });
+  }
+
   if (!replyText) {
-    replyText = buildContextualPharmacistReply({
+    replyText = buildContextualNutritionAdvisorReply({
       customerMessage: cleanMessage,
       customerName,
-      customerPhone,
+      avatarUrl,
+      genderFromProfile,
+      accountName: effectiveAccountName,
       detectedPhoneInMsg: detectedPhone,
       pathology,
       ragResult,
@@ -315,6 +572,9 @@ export async function generateHumanLikeReply({
 
   replyText = sanitizeHumanChatText(replyText);
   const typingDelayMs = calculateTypingDelayMs(replyText);
+  const personaLabel = staffName
+    ? `${staffName} - Chuyên viên tư vấn dinh dưỡng Dược phẩm ADDP`
+    : "Chuyên viên tư vấn dinh dưỡng Dược phẩm ADDP";
 
   return {
     replyText,
@@ -322,6 +582,9 @@ export async function generateHumanLikeReply({
     detectedPhone,
     matchedProducts: ragResult.matchedProducts,
     ragContext: ragResult.contextPrompt,
-    persona: "Dược sĩ Thảo - Chuyên viên tư vấn y khoa ADDP",
+    persona: personaLabel,
+    pronounInfo,
+    staffName,
+    alreadyGreeted,
   };
 }

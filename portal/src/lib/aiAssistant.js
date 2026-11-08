@@ -104,8 +104,10 @@ export function judgeCustomerMessage(messageText) {
  */
 export async function generateAiDraftResponse({
   customerMessage = "",
-  customerName = "Anh/Chị",
+  customerName = "",
   context = "",
+  accountName = "",
+  conversationHistory = [],
 } = {}) {
   const query = String(customerMessage || "").trim();
   const matchedDocs = searchSecondBrain(query);
@@ -114,10 +116,11 @@ export async function generateAiDraftResponse({
   const aiResult = await generateHumanLikeReply({
     customerMessage: query,
     customerProfile: {
-      fullName: customerName || "Anh/Chị",
+      fullName: customerName || "",
       pathology: context || "",
     },
-    conversationHistory: [],
+    accountName: accountName || "",
+    conversationHistory: Array.isArray(conversationHistory) ? conversationHistory : [],
   });
 
   return {
@@ -134,6 +137,6 @@ export async function generateAiDraftResponse({
       ? ["Sữa hạt Glucare Plus", "Tiểu đường"]
       : aiResult.matchedProducts?.includes("dovital")
       ? ["Mát Gan Dovital", "Bệnh gan"]
-      : ["Tư vấn dược sĩ"],
+      : ["Tư vấn dinh dưỡng ADDP"],
   };
 }

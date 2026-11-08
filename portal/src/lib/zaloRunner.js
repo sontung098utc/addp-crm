@@ -404,6 +404,38 @@ export function getOwnIdForHome(homeDir) {
 }
 
 /**
+ * Lấy tên tài khoản Zalo đang trực thực tế (ví dụ: "Sơn Tùng", "Thuỷ Tiên") từ crm-meta-cache.json hoặc accounts.json
+ */
+export function getActiveZaloAccountName(homeDir) {
+  const targetHome = homeDir || getActiveZaloHome();
+  const cliDir = path.join(targetHome, ".zalo-agent-cli");
+
+  const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
+  if (fs.existsSync(metaCachePath)) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
+      if (cached?.accountName || cached?.displayName || cached?.ownName) {
+        return String(cached.accountName || cached.displayName || cached.ownName);
+      }
+    } catch {}
+  }
+
+  const accountsPath = path.join(cliDir, "accounts.json");
+  if (fs.existsSync(accountsPath)) {
+    try {
+      const accounts = JSON.parse(fs.readFileSync(accountsPath, "utf8"));
+      if (Array.isArray(accounts)) {
+        const activeAcc = accounts.find((a) => a.active) || accounts[0];
+        const name = activeAcc?.displayName || activeAcc?.name || activeAcc?.zaloName;
+        if (name) return String(name);
+      }
+    } catch {}
+  }
+
+  return "Zalo Cá Nhân (Sơn Tùng)";
+}
+
+/**
  * Lấy danh sách toàn bộ các file history JSONL (bao gồm cả history thực tế đã lưu, group history và live history)
  */
 export function getAllZaloHistoryFiles(primaryHome) {
@@ -657,7 +689,10 @@ export async function processIncomingZaloMessageWithBot({
   msgId,
   timestamp,
   threadId,
-  senderName = "Anh/Chị",
+  senderName = "",
+  avatarUrl = "",
+  genderFromProfile = "",
+  accountName = "",
   text = "",
   isMe = false,
   type = "DIRECT",
@@ -726,17 +761,28 @@ export async function processIncomingZaloMessageWithBot({
   globalThis.__zaloBotInFlightMsgIds.add(dedupKey);
 
   try {
+    const targetHome = homeDir || getActiveZaloHome();
+    const effectiveAccountName = accountName || getActiveZaloAccountName(targetHome);
+
     console.log(
       `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, msgId: ${msgToken}, isMe: ${Boolean(isMe)})`
     );
     console.log(`[Zalo AI Bot] Mode: ${effectiveMode}`);
 
-    // 4. Đấu nối chuẩn RAG Dược sĩ Thảo: gọi trực tiếp generateHumanLikeReply từ chatBotEngine.js
+    // 4. Đấu nối chuẩn RAG Chuyên viên Tư vấn Dinh dưỡng ADDP: gọi trực tiếp generateHumanLikeReply từ chatBotEngine.js
     const aiResult = await generateHumanLikeReply({
       customerMessage: cleanText,
-      customerProfile: customerRecord || {
-        fullName: senderName,
-        phone: detectedPhone,
+      customerProfile: {
+        ...(customerRecord || {}),
+        fullName: senderName || customerRecord?.fullName || "",
+        phone: detectedPhone || customerRecord?.phone || null,
+        avatar: avatarUrl || customerRecord?.avatar || "",
+        gender: genderFromProfile || customerRecord?.gender || "",
+      },
+      accountName: effectiveAccountName,
+      channelConfig: {
+        channelId,
+        accountName: effectiveAccountName,
       },
       conversationHistory,
     });
@@ -760,10 +806,12 @@ export async function processIncomingZaloMessageWithBot({
       return { skipped: true, reason: "HUMAN_TOOK_OVER_DURING_TYPING", state: afterDelayState };
     }
 
-    // 6. Gọi trực tiếp hàm gửi tin nhắn sendTextMessage về cho khách
-    const targetHome = homeDir || getActiveZaloHome();
+    // 6. Gọi trực tiếp hàm gửi tin nhắn sendTextMessage về cho khách (xưng đúng tên nick đang trực)
+    const senderLabel = aiResult.staffName
+      ? `${aiResult.staffName} (ADDP)`
+      : "Chuyên viên Tư vấn ADDP";
     const sendRes = await sendTextMessage(
-      "Dược sĩ Thảo (AI)",
+      senderLabel,
       String(threadId),
       String(aiResult.replyText),
       {
@@ -798,16 +846,21 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
   try {
     const targetHome = homeDir || getActiveZaloHome();
     const ownId = String(ownIdOverride || getOwnIdForHome(targetHome));
+    const activeAccountName = getActiveZaloAccountName(targetHome);
     const cliDir = path.join(targetHome, ".zalo-agent-cli");
 
-    // Đọc danh sách nhóm để loại trừ chat nhóm khỏi AI Bot 1-1
+    // Đọc danh sách nhóm (để loại trừ chat nhóm) và danh sách bạn bè (để lấy đúng tên & avatar khách hàng)
     const groupIds = new Set();
+    const friendMap = new Map();
     const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
     if (fs.existsSync(metaCachePath)) {
       try {
         const meta = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
         for (const g of meta?.groups || []) {
           if (g?.threadId) groupIds.add(String(g.threadId));
+        }
+        for (const f of meta?.friends || []) {
+          if (f?.userId) friendMap.set(String(f.userId), f);
         }
       } catch {}
     }
@@ -898,16 +951,25 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
         lastMsg.type === "text" &&
         now - lastMsg.timestamp < 15 * 60 * 1000
       ) {
+        const friendInfo = friendMap.get(tid);
+        const resolvedCustomerName =
+          (lastMsg.senderName && lastMsg.senderName !== "Khách Zalo" ? lastMsg.senderName : "") ||
+          friendInfo?.displayName ||
+          friendInfo?.zaloName ||
+          "";
+
         processIncomingZaloMessageWithBot({
           msgId: lastMsg.id,
           timestamp: lastMsg.timestamp,
           threadId: tid,
-          senderName: lastMsg.senderName || "Khách Zalo",
+          senderName: resolvedCustomerName,
+          avatarUrl: friendInfo?.avatar || "",
+          accountName: activeAccountName,
           text: lastMsg.text,
           isMe: false,
           type: "DIRECT",
           channelId: "ZALO_PERSONAL",
-          conversationHistory: sortedMsgs.slice(-8),
+          conversationHistory: sortedMsgs.slice(-10),
           homeDir: targetHome,
         }).catch((err) => {
           console.error("[Zalo AI Bot] Lỗi xử lý tự động trả lời:", err.message);
@@ -1023,7 +1085,7 @@ export async function sendTextMessage(accountPhone, targetZaloId, text, options 
         threadId: recipient,
         threadType: options.isGroup ? "group" : "dm",
         senderId: ownId,
-        senderName: accountPhone || "Dược sĩ Thảo (AI)",
+        senderName: accountPhone || "Chuyên viên Tư vấn ADDP",
         text: message,
         timestamp: Date.now(),
         isSelf: true,

@@ -5,7 +5,16 @@ import { generateHumanLikeReply } from "@/lib/ai/chatBotEngine.js";
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { message, customerMessage, draftIdea, customerName, customerPhone, pathology, mode } = body || {};
+    const {
+      message,
+      customerMessage,
+      draftIdea,
+      customerName,
+      customerPhone,
+      pathology,
+      accountName,
+      conversationHistory,
+    } = body || {};
 
     const effectiveText =
       (typeof draftIdea === "string" && draftIdea.trim()) ||
@@ -16,15 +25,16 @@ export async function POST(request) {
     // 1. Phán xử tin nhắn khách (AI Judge)
     const judge = judgeCustomerMessage(customerMessage || effectiveText);
 
-    // 2. Sinh câu trả lời chuẩn Dược sĩ Thảo từ RAG Dược phẩm (Glucare Plus & Mát Gan Dovital)
+    // 2. Sinh câu trả lời chuẩn Chuyên viên tư vấn dinh dưỡng ADDP
     const aiResult = await generateHumanLikeReply({
       customerMessage: effectiveText,
       customerProfile: {
-        fullName: customerName || "Anh/Chị",
+        fullName: customerName || "",
         phone: customerPhone || null,
         pathology: pathology || "",
       },
-      conversationHistory: [],
+      accountName: accountName || "",
+      conversationHistory: Array.isArray(conversationHistory) ? conversationHistory : [],
     });
 
     const mergedTags = Array.from(
