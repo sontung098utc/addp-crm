@@ -1,23 +1,24 @@
 import { NextResponse } from "next/server";
 import {
-  getAllCampaigns,
+  getAllBroadcastCampaigns,
   createBroadcastCampaign,
-  updateCampaignStatus,
-} from "@/lib/smartBroadcastQueue";
-import { getSessionStaff } from "@/lib/auth";
+  controlBroadcastCampaign,
+  getSentCountTodayForChannel,
+} from "@/lib/broadcastEngine.js";
 
-export async function GET(request) {
+export async function GET() {
   try {
-    const campaigns = getAllCampaigns();
+    const campaigns = getAllBroadcastCampaigns();
     return NextResponse.json({
       ok: true,
       campaigns,
       total: campaigns.length,
+      sentToday: getSentCountTodayForChannel("ZALO_PERSONAL"),
       antiBanRules: {
         minDelaySec: 45,
         maxDelaySec: 120,
-        dailyTargetLimit: 70,
-        policy: "Điều 4 AGENTS.md: Giãn cách 45-120s ngẫu nhiên, tối đa 70 tin chủ động/ngày/nick Zalo",
+        dailyTargetLimit: 150,
+        policy: "Điều 4 AGENTS.md: Giãn cách 45-120s ngẫu nhiên, tối đa 150 tin/ngày/nick Zalo",
       },
     });
   } catch (error) {
@@ -29,10 +30,10 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { action, id, status, campaign } = body;
+    const { action, id, status, campaign } = body || {};
 
-    if (action === "UPDATE_STATUS" && id && status) {
-      const updated = updateCampaignStatus(id, status);
+    if ((action === "UPDATE_STATUS" || action) && id) {
+      const updated = controlBroadcastCampaign(id, status || action);
       return NextResponse.json({ ok: true, campaign: updated });
     }
 

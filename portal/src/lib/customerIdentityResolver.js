@@ -17,7 +17,67 @@ export { normalizePhone, isValidVietnamPhone };
 import { calculateVipLevel } from "./customerTiers.js";
 import { routeLeadToStaff } from "./leadRouting.js";
 
-const CUSTOMERS_FILE_PATH = path.join(process.cwd(), ".data", "customers.json");
+const CUSTOMERS_FILE_PATH = fs.existsSync(path.join(process.cwd(), ".data"))
+  ? path.join(process.cwd(), ".data", "customers.json")
+  : path.join(process.cwd(), "portal", ".data", "customers.json");
+
+export const STANDARD_CUSTOMER_TAGS = [
+  "Tiểu Đường Tuýp 2",
+  "Tiểu Đường Tuýp 1",
+  "Tiền Tiểu Đường",
+  "Men Gan Cao",
+  "Gan Nhiễm Mỡ",
+  "VIP",
+  "Đã Mua Glucare Plus",
+  "Đã Mua Dovital",
+  "Zalo Cá Nhân",
+  "Fanpage FB",
+  "Zalo OA",
+  "Khách Mới",
+  "Cần Tư Vấn Thêm",
+  "Đã Hủy Đơn",
+  "Khiếu Nại",
+  "Dừng Chăm Sóc",
+];
+
+function ensureCustomerTagsArray(customer = {}) {
+  const tagSet = new Set();
+  if (Array.isArray(customer.tags)) {
+    for (const t of customer.tags) {
+      if (t && String(t).trim()) tagSet.add(String(t).trim());
+    }
+  } else if (typeof customer.tags === "string" && customer.tags.trim()) {
+    for (const t of customer.tags.split(",")) {
+      if (t.trim()) tagSet.add(t.trim());
+    }
+  }
+
+  // Tự động bổ sung thẻ kênh và bệnh lý nếu có trong hồ sơ
+  const src = String(customer.source || "").toUpperCase();
+  if (src === "ZALO_PERSONAL" || customer.zaloUid) tagSet.add("Zalo Cá Nhân");
+  if (src === "FACEBOOK" || customer.facebookId || customer.psid || customer.facebookUrl) {
+    tagSet.add("Fanpage FB");
+  }
+  if (src === "ZALO_OA") tagSet.add("Zalo OA");
+
+  const patho = String(customer.pathology || "").toLowerCase();
+  if (patho.includes("tuýp 2") || patho.includes("type 2")) tagSet.add("Tiểu Đường Tuýp 2");
+  else if (patho.includes("tiểu đường") || patho.includes("đường huyết")) tagSet.add("Tiểu Đường Tuýp 2");
+  if (patho.includes("men gan") || patho.includes("gan")) tagSet.add("Men Gan Cao");
+
+  if (
+    String(customer.vipLevel || "").toUpperCase().includes("VIP") ||
+    Number(customer.totalOrders) >= 3 ||
+    Number(customer.totalSpent) >= 2000000
+  ) {
+    tagSet.add("VIP");
+  }
+
+  return {
+    ...customer,
+    tags: Array.from(tagSet),
+  };
+}
 
 function ensureStorage() {
   const dir = path.dirname(CUSTOMERS_FILE_PATH);
@@ -30,9 +90,9 @@ function loadPersistedCustomers() {
   ensureStorage();
   try {
     if (fs.existsSync(CUSTOMERS_FILE_PATH)) {
-      const data = fs.readFileSync(CUSTOMERS_FILE_PATH, "utf8");
+      const data = fs.readFileSync(CUSTOMERS_FILE_PATH, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) return parsed.map(ensureCustomerTagsArray);
     }
   } catch (err) {
     console.error("Lỗi đọc file customers.json:", err);
@@ -233,7 +293,174 @@ export function updateCustomer(id, updates = {}) {
     updated.vipLabel = vip.label;
   }
 
-  dynamicCustomersStore[index] = updated;
+  dynamicCustomersStore[index] = ensureCustomerTagsArray(updated);
   savePersistedCustomers(dynamicCustomersStore);
-  return updated;
+  return dynamicCustomersStore[index];
+}
+
+/**
+ * Che 3 chữ số giữa của SĐT để hiển thị an toàn trên danh sách xem trước (VD: 0912345678 -> 091***5678)
+ */
+export function maskPhoneMiddle(phone = "") {
+  const clean = String(phone || "").trim();
+  if (!clean) return "Chưa có SĐT";
+  if (clean.length < 8) return clean;
+  return `${clean.slice(0, 3)}***${clean.slice(6)}`;
+}
+
+/**
+ * Kiểm tra khách hàng có khả năng nhận tin trên kênh tương ứng hay không
+ */
+export function customerSupportsChannel(customer = {}, channel = "ALL") {
+  const ch = String(channel || "ALL").toUpperCase();
+  if (ch === "ALL") return true;
+
+  const tagsLower = (Array.isArray(customer.tags) ? customer.tags : []).map((t) =>
+    String(t).toLowerCase()
+  );
+  const src = String(customer.source || "").toUpperCase();
+  const hasPhone = Boolean(customer.phone && String(customer.phone).trim().length >= 9);
+  const hasZaloThread = Boolean(
+    customer.zaloUid ||
+      customer.zaloThreadId ||
+      src === "ZALO_PERSONAL" ||
+      tagsLower.includes("zalo cá nhân")
+  );
+  const hasFbPsid = Boolean(
+    customer.facebookId ||
+      customer.psid ||
+      customer.facebookUrl ||
+      src === "FACEBOOK" ||
+      tagsLower.includes("fanpage fb")
+  );
+
+  if (ch === "ZALO_PERSONAL" || ch === "ZALO") {
+    return hasPhone || hasZaloThread;
+  }
+  if (ch === "FACEBOOK") {
+    return hasFbPsid;
+  }
+  if (ch === "ZALO_OA") {
+    return hasPhone || Boolean(customer.zaloOaUid || src === "ZALO_OA" || tagsLower.includes("zalo oa"));
+  }
+  return true;
+}
+
+/**
+ * Module 1 (WBS-35): Bộ Lọc Tệp Khách Theo Thẻ & Kênh (Audience Filter & Counter)
+ * @param {object} params
+ * @param {string[]} [params.includeTags] - Khách phải chứa thẻ (theo operator AND hoặc OR)
+ * @param {string[]} [params.excludeTags] - Loại trừ khách chứa bất kỳ thẻ nào trong danh sách này
+ * @param {string} [params.channel="ALL"] - "ALL" | "ZALO_PERSONAL" | "FACEBOOK" | "ZALO_OA"
+ * @param {"AND"|"OR"} [params.operator="AND"]
+ * @returns {{
+ *   customers: Array<object>,
+ *   totalCount: number,
+ *   previewList: Array<object>,
+ *   channelBreakdown: { zalo: number, messenger: number, zaloOa: number }
+ * }}
+ */
+export function filterCustomersByTags({
+  includeTags = [],
+  excludeTags = [],
+  channel = "ALL",
+  operator = "AND",
+} = {}) {
+  const allCustomers = getAllCustomers();
+  const normInclude = (Array.isArray(includeTags) ? includeTags : [])
+    .map((t) => String(t || "").trim().toLowerCase())
+    .filter(Boolean);
+  const normExclude = (Array.isArray(excludeTags) ? excludeTags : [])
+    .map((t) => String(t || "").trim().toLowerCase())
+    .filter(Boolean);
+  const op = String(operator || "AND").toUpperCase() === "OR" ? "OR" : "AND";
+
+  // Lọc theo includeTags & excludeTags trước để tính breakdown đa kênh
+  const tagMatchedCustomers = allCustomers.filter((cust) => {
+    const custTagsLower = (Array.isArray(cust.tags) ? cust.tags : []).map((t) =>
+      String(t || "").trim().toLowerCase()
+    );
+
+    // 1. Kiểm tra excludeTags: Nếu có bất kỳ thẻ loại trừ nào -> loại ngay
+    if (normExclude.length > 0) {
+      const hasExcluded = normExclude.some((exTag) =>
+        custTagsLower.some((ct) => ct === exTag || ct.includes(exTag))
+      );
+      if (hasExcluded) return false;
+    }
+
+    // 2. Kiểm tra includeTags: Nếu rỗng -> lấy tất cả khách không bị loại trừ
+    if (normInclude.length === 0) {
+      return true;
+    }
+
+    if (op === "OR") {
+      return normInclude.some((incTag) =>
+        custTagsLower.some((ct) => ct === incTag || ct.includes(incTag))
+      );
+    }
+
+    // Mặc định AND: Phải khớp tất cả các thẻ trong includeTags
+    return normInclude.every((incTag) =>
+      custTagsLower.some((ct) => ct === incTag || ct.includes(incTag))
+    );
+  });
+
+  const channelBreakdown = {
+    zalo: tagMatchedCustomers.filter((c) => customerSupportsChannel(c, "ZALO_PERSONAL")).length,
+    messenger: tagMatchedCustomers.filter((c) => customerSupportsChannel(c, "FACEBOOK")).length,
+    zaloOa: tagMatchedCustomers.filter((c) => customerSupportsChannel(c, "ZALO_OA")).length,
+  };
+
+  // Lọc theo channel đã chọn
+  const finalCustomers = tagMatchedCustomers.filter((c) =>
+    customerSupportsChannel(c, channel)
+  );
+
+  const previewList = finalCustomers.slice(0, 10).map((c) => ({
+    id: c.id,
+    code: c.code,
+    fullName: c.fullName || "Khách hàng",
+    phone: c.phone || "",
+    maskedPhone: maskPhoneMiddle(c.phone),
+    tags: Array.isArray(c.tags) ? c.tags : [],
+    source: c.source || "ZALO_PERSONAL",
+    assignedStaff: c.staffName || "Dược sĩ Thảo",
+    zaloUid: c.zaloUid || null,
+    facebookId: c.facebookId || c.psid || null,
+    lastInteractionTime: c.lastInteractionTime || c.updatedAt || c.createdAt || null,
+  }));
+
+  return {
+    customers: finalCustomers,
+    totalCount: finalCustomers.length,
+    previewList,
+    channelBreakdown,
+  };
+}
+
+/**
+ * Lấy danh sách toàn bộ các thẻ khách hàng hiện có kèm thống kê số lượng khách từng thẻ
+ */
+export function getAllAvailableCustomerTags() {
+  const allCustomers = getAllCustomers();
+  const counts = new Map();
+
+  for (const stdTag of STANDARD_CUSTOMER_TAGS) {
+    counts.set(stdTag, 0);
+  }
+
+  for (const c of allCustomers) {
+    const tags = Array.isArray(c.tags) ? c.tags : [];
+    for (const t of tags) {
+      const clean = String(t || "").trim();
+      if (!clean) continue;
+      counts.set(clean, (counts.get(clean) || 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries()).map(([tag, count]) => ({
+    tag,
+    count,
+  }));
 }

@@ -640,3 +640,87 @@ export async function processIncomingZaloMessageWithBot({
     detectedPhone: aiResult.detectedPhone || detectedPhone,
   };
 }
+
+/**
+ * Kiểm tra khách hàng đã từng có kết nối / tin nhắn Zalo từ trước hay chưa
+ * (Tuân thủ Module 3: Tuyệt đối không gửi Broadcast cho người lạ chưa có thread)
+ */
+export function hasExistingZaloConnection(targetZaloId = "", customerPhone = "") {
+  const tid = String(targetZaloId || "").trim();
+  const phone = String(customerPhone || "").trim();
+  const targetHome = getActiveZaloHome();
+
+  // 1. Kiểm tra trong crm-meta-cache.json (danh sách bạn bè / hội thoại)
+  const metaCachePath = path.join(targetHome, ".zalo-agent-cli", "crm-meta-cache.json");
+  if (fs.existsSync(metaCachePath)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
+      if (Array.isArray(meta?.friends)) {
+        const matchedFriend = meta.friends.some(
+          (f) =>
+            (tid && String(f.userId) === tid) ||
+            (phone && String(f.phoneNumber || "").includes(phone.slice(-9)))
+        );
+        if (matchedFriend) return true;
+      }
+    } catch {}
+  }
+
+  // 2. Kiểm tra trong các file history.jsonl
+  const historyFiles = getAllZaloHistoryFiles(targetHome);
+  for (const hp of historyFiles) {
+    try {
+      const raw = fs.readFileSync(hp, "utf8");
+      if (tid && raw.includes(`"${tid}"`)) return true;
+      if (phone && raw.includes(phone)) return true;
+    } catch {}
+  }
+
+  // 3. Nếu hồ sơ khách hàng đã lưu sẵn zaloUid hoặc zaloThreadId
+  if (tid && tid.length >= 6 && tid !== phone) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Gửi tin nhắn văn bản qua Zalo Cá Nhân (`zca-js` / Zalo Agent CLI)
+ * @param {string} accountPhone - SĐT hoặc định danh tài khoản Zalo gửi
+ * @param {string} targetZaloId - ThreadId hoặc SĐT khách nhận
+ * @param {string} text - Nội dung tin nhắn đã cá nhân hóa
+ */
+export async function sendTextMessage(accountPhone, targetZaloId, text) {
+  const recipient = String(targetZaloId || "").trim();
+  const message = String(text || "").trim();
+  if (!recipient || !message) {
+    return { ok: false, error: "Thiếu người nhận hoặc nội dung tin nhắn Zalo." };
+  }
+
+  const targetHome = getActiveZaloHome();
+  const res = await runZaloCommand(["msg", "send", recipient, message, "-t", "0", "--json"], {
+    homeDir: targetHome,
+    timeout: 15000,
+  });
+
+  if (res.ok) {
+    try {
+      const histPath = path.join(targetHome, ".zalo-agent-cli", "history.jsonl");
+      if (fs.existsSync(path.dirname(histPath))) {
+        const lineObj = {
+          msgId: String(res.data?.msgId || `bcast_${Date.now()}`),
+          threadId: recipient,
+          senderId: "1781287338457243967",
+          senderName: accountPhone || "Sơn Tùng (Broadcast)",
+          text: message,
+          timestamp: Date.now(),
+          isSelf: true,
+          type: "text",
+        };
+        fs.appendFileSync(histPath, JSON.stringify(lineObj) + "\n", "utf8");
+      }
+    } catch {}
+  }
+
+  return res;
+}
