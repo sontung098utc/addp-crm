@@ -4,6 +4,7 @@ import {
   getActiveZaloHome,
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
+  processIncomingZaloMessageWithBot,
 } from "../../../../../lib/zaloRunner.js";
 import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
@@ -156,6 +157,28 @@ export async function GET(request) {
 
     if (localMessages.length > 0) {
       localMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+      // Nếu tin nhắn mới nhất là của khách hàng (!isMe) vừa gửi đến trong 45s gần đây -> Chạy luồng AI Bot Dược sĩ Thảo
+      const lastMsg = localMessages[localMessages.length - 1];
+      if (
+        lastMsg &&
+        !lastMsg.isMe &&
+        searchParams.get("type") !== "GROUP" &&
+        Date.now() - Number(lastMsg.timestamp || 0) < 45000
+      ) {
+        processIncomingZaloMessageWithBot({
+          msgId: lastMsg.id,
+          threadId,
+          senderName: lastMsg.senderName || "Khách Zalo",
+          text: lastMsg.text,
+          isMe: false,
+          type: "DIRECT",
+          channelId: channel || "ZALO_PERSONAL",
+          conversationHistory: localMessages.slice(-8),
+          homeDir: targetHome,
+        }).catch(() => {});
+      }
+
       return NextResponse.json({
         ok: true,
         source: "realtime_history",

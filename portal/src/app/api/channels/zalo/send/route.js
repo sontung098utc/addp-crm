@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { normalizePhone } from "@/lib/phone.js";
 import { runZaloCommand, getActiveZaloHome } from "@/lib/zaloRunner.js";
 import { sendUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
+import { triggerHumanTakeover } from "@/lib/botControlStore.js";
 import fs from "fs";
 import path from "path";
 
@@ -35,6 +36,11 @@ export async function POST(request) {
 
     recipient = String(recipient).trim();
     message = String(message).trim();
+
+    // Khi nhân viên chủ động bấm gửi tin nhắn -> Tự động kích hoạt Human-Takeover (tạm dừng Bot AI 45 phút)
+    if (!body.isAiBot) {
+      triggerHumanTakeover(recipientId || recipient, body.staffId || "STAFF", 45);
+    }
 
     // Chuẩn hóa số điện thoại nếu là SĐT (Điều 3 AGENTS.md)
     if (/^(\+?84|0)\d{9,10}$/.test(recipient.replace(/[\s.-]/g, ""))) {

@@ -18,6 +18,8 @@ import path from "path";
 import { runZaloCommand } from "./zaloRunner.js";
 import { extractPhoneNumbersFromText, getOrCreateCustomerByPhone } from "./customerIdentityResolver.js";
 import { listAllChannels } from "./connectionHub.js";
+import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
+import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 
 const DATA_FILE = path.join(process.cwd(), "data", "omnichannel_messages.json");
 
@@ -114,12 +116,15 @@ export async function addUnifiedMessage({
   // Phát SSE cho trình duyệt cập nhật bong bóng chat tức thì
   broadcastMessage({ type: "NEW_MESSAGE", message: messageObj });
 
-  // Nếu là tin nhắn từ khách hàng -> Bắt SĐT & Gộp Khách Hàng 360
+  // Nếu là tin nhắn từ khách hàng -> Bắt SĐT, Gộp Khách Hàng 360 & Xử lý AI Bot Auto-Reply (Module 5)
   if (!isMe && text) {
-    const detectedPhones = extractPhoneNumbersFromText(text);
-    if (detectedPhones.length > 0) {
-      const primaryPhone = detectedPhones[0];
-      const customer = getOrCreateCustomerByPhone({
+    let resolvedCustomer = null;
+    const primaryPhone =
+      extractCustomerPhoneFromMessage(text) ||
+      (extractPhoneNumbersFromText(text)[0] ?? null);
+
+    if (primaryPhone) {
+      resolvedCustomer = getOrCreateCustomerByPhone({
         phone: primaryPhone,
         fullName: senderName || "Khách Hàng ADDP",
         source: channel,
@@ -129,13 +134,118 @@ export async function addUnifiedMessage({
       broadcastMessage({
         type: "CUSTOMER_IDENTIFIED",
         phone: primaryPhone,
-        customer,
+        customer: resolvedCustomer,
         threadId,
+      });
+    }
+
+    // Kích hoạt luồng AI Bot Dược sĩ Thảo (nếu kênh & hội thoại đang ở chế độ AI)
+    if (metadata?.skipAiBot !== true) {
+      handleIncomingAiBotAutoReply({
+        channel: channel || "ZALO_PERSONAL",
+        channelId: channelId || channel || "DEFAULT",
+        threadId: String(threadId),
+        senderName: senderName || "Khách hàng",
+        text,
+        customerProfile: resolvedCustomer || {
+          fullName: senderName || "Anh/Chị",
+          phone: primaryPhone || null,
+        },
+      }).catch((err) => {
+        console.error("[AI_BOT_AUTO_REPLY_ERR]", err.message);
       });
     }
   }
 
   return messageObj;
+}
+
+/**
+ * Luồng xử lý tự động trả lời của AI Bot Dược sĩ Thảo khi có tin nhắn đến từ khách hàng (Module 5):
+ * 1. Kiểm tra isChannelBotEnabled(channelId) và getConversationBotState(threadId).
+ * 2. Nếu mode === 'HUMAN' -> Bỏ qua, không tự động trả lời.
+ * 3. Nếu mode === 'AI' -> Gọi generateHumanLikeReply, chờ đủ typingDelayMs (3-6s).
+ * 4. Sau khi chờ xong, kiểm tra lại lần nữa xem nhân viên có nhảy vào tiếp quản trong lúc chờ không.
+ * 5. Nếu vẫn là mode === 'AI' -> Bắn tin nhắn phản hồi qua kênh tương ứng.
+ */
+export async function handleIncomingAiBotAutoReply({
+  channel = "ZALO_PERSONAL",
+  channelId = "DEFAULT",
+  threadId,
+  senderName = "Anh/Chị",
+  text = "",
+  customerProfile = {},
+}) {
+  if (!threadId || !text) {
+    return { skipped: true, reason: "EMPTY_THREAD_OR_TEXT" };
+  }
+
+  const channelKey = String(channelId || channel || "DEFAULT");
+  if (!isChannelBotEnabled(channelKey)) {
+    return { skipped: true, reason: "CHANNEL_BOT_DISABLED" };
+  }
+
+  const initialBotState = getConversationBotState(threadId);
+  if (initialBotState.mode === "HUMAN") {
+    return { skipped: true, reason: "HUMAN_TAKEOVER_ACTIVE", state: initialBotState };
+  }
+
+  const threadHistory = storedMessages
+    .filter((m) => String(m.threadId) === String(threadId))
+    .slice(-8);
+
+  const aiResult = await generateHumanLikeReply({
+    customerMessage: text,
+    customerProfile: {
+      fullName: customerProfile?.fullName || senderName || "Anh/Chị",
+      phone: customerProfile?.phone || null,
+      pathology: customerProfile?.pathology || "",
+    },
+    conversationHistory: threadHistory,
+  });
+
+  if (aiResult.detectedPhone) {
+    getOrCreateCustomerByPhone({
+      phone: aiResult.detectedPhone,
+      fullName: customerProfile?.fullName || senderName || "Khách Hàng ADDP",
+      source: channel,
+      note: `AI Bot tự động bóc tách SĐT từ tin nhắn: "${text.slice(0, 100)}"`,
+    });
+  }
+
+  // Chờ đủ thời gian giả lập người thật gõ phím (3000ms - 6000ms)
+  const delayMs = Number(aiResult.typingDelayMs) || 3500;
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  // Kiểm tra lại lần thứ 2 sau khi chờ: nếu nhân viên vừa nhảy vào gõ trả lời thì hủy gửi ngay
+  if (!isChannelBotEnabled(channelKey)) {
+    return { skipped: true, reason: "CHANNEL_DISABLED_DURING_TYPING" };
+  }
+  const postDelayState = getConversationBotState(threadId);
+  if (postDelayState.mode === "HUMAN") {
+    return {
+      skipped: true,
+      reason: "HUMAN_TOOK_OVER_DURING_TYPING",
+      state: postDelayState,
+    };
+  }
+
+  const sendResult = await sendUnifiedMessage({
+    channel,
+    recipientId: String(threadId),
+    text: aiResult.replyText,
+    channelId: channelKey,
+    pageId: channelKey,
+  });
+
+  return {
+    skipped: false,
+    sent: sendResult.ok,
+    replyText: aiResult.replyText,
+    typingDelayMs: delayMs,
+    detectedPhone: aiResult.detectedPhone,
+    sendResult,
+  };
 }
 
 let cachedFbConversations = null;

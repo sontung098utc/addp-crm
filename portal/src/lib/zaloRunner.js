@@ -2,6 +2,9 @@ import { execFile, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
+import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
+import { getOrCreateCustomerByPhone } from "./customerIdentityResolver.js";
 
 /**
  * ADDP Omnichannel AI CRM — High Performance Zalo CLI & Direct Sync Runner (Cross-Platform)
@@ -524,4 +527,116 @@ export function runZaloCommand(args, options = {}) {
       }
     );
   });
+}
+
+if (!globalThis.__zaloBotRepliedMsgIds) {
+  globalThis.__zaloBotRepliedMsgIds = new Set();
+}
+
+/**
+ * Xử lý tự động tin nhắn mới từ khách hàng trên Zalo Cá Nhân (Module 5):
+ * 1. Kiểm tra isChannelBotEnabled(channelId) và getConversationBotState(threadId).
+ * 2. Bóc tách SĐT (nếu có) và cập nhật Hồ sơ 360 qua getOrCreateCustomerByPhone.
+ * 3. Nếu mode === 'HUMAN' -> Bỏ qua, không tự động trả lời.
+ * 4. Nếu mode === 'AI' -> Sinh câu trả lời Dược sĩ Thảo, chờ typingDelayMs (3-6s),
+ *    kiểm tra lại lần nữa xem nhân viên có nhảy vào tiếp quản trong lúc chờ không, rồi gửi phản hồi qua Zalo.
+ */
+export async function processIncomingZaloMessageWithBot({
+  msgId,
+  threadId,
+  senderName = "Anh/Chị",
+  text = "",
+  isMe = false,
+  type = "DIRECT",
+  channelId = "ZALO_PERSONAL",
+  conversationHistory = [],
+  homeDir,
+} = {}) {
+  if (isMe || !threadId || !text || type === "GROUP") {
+    return { skipped: true, reason: "SELF_OR_GROUP_OR_EMPTY" };
+  }
+
+  const dedupKey = String(msgId || `${threadId}_${text}`);
+  if (globalThis.__zaloBotRepliedMsgIds.has(dedupKey)) {
+    return { skipped: true, reason: "ALREADY_PROCESSED" };
+  }
+
+  // 1. Tự động bóc tách SĐT và cập nhật vào Hồ sơ 360
+  const detectedPhone = extractCustomerPhoneFromMessage(text);
+  let customerRecord = null;
+  if (detectedPhone) {
+    customerRecord = getOrCreateCustomerByPhone({
+      phone: detectedPhone,
+      fullName: senderName || "Khách Zalo",
+      source: "ZALO_PERSONAL",
+      note: `Tự động cập nhật SĐT từ tin nhắn Zalo: "${text.slice(0, 100)}"`,
+    });
+  }
+
+  // 2. Kiểm tra trạng thái Bot trên kênh & hội thoại
+  if (!isChannelBotEnabled(channelId)) {
+    return { skipped: true, reason: "CHANNEL_BOT_DISABLED" };
+  }
+  const convState = getConversationBotState(threadId);
+  if (convState.mode === "HUMAN") {
+    return { skipped: true, reason: "HUMAN_TAKEOVER_ACTIVE", state: convState };
+  }
+
+  globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+
+  // 3. Sinh câu trả lời tự nhiên chuẩn Dược sĩ Thảo + độ trễ gõ phím
+  const aiResult = await generateHumanLikeReply({
+    customerMessage: text,
+    customerProfile: customerRecord || {
+      fullName: senderName,
+      phone: detectedPhone,
+    },
+    conversationHistory,
+  });
+
+  const delayMs = Number(aiResult.typingDelayMs) || 3500;
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  // 4. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
+  if (!isChannelBotEnabled(channelId)) {
+    return { skipped: true, reason: "CHANNEL_DISABLED_DURING_TYPING" };
+  }
+  const afterDelayState = getConversationBotState(threadId);
+  if (afterDelayState.mode === "HUMAN") {
+    return { skipped: true, reason: "HUMAN_TOOK_OVER_DURING_TYPING", state: afterDelayState };
+  }
+
+  // 5. Gửi tin nhắn phản hồi qua Zalo CLI và lưu vào history.jsonl
+  const targetHome = homeDir || getActiveZaloHome();
+  const sendRes = await runZaloCommand(
+    ["msg", "send", String(threadId), String(aiResult.replyText), "--json"],
+    { homeDir: targetHome, timeout: 15000 }
+  );
+
+  if (sendRes.ok) {
+    try {
+      const histPath = path.join(targetHome, ".zalo-agent-cli", "history.jsonl");
+      if (fs.existsSync(path.dirname(histPath))) {
+        const lineObj = {
+          msgId: String(sendRes.data?.msgId || `bot_${Date.now()}`),
+          threadId: String(threadId),
+          senderId: "1781287338457243967",
+          senderName: "Dược sĩ Thảo (AI)",
+          text: String(aiResult.replyText),
+          timestamp: Date.now(),
+          isSelf: true,
+          type: "text",
+        };
+        fs.appendFileSync(histPath, JSON.stringify(lineObj) + "\n", "utf8");
+      }
+    } catch {}
+  }
+
+  return {
+    skipped: false,
+    sent: sendRes.ok,
+    replyText: aiResult.replyText,
+    typingDelayMs: delayMs,
+    detectedPhone: aiResult.detectedPhone || detectedPhone,
+  };
 }

@@ -166,8 +166,11 @@ export default function LiveZaloInbox() {
   // Thông báo nhanh
   const [toast, setToast] = useState(null);
 
-  // WBS-32 & WBS-33: Chế độ AI & Trạng thái A.I. Soạn
-  const [aiMode, setAiMode] = useState("HUMAN_ONLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
+  // WBS-32 & WBS-33: Chế độ AI & Trạng thái A.I. Soạn + Human-Takeover Bot State
+  const [aiMode, setAiMode] = useState("AUTO_REPLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
+  const [convBotMode, setConvBotMode] = useState("AI"); // 'AI' | 'HUMAN'
+  const [convBotPausedUntil, setConvBotPausedUntil] = useState(null);
+  const [togglingBot, setTogglingBot] = useState(false);
   const [aiComposing, setAiComposing] = useState(false);
 
   // WBS-39: Lên đơn hàng nhanh trong chat
@@ -463,6 +466,74 @@ export default function LiveZaloInbox() {
     };
   }, [activeConv?.id, activeConv?.phone, activeConv?.name, messages]);
 
+  // 2.5 Đồng bộ trạng thái AI Bot / Human-Takeover cho hội thoại đang mở
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchBotState() {
+      if (!activeConv?.id) return;
+      try {
+        const res = await fetch(
+          `/api/ai/bot-control?threadId=${encodeURIComponent(activeConv.id)}&channelId=${encodeURIComponent(activeConv.channel || "DEFAULT")}`
+        );
+        const data = await res.json();
+        if (!cancelled && data.ok && data.state) {
+          const mode = data.state.mode === "HUMAN" ? "HUMAN" : "AI";
+          setConvBotMode(mode);
+          setConvBotPausedUntil(data.state.pausedUntil || null);
+          setAiMode(mode === "HUMAN" ? "HUMAN_ONLY" : "AUTO_REPLY");
+        }
+      } catch {}
+    }
+    fetchBotState();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConv?.id, activeConv?.channel]);
+
+  // Hàm bật/tắt nhanh AI Bot trực tiếp trên Header Cột 2
+  const handleToggleConvBot = async (targetAction) => {
+    if (!activeConv?.id || togglingBot) return;
+    const action =
+      targetAction || (convBotMode === "AI" ? "pause" : "resume");
+    const nextMode = action === "resume" ? "AI" : "HUMAN";
+
+    setTogglingBot(true);
+    setConvBotMode(nextMode);
+    setAiMode(nextMode === "AI" ? "AUTO_REPLY" : "HUMAN_ONLY");
+
+    try {
+      const res = await fetch("/api/ai/bot-control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId: activeConv.id,
+          channelId: activeConv.channel || "DEFAULT",
+          action,
+          pauseMinutes: 45,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && data.state) {
+        setConvBotMode(data.state.mode);
+        setConvBotPausedUntil(data.state.pausedUntil || null);
+        setToast({
+          type: "success",
+          text:
+            data.state.mode === "AI"
+              ? "🤖 Đã bật lại Bot AI Dược sĩ Thảo tự động trực hội thoại."
+              : "👤 Đã dừng Bot AI (45 phút) — Nhân viên trực tiếp tiếp quản.",
+        });
+      }
+    } catch {
+      setToast({
+        type: "error",
+        text: "Không thể cập nhật trạng thái AI Bot.",
+      });
+    } finally {
+      setTogglingBot(false);
+    }
+  };
+
   // 3. Gửi tin nhắn 2 chiều (Hỗ trợ cả DM, Group Zalo & từng Fanpage FB)
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
@@ -471,6 +542,20 @@ export default function LiveZaloInbox() {
     const messageText = inputMessage.trim();
     const tempId = `temp_${Date.now()}`;
     const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+
+    // Human-Takeover khẩn cấp: Tự động ngắt Bot AI ngay khi nhân viên gõ tin nhắn trả lời
+    setConvBotMode("HUMAN");
+    setAiMode("HUMAN_ONLY");
+    fetch("/api/ai/bot-control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        threadId: activeConv.id,
+        channelId: activeConv.channel || "DEFAULT",
+        action: "pause",
+        pauseMinutes: 45,
+      }),
+    }).catch(() => {});
 
     // Optimistic update: Hiện tin nhắn ngay lập tức bên phải
     const optimisticMsg = {
@@ -1160,15 +1245,51 @@ export default function LiveZaloInbox() {
                   </div>
                 </div>
 
-                {/* WBS-32 & WBS-33: Bộ chuyển 3 chế độ AI & Các nút công cụ */}
+                {/* WBS-32 & WBS-33: Bộ chuyển 3 chế độ AI & Nút Toggle Human-Takeover */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="hidden sm:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleConvBot()}
+                    disabled={togglingBot}
+                    title={
+                      convBotMode === "AI"
+                        ? "Bấm để dừng Bot AI và chuyển sang Nhân viên trực (45 phút)"
+                        : "Bấm để bật lại Bot AI Dược sĩ Thảo tự động trực"
+                    }
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs ${
+                      convBotMode === "AI"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30"
+                        : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30"
+                    }`}
+                  >
+                    {convBotMode === "AI" ? (
+                      <>
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                        <span>🤖 Bot AI Đang Trực</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                        <span>👤 Nhân Viên Trực (Đã Dừng Bot)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <div className="hidden lg:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
                     <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
                       Trực:
                     </span>
                     <select
                       value={aiMode}
-                      onChange={(e) => setAiMode(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAiMode(val);
+                        if (val === "HUMAN_ONLY") {
+                          handleToggleConvBot("pause");
+                        } else if (val === "AUTO_REPLY") {
+                          handleToggleConvBot("resume");
+                        }
+                      }}
                       aria-label="Chế độ trực hội thoại"
                       className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer border-0 p-0"
                     >
