@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { getStoredOrders, createOrder, updateOrderStatus } from "@/lib/ordersStore";
+import {
+  getStoredOrders,
+  createOrderWithKiotVietSync,
+  updateOrderStatus,
+} from "@/lib/ordersStore";
 import { getSessionStaff } from "@/lib/auth";
 import { filterRecordsByRbac } from "@/lib/rbac";
 
@@ -28,12 +32,13 @@ export async function GET(req) {
       orders = orders.filter((o) => o.status === status);
     }
 
-    // 4. Tìm kiếm từ khóa (Mã đơn, SĐT, Tên)
+    // 4. Tìm kiếm từ khóa (Mã đơn, Mã KiotViet, SĐT, Tên)
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
       orders = orders.filter(
         (o) =>
           o.orderCode?.toLowerCase().includes(q) ||
+          o.kiotVietOrderCode?.toLowerCase().includes(q) ||
           o.customerName?.toLowerCase().includes(q) ||
           o.phone?.includes(q)
       );
@@ -69,7 +74,7 @@ export async function POST(req) {
       );
     }
 
-    const order = createOrder({
+    const { order, kiotViet } = await createOrderWithKiotVietSync({
       customerName: body.customerName,
       phone: body.phone,
       address: body.address,
@@ -79,15 +84,20 @@ export async function POST(req) {
       discount: body.discount,
       finalAmount: body.finalAmount,
       staffId: staff?.id || 1,
-      staffName: staff?.name || "Trần Thu Hà",
+      staffName: staff?.name || "Admin Quản Trị",
       note: body.note,
       targetPlatform: body.targetPlatform || "KIOTVIET",
+      branchId: body.branchId || 1,
+      paymentMethod: body.paymentMethod || "Cash",
     });
 
     return NextResponse.json({
       ok: true,
-      message: `Đã tạo thành công đơn hàng ${order.orderCode}`,
+      message: `Đã tạo thành công đơn hàng ${order.orderCode} (${
+        order.kiotVietOrderCode ? `KiotViet: ${order.kiotVietOrderCode}` : "Đã lưu kho"
+      }) & sinh 7 mốc CarePlan!`,
       order,
+      kiotViet,
     });
   } catch (err) {
     console.error("Lỗi POST /api/orders:", err);
@@ -100,14 +110,20 @@ export async function PUT(req) {
     const body = await req.json();
     const { orderId, status, deliveryStatus } = body || {};
     if (!orderId || !status) {
-      return NextResponse.json({ ok: false, error: "Thiếu mã đơn hàng hoặc trạng thái" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Thiếu mã đơn hàng hoặc trạng thái" },
+        { status: 400 }
+      );
     }
     const updated = updateOrderStatus(orderId, {
       status,
       ...(deliveryStatus ? { deliveryStatus } : {}),
     });
     if (!updated) {
-      return NextResponse.json({ ok: false, error: "Không tìm thấy đơn hàng" }, { status: 404 });
+      return NextResponse.json(
+        { ok: false, error: "Không tìm thấy đơn hàng" },
+        { status: 404 }
+      );
     }
     return NextResponse.json({
       ok: true,

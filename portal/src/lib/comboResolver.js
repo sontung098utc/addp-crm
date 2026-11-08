@@ -6,6 +6,8 @@
 
 // Danh mục định danh sản phẩm gốc và đơn vị tính
 export const PRODUCT_CATALOG_META = {
+  "GLUCARE-900G": { name: "Sữa hạt Glucare Plus (Lon 900g)", unit: "Lon", defaultCost: 220000 },
+  "DOVITAL-60V": { name: "Mát Gan Thanh Nhiệt Dovital (Hộp 60 viên)", unit: "Hộp", defaultCost: 110000 },
   "GLUCARE-LON-800": { name: "Sữa hạt Glucare Plus (Lon 800g)", unit: "Lon", defaultCost: 165000 },
   "GLUCARE-HOP-400": { name: "Sữa hạt Glucare Plus (Hộp 400g)", unit: "Hộp", defaultCost: 155000 },
   "ADDP-VAD-60": { name: "Addp Viên An Đường (Hộp 60 viên)", unit: "Hộp", defaultCost: 280000 },
@@ -60,6 +62,20 @@ function resolveSingleToken(token, customFormulas = {}) {
   const upper = token.toUpperCase();
   if (customFormulas[upper]) {
     return parseFormulaString(customFormulas[upper]);
+  }
+
+  // Các mã Combo chuẩn của Dược Phẩm ADDP
+  if (upper === "COMBO-3GLU-900G") {
+    return { "GLUCARE-900G": 3 };
+  }
+  if (upper === "COMBO-3DOV-60V") {
+    return { "DOVITAL-60V": 3 };
+  }
+  if (upper === "COMBO-2GLU-1DOV") {
+    return { "GLUCARE-LON-800": 2, "DOVITAL-SUI": 1 };
+  }
+  if (upper === "COMBO-LT3M-GLU-VAD") {
+    return { "GLUCARE-LON-800": 4, "ADDP-VAD-60": 2 };
   }
 
   let m;

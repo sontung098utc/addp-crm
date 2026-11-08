@@ -1,86 +1,146 @@
 [
   {
+    "id": "p0_glucare900",
+    "kiotProductId": 98765,
+    "name": "Sữa hạt Glucare Plus (Lon 900g)",
+    "price": 450000,
+    "sku": "GLUCARE-900G",
+    "unit": "Lon",
+    "onHand": 150
+  },
+  {
+    "id": "p0_dovital60",
+    "kiotProductId": 98766,
+    "name": "Mát Gan Thanh Nhiệt Dovital (Hộp 60 viên)",
+    "price": 250000,
+    "sku": "DOVITAL-60V",
+    "unit": "Hộp",
+    "onHand": 200
+  },
+  {
     "id": "p1",
+    "kiotProductId": 98767,
     "name": "Sữa hạt Glucare Plus (Lon 800g)",
     "price": 259000,
     "sku": "GLUCARE-LON-800",
-    "unit": "Lon"
+    "unit": "Lon",
+    "onHand": 120
   },
   {
     "id": "p2",
+    "kiotProductId": 98768,
     "name": "Sữa hạt Glucare Plus (Hộp 400g)",
     "price": 259000,
     "sku": "GLUCARE-HOP-400",
-    "unit": "Hộp"
+    "unit": "Hộp",
+    "onHand": 120
   },
   {
     "id": "p3",
+    "kiotProductId": 98769,
     "name": "Addp Viên An Đường (Hộp 60 viên)",
     "price": 485000,
     "sku": "ADDP-VAD-60",
-    "unit": "Hộp"
+    "unit": "Hộp",
+    "onHand": 100
   },
   {
     "id": "p4",
+    "kiotProductId": 98770,
     "name": "Sữa tiểu đường Glusure (Lon 850g)",
     "price": 450000,
     "sku": "GLUSURE-LON-850",
-    "unit": "Lon"
+    "unit": "Lon",
+    "onHand": 95
   },
   {
     "id": "p5",
+    "kiotProductId": 98771,
     "name": "Sữa Canxi tiểu đường (Hộp 900g)",
     "price": 450000,
     "sku": "CANXI-TDUONG-900",
-    "unit": "Hộp"
+    "unit": "Hộp",
+    "onHand": 80
   },
   {
     "id": "p6",
+    "kiotProductId": 98772,
     "name": "Sữa Non tiểu đường Glusure Gold (Lon 800g)",
     "price": 595000,
     "sku": "GLUSURE-GOLD-800",
-    "unit": "Lon"
+    "unit": "Lon",
+    "onHand": 85
   },
   {
     "id": "p7",
+    "kiotProductId": 98773,
     "name": "Đông trùng hạ thảo Tây Tạng",
     "price": 995000,
     "sku": "DTHT-TAYTANG",
-    "unit": "Hộp"
+    "unit": "Hộp",
+    "onHand": 60
   },
   {
     "id": "p8",
+    "kiotProductId": 98774,
     "name": "Sủi mát gan thanh nhiệt Dovital",
     "price": 65000,
     "sku": "DOVITAL-SUI",
-    "unit": "Tuýp"
+    "unit": "Tuýp",
+    "onHand": 180
   },
   {
     "id": "p9",
+    "kiotProductId": 98775,
     "name": "Viên dinh dưỡng Hải Châu",
     "price": 99000,
     "sku": "DD-HAICHAU",
-    "unit": "Hộp"
+    "unit": "Hộp",
+    "onHand": 110
   },
   {
     "id": "p10",
+    "kiotProductId": 98776,
     "name": "Vitamin 3B Bổ Thần Kinh",
     "price": 250000,
     "sku": "VIT-3B",
-    "unit": "Hộp"
+    "unit": "Hộp",
+    "onHand": 90
+  },
+  {
+    "id": "combo_glucare_3",
+    "kiotProductId": 98777,
+    "name": "Combo 3 Lon Glucare Plus 900g (Tặng Bình Lắc + FreeShip)",
+    "price": 1350000,
+    "sku": "COMBO-3GLU-900G",
+    "unit": "Combo",
+    "onHand": 50
+  },
+  {
+    "id": "combo_dovital_3",
+    "kiotProductId": 98778,
+    "name": "Combo 3 Hộp Mát Gan Dovital 60 viên",
+    "price": 650000,
+    "sku": "COMBO-3DOV-60V",
+    "unit": "Combo",
+    "onHand": 65
   },
   {
     "id": "combo1",
+    "kiotProductId": 98779,
     "name": "Combo 2 Lon Glucare Plus (Tặng 1 Sủi Dovital)",
     "price": 518000,
     "sku": "COMBO-2GLU-1DOV",
-    "unit": "Combo"
+    "unit": "Combo",
+    "onHand": 70
   },
   {
     "id": "combo2",
+    "kiotProductId": 98780,
     "name": "Combo Liệu Trình 3 Tháng (4 Lon Glucare + 2 Viên An Đường)",
     "price": 1850000,
     "sku": "COMBO-LT3M-GLU-VAD",
-    "unit": "Combo"
+    "unit": "Combo",
+    "onHand": 40
   }
 ]

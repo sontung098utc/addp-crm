@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import productList from "@/lib/productList.json";
+import { useState, useEffect, useMemo } from "react";
+import defaultProductList from "@/lib/productList.json";
 import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 
 export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }) {
@@ -12,6 +12,14 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
   const [discount, setDiscount] = useState(0);
   const [note, setNote] = useState("");
   const [targetPlatform, setTargetPlatform] = useState("KIOTVIET");
+  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [branchId, setBranchId] = useState(1);
+  const [branches, setBranches] = useState([
+    { id: 1, branchName: "Kho Tổng Dược Phẩm ADDP" },
+  ]);
+  const [products, setProducts] = useState(defaultProductList);
+  const [searchProduct, setSearchProduct] = useState("");
+  const [syncingProducts, setSyncingProducts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -22,10 +30,53 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
       setPhone(isValidVietnamPhone(candidatePhone) ? candidatePhone : "");
       setAddress(customer?.address || "");
       setErrorMsg("");
+
+      // Tải danh sách sản phẩm kèm tồn kho thực tế & chi nhánh từ KiotViet Connector
+      fetch("/api/channels/kiotviet")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok) {
+            if (Array.isArray(data.products) && data.products.length > 0) {
+              setProducts(data.products);
+            }
+            if (Array.isArray(data.branches) && data.branches.length > 0) {
+              setBranches(data.branches);
+              setBranchId(data.config?.branchId || data.branches[0].id || 1);
+            }
+          }
+        })
+        .catch(() => {});
     }
   }, [isOpen, customer]);
 
+  const filteredProducts = useMemo(() => {
+    const q = searchProduct.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(
+      (p) =>
+        p.name?.toLowerCase().includes(q) ||
+        p.sku?.toLowerCase().includes(q)
+    );
+  }, [products, searchProduct]);
+
   if (!isOpen) return null;
+
+  const handleSyncKiotVietCatalog = async () => {
+    try {
+      setSyncingProducts(true);
+      const res = await fetch("/api/channels/kiotviet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SYNC_PRODUCTS" }),
+      });
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.products)) {
+        setProducts(data.products);
+      }
+    } catch {} finally {
+      setSyncingProducts(false);
+    }
+  };
 
   const handleQtyChange = (productId, delta) => {
     setSelectedItems((prev) => {
@@ -42,8 +93,8 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
 
   const calculateSubtotal = () => {
     return Object.entries(selectedItems).reduce((sum, [pid, qty]) => {
-      const p = productList.find((item) => item.id === pid);
-      return sum + (p ? p.price * qty : 0);
+      const p = products.find((item) => String(item.id) === String(pid));
+      return sum + (p ? Number(p.price) * qty : 0);
     }, 0);
   };
 
@@ -56,15 +107,16 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
 
     const items = Object.entries(selectedItems)
       .map(([pid, qty]) => {
-        const p = productList.find((item) => item.id === pid);
+        const p = products.find((item) => String(item.id) === String(pid));
         return p
           ? {
               id: p.id,
+              kiotProductId: p.kiotProductId || 98765,
               name: p.name,
               sku: p.sku,
-              price: p.price,
+              price: Number(p.price) || 0,
               quantity: qty,
-              subtotal: p.price * qty,
+              subtotal: (Number(p.price) || 0) * qty,
             }
           : null;
       })
@@ -72,7 +124,9 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
 
     const normalizedPhone = normalizePhone(phone);
     if (!isValidVietnamPhone(normalizedPhone)) {
-      setErrorMsg("Vui lòng nhập số điện thoại khách hàng chuẩn 10 số Việt Nam (VD: 0912345678).");
+      setErrorMsg(
+        "Vui lòng nhập số điện thoại khách hàng chuẩn 10 số Việt Nam (VD: 0912345678)."
+      );
       return;
     }
 
@@ -87,7 +141,8 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customerName: customerName.trim() || customer?.name || "Khách hàng ADDP",
+          customerName:
+            customerName.trim() || customer?.name || "Khách hàng ADDP",
           phone: normalizedPhone,
           address,
           channel: customer?.channel || "ZALO_PERSONAL",
@@ -97,6 +152,8 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
           finalAmount,
           note,
           targetPlatform,
+          branchId: Number(branchId) || 1,
+          paymentMethod,
         }),
       });
 
@@ -105,6 +162,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
         throw new Error(data.error || "Không thể tạo đơn hàng.");
       }
 
+      setSelectedItems({});
       if (onSuccess) onSuccess(data.order);
       onClose();
     } catch (err) {
@@ -116,30 +174,30 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-950">
           <div>
             <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <span>🛒 Lên Đơn Hàng Nhanh Trong Chat</span>
+              <span>🛒 Lên Đơn Hàng Nhanh & Đẩy KiotViet POS</span>
               <span className="rounded bg-blue-500/20 text-blue-400 text-[11px] font-semibold px-2 py-0.5">
                 WBS-39
               </span>
             </h3>
             <p className="text-xs text-slate-400">
-              Đẩy đơn trực tiếp sang KiotViet POS & Website Magento 2.4.8 (ADDP.vn)
+              Tự động đẩy đơn sang KiotViet Open API, trừ tồn kho Combo và sinh 7 mốc CarePlan sau bán
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
           >
             ✕
           </button>
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
           {errorMsg && (
             <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-400">
               ⚠️ {errorMsg}
@@ -150,7 +208,9 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
           <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3.5 space-y-2.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
-                <label className="text-[11px] text-slate-400 font-medium">Họ tên khách hàng:</label>
+                <label className="text-[11px] text-slate-400 font-medium">
+                  Họ tên khách hàng *:
+                </label>
                 <input
                   type="text"
                   required
@@ -161,7 +221,9 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] text-slate-400 font-medium">Số điện thoại định danh (10 số):</label>
+                <label className="text-[11px] text-slate-400 font-medium">
+                  Số điện thoại định danh (10 số) *:
+                </label>
                 <input
                   type="tel"
                   required
@@ -173,7 +235,9 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
               </div>
             </div>
             <div className="space-y-1 pt-0.5">
-              <label className="text-[11px] text-slate-400 font-medium">Địa chỉ giao hàng:</label>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Địa chỉ giao hàng:
+              </label>
               <input
                 type="text"
                 value={address}
@@ -184,14 +248,35 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
             </div>
           </div>
 
-          {/* Product Selector */}
+          {/* Product Selector + Real-time Stock */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-              Chọn Sản Phẩm ADDP ({productList.length} sản phẩm thực tế):
-            </label>
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {productList.map((p) => {
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                Chọn Sản Phẩm & Tồn Kho KiotViet ({products.length} SKU):
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={searchProduct}
+                  onChange={(e) => setSearchProduct(e.target.value)}
+                  placeholder="Tìm nhanh mã SKU, Glucare, Dovital..."
+                  className="rounded-lg bg-slate-950 border border-slate-700 px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSyncKiotVietCatalog}
+                  disabled={syncingProducts}
+                  className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 transition cursor-pointer"
+                >
+                  {syncingProducts ? "Đang đồng bộ..." : "🔄 Đồng bộ Tồn kho"}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              {filteredProducts.map((p) => {
                 const qty = selectedItems[p.id] || 0;
+                const onHand = typeof p.onHand === "number" ? p.onHand : 100;
                 return (
                   <div
                     key={p.id}
@@ -202,13 +287,24 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                     }`}
                   >
                     <div className="flex-1 pr-3">
-                      <div className="text-xs font-bold text-slate-200">{p.name}</div>
+                      <div className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                        <span>{p.name}</span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                            onHand > 10
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-amber-500/20 text-amber-300"
+                          }`}
+                        >
+                          Tồn: {onHand} {p.unit || "sp"}
+                        </span>
+                      </div>
                       <div className="text-[11px] text-slate-400">
-                        {p.sku} •{" "}
+                        SKU: <span className="font-mono text-slate-300">{p.sku}</span> •{" "}
                         <strong className="text-emerald-400">
-                          {p.price.toLocaleString("vi-VN")} đ
+                          {Number(p.price || 0).toLocaleString("vi-VN")} đ
                         </strong>{" "}
-                        /{p.unit}
+                        /{p.unit || "Hộp"}
                       </div>
                     </div>
 
@@ -217,7 +313,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                         type="button"
                         onClick={() => handleQtyChange(p.id, -1)}
                         disabled={qty === 0}
-                        className="h-7 w-7 rounded-lg bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 flex items-center justify-center font-bold text-xs"
+                        className="h-7 w-7 rounded-lg bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 flex items-center justify-center font-bold text-xs cursor-pointer"
                       >
                         -
                       </button>
@@ -227,7 +323,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                       <button
                         type="button"
                         onClick={() => handleQtyChange(p.id, 1)}
-                        className="h-7 w-7 rounded-lg bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center font-bold text-xs"
+                        className="h-7 w-7 rounded-lg bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center font-bold text-xs cursor-pointer"
                       >
                         +
                       </button>
@@ -238,23 +334,44 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
             </div>
           </div>
 
-          {/* Pricing & Target */}
-          <div className="grid grid-cols-2 gap-3 pt-2">
+          {/* KiotViet Branch, Payment Method & Target */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
             <div>
-              <label className="text-[11px] text-slate-400 font-medium">Giảm giá / Chiết khấu (đ):</label>
-              <input
-                type="number"
-                min="0"
-                step="1000"
-                value={discount}
-                onChange={(e) => setDiscount(e.target.value)}
-                placeholder="0"
-                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-              />
+              <label className="text-[11px] text-slate-400 font-medium">
+                Chi nhánh xuất kho KiotViet:
+              </label>
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(Number(e.target.value))}
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.branchName} (#{b.id})
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
-              <label className="text-[11px] text-slate-400 font-medium">Đẩy đồng bộ sang:</label>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Phương thức thanh toán:
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              >
+                <option value="Cash">COD / Tiền mặt (Cash)</option>
+                <option value="Transfer">Chuyển khoản (Transfer)</option>
+                <option value="Card">Thẻ (Card)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Đẩy đồng bộ sang:
+              </label>
               <select
                 value={targetPlatform}
                 onChange={(e) => setTargetPlatform(e.target.value)}
@@ -267,22 +384,43 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
             </div>
           </div>
 
-          {/* Note */}
-          <div>
-            <label className="text-[11px] text-slate-400 font-medium">Ghi chú đơn hàng:</label>
-            <input
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="VD: Khách dặn giao buổi chiều, gọi trước khi giao..."
-              className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
+          {/* Discount & Note */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-[11px] text-slate-400 font-medium">
+                Giảm giá / Chiết khấu (đ):
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value)}
+                placeholder="0"
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="text-[11px] text-slate-400 font-medium">
+                Ghi chú đơn hàng (Description gửi KiotViet):
+              </label>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="VD: Đơn hàng tạo từ ADDP CRM qua Zalo/Fanpage, giao giờ hành chính..."
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
           </div>
 
           {/* Totals Summary */}
           <div className="rounded-xl bg-slate-950 border border-slate-800 p-3.5 space-y-1.5">
             <div className="flex justify-between text-xs text-slate-400">
-              <span>Tạm tính ({Object.values(selectedItems).reduce((a, b) => a + b, 0)} sp):</span>
+              <span>
+                Tạm tính ({Object.values(selectedItems).reduce((a, b) => a + b, 0)} sp):
+              </span>
               <span className="font-medium text-slate-200">
                 {subtotal.toLocaleString("vi-VN")} đ
               </span>
@@ -294,41 +432,37 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
               </div>
             )}
             <div className="flex justify-between text-sm font-bold text-white pt-1 border-t border-slate-800">
-              <span>Tổng thanh toán (COD):</span>
+              <span>Tổng thanh toán:</span>
               <span className="text-emerald-400 font-mono text-base">
                 {finalAmount.toLocaleString("vi-VN")} đ
               </span>
             </div>
           </div>
-        </form>
 
-        {/* Footer Actions */}
-        <div className="border-t border-slate-800 px-6 py-3.5 bg-slate-950 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition"
-          >
-            Hủy Bỏ
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting || subtotal <= 0}
-            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-900/30 transition"
-          >
-            {submitting ? (
-              <>
-                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Đang đẩy đơn...</span>
-              </>
-            ) : (
-              <>
-                <span>🚀 Xác Nhận & Đẩy Đơn Hàng</span>
-              </>
-            )}
-          </button>
-        </div>
+          {/* Footer Actions */}
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold transition cursor-pointer"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-blue-900/40 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              {submitting ? (
+                <span>Đang đẩy đơn sang KiotViet...</span>
+              ) : (
+                <>
+                  <span>✓ Chốt Đơn & Đẩy KiotViet + Sinh 7 Mốc CarePlan</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

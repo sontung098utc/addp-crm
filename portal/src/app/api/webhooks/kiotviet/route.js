@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { normalizePhone } from "../../../../lib/phone.js";
-import { resolveComboFormula } from "../../../../lib/comboResolver.js";
-import { buildCareSchedule } from "../../../../lib/careAutomation.js";
+import { resolveComboFormulaList } from "../../../../lib/comboResolver.js";
+import { appendOrderCareTasks } from "../../../../lib/careAutomation.js";
+import { createOrder } from "../../../../lib/ordersStore.js";
+import { getOrCreateCustomerByPhone } from "../../../../lib/customerIdentityResolver.js";
 
 /**
- * ADDP Omnichannel AI CRM — KiotViet Webhook Gateway (WBS-20)
- * Kế thừa trực tiếp từ C:\QuanlyKH\src\app\api\kiotviet\route.js
- * Tiếp nhận hóa đơn bán hàng tại quầy / kho:
- * - Chuẩn hóa SĐT khách hàng (Điều 3 AGENTS.md)
- * - Tự động bóc tách công thức Combo Glucare
- * - Kích hoạt lộ trình chăm sóc tự động Ngày 1, 3, 7, 14, 21 (careAutomation)
+ * ADDP Omnichannel AI CRM — KiotViet Webhook Gateway (WBS-20 & WBS-39 & WBS-40)
+ * Tiếp nhận hóa đơn / đơn đặt hàng thời gian thực từ KiotViet:
+ * 1. Chuẩn hóa SĐT khách hàng 10 số (Điều 3 AGENTS.md) & gộp Hồ sơ Khách hàng 360.
+ * 2. Tự động bóc tách công thức Combo (`resolveComboFormulaList`) và trừ tồn kho.
+ * 3. Lưu đơn hàng vào `ordersStore` & kích hoạt lộ trình chăm sóc tự động 7 mốc (`appendOrderCareTasks`).
  */
 
 export async function POST(request) {
@@ -17,7 +18,10 @@ export async function POST(request) {
     const body = await request.json();
 
     if (!body.Notifications || !Array.isArray(body.Notifications)) {
-      return NextResponse.json({ ok: false, message: "Payload KiotViet không đúng định dạng Notifications" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, message: "Payload KiotViet không đúng định dạng Notifications" },
+        { status: 400 }
+      );
     }
 
     const processedOrders = [];
@@ -34,40 +38,66 @@ export async function POST(request) {
         if (!orderCode || !rawPhone) continue;
 
         const cleanPhone = normalizePhone(rawPhone);
-        const totalAmount = Number(invoice.Total || invoice.TotalPayment || 0);
+        if (!cleanPhone) continue;
 
-        // Bóc tách combo từ các mặt hàng trong hóa đơn
-        const invoiceDetails = invoice.InvoiceDetails || [];
-        const comboItems = [];
+        const totalAmount = Number(invoice.Total || invoice.TotalPayment || 0);
+        const invoiceDetails = invoice.InvoiceDetails || invoice.OrderDetails || [];
+        const items = [];
+
         for (const item of invoiceDetails) {
-          const sku = item.ProductCode || item.Code;
+          const sku = item.ProductCode || item.Code || "GLUCARE-900G";
           const qty = Number(item.Quantity || 1);
-          const resolved = resolveComboFormula(sku, qty);
-          comboItems.push({
+          const price = Number(item.Price || 0);
+          const resolvedParts = resolveComboFormulaList(sku, qty);
+          items.push({
             sku,
-            productName: item.ProductName || sku,
+            name: item.ProductName || sku,
             quantity: qty,
-            resolvedParts: resolved.parts,
+            price,
+            subtotal: price * qty,
+            resolvedParts,
           });
         }
 
-        // Tự động xây dựng lịch chăm sóc sau bán
-        const careSchedule = buildCareSchedule({
-          deliveredAt: invoice.PurchaseDate || new Date().toISOString(),
-          productSku: comboItems[0]?.sku || "COMBO-GLUCARE-01",
+        // 1. Gộp / Tạo mới Hồ sơ Khách hàng 360
+        try {
+          await getOrCreateCustomerByPhone({
+            phone: cleanPhone,
+            fullName: customerName,
+            address: invoice.Address || "",
+            source: "KIOTVIET",
+            note: `Đồng bộ hóa đơn KiotViet #${orderCode}`,
+          });
+        } catch {}
+
+        // 2. Tạo đơn hàng trong ordersStore (tự động trừ kho & sinh 7 mốc CarePlan)
+        const savedOrder = createOrder({
+          orderCode,
+          customerName,
+          phone: cleanPhone,
+          address: invoice.Address || "",
+          channel: "KIOTVIET",
+          items,
+          totalAmount,
+          discount: Number(invoice.Discount || 0),
+          finalAmount: totalAmount,
+          targetPlatform: "KIOTVIET",
+          kiotVietOrderCode: orderCode,
+          kiotVietSyncMode: "WEBHOOK_INBOUND",
+          note: `Đồng bộ từ KiotViet Webhook (${action || "invoice.update"})`,
         });
 
+        const careTasks = appendOrderCareTasks(savedOrder);
+
         processedOrders.push({
-          orderCode,
+          orderCode: savedOrder.orderCode,
           customerName,
           phone: cleanPhone,
           totalAmount,
           action,
-          items: comboItems,
-          careTasksCount: careSchedule.length,
+          items,
+          careTasksCount: careTasks.length || 7,
         });
-
-        console.log(`[KIOTVIET_WEBHOOK] Đã tiếp nhận đơn ${orderCode} (${cleanPhone}) - Kích hoạt ${careSchedule.length} công việc chăm sóc.`);
       }
     }
 
@@ -78,6 +108,9 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("[KIOTVIET_WEBHOOK_ERROR]", error);
-    return NextResponse.json({ error: "Lỗi hệ thống khi xử lý KiotViet Webhook." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Lỗi hệ thống khi xử lý KiotViet Webhook." },
+      { status: 500 }
+    );
   }
 }

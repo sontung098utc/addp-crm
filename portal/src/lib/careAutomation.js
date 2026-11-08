@@ -1,5 +1,5 @@
 /**
- * ADDP Omnichannel AI CRM - Care Plan Automation Helper (WBS-03)
+ * ADDP Omnichannel AI CRM - Care Plan Automation Helper (WBS-03 & WBS-28)
  * Kế thừa từ C:\QuanlyKH\src\lib\automation.js
  * Tự động tạo lộ trình chăm sóc sau mua hàng:
  * - DAY_1, DAY_3, DAY_7, DAY_14, DAY_21
@@ -44,15 +44,6 @@ export const CARE_MILESTONES = [
   },
 ];
 
-/**
- * Tính toán danh sách công việc chăm sóc (Tasks) tự động dựa trên ngày bắt đầu sử dụng và tổng số ngày liệu trình.
- * @param {object} params
- * @param {string} params.customerName - Tên khách hàng
- * @param {string} params.productName - Tên sản phẩm (VD: Sữa hạt Glucare Plus / ADDP Viên An Đường)
- * @param {Date|string} [params.startDate] - Ngày bắt đầu sử dụng (mặc định hôm nay)
- * @param {number} [params.durationDays] - Tổng số ngày sử dụng của đơn hàng (VD: 15, 30, 60 ngày)
- * @returns {Array<{type: string, title: string, dueDate: string, offsetDays: number, suggestedMessage: string}>}
- */
 export function buildCareSchedule({
   customerName = "Anh/Chị",
   productName = "Sữa hạt tiểu đường Glucare Plus",
@@ -110,15 +101,21 @@ export function buildCareSchedule({
   return tasks.sort((a, b) => a.offsetDays - b.offsetDays);
 }
 
-// Bộ nhớ động lưu trữ trạng thái các công việc chăm sóc hàng ngày (WBS-28 & WBS-29)
-// Ở chế độ Production, không tự động sinh task mẫu mà chỉ sinh khi có đơn hàng thực tế
-let dynamicTasksStore = [];
+if (!globalThis.__addpCareTasksStore) {
+  globalThis.__addpCareTasksStore = [];
+}
 
-export function getAllCareTasks(seedCustomers = []) {
-  return dynamicTasksStore;
+export function getAllCareTasks() {
+  return globalThis.__addpCareTasksStore;
+}
+
+export function savePersistedTasks(tasks) {
+  globalThis.__addpCareTasksStore = Array.isArray(tasks) ? tasks : [];
+  return true;
 }
 
 export function appendOrderCareTasks(order = {}) {
+  const store = getAllCareTasks();
   const schedule = buildCareSchedule({
     customerName: order.customerName || "Anh/Chị",
     productName:
@@ -134,20 +131,21 @@ export function appendOrderCareTasks(order = {}) {
 
   schedule.forEach((item, idx) => {
     const taskId = `task_${orderTag}_${item.type}`;
-    if (dynamicTasksStore.some((t) => t.id === taskId)) return;
+    if (store.some((t) => t.id === taskId)) return;
 
-    // Mốc đầu tiên đặt vào hôm nay để Sale chăm sóc ngay, các mốc sau theo lịch chuẩn
-    const deadlineStr = idx === 0 ? new Date().toISOString().slice(0, 10) : item.dueDate;
+    const deadlineStr =
+      idx === 0 ? new Date().toISOString().slice(0, 10) : item.dueDate;
 
     const newTask = {
       id: taskId,
       customerId: order.customerId || order.phone || orderTag,
       customerName: order.customerName || "Khách hàng",
       customerPhone: order.phone || "",
-      customerPathology: order.pathology || "Đơn hàng mới: " + (order.orderCode || ""),
+      customerPathology:
+        order.pathology || "Đơn hàng mới: " + (order.orderCode || ""),
       customerGlucose: null,
       staffId: Number(order.staffId) || 1,
-      staffName: order.staffName || "Trần Thu Hà",
+      staffName: order.staffName || "Admin Quản Trị",
       taskType: item.type,
       title: item.title,
       deadline: deadlineStr,
@@ -160,16 +158,13 @@ export function appendOrderCareTasks(order = {}) {
       orderCode: order.orderCode || null,
     };
 
-    dynamicTasksStore.unshift(newTask);
+    store.unshift(newTask);
     createdTasks.push(newTask);
   });
 
   return createdTasks;
 }
 
-/**
- * Tương thích ngược với các module gọi generateCareTasks (tự động ghi vào kho CareTasks nếu là đơn hàng)
- */
 export function generateCareTasks(params = {}) {
   if (params && (params.orderCode || params.id)) {
     appendOrderCareTasks(params);
