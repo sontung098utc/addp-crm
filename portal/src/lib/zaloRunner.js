@@ -243,128 +243,135 @@ export function ensureZaloMcpDaemon(homeDir) {
 }
 
 /**
- * Tìm tất cả thư mục connector-home có chứa dữ liệu Zalo
+ * Tìm tất cả thư mục phiên Zalo trong connector-home và sắp xếp theo thời gian sửa đổi (mtime)
+ * mới nhất của file `.zalo-agent-cli/history.jsonl`.
  */
 export function getAllZaloHomes() {
+  const envConnectorHome = process.env.ZALO_CONNECTOR_HOME
+    ? path.resolve(process.env.ZALO_CONNECTOR_HOME)
+    : "";
+
   const baseHomeCandidates = [
-    path.resolve(process.cwd(), "connector-home"),
-    path.resolve(process.cwd(), "server", "connector-home"),
+    envConnectorHome,
     path.resolve(process.cwd(), "..", "server", "connector-home"),
+    path.resolve(process.cwd(), "server", "connector-home"),
+    path.resolve(process.cwd(), "connector-home"),
+    "/home/addp/domains/crm.addp.vn/public_html/server/connector-home",
     path.resolve(os.tmpdir(), "addp-crm-zalo-homes"),
     ...(process.platform === "win32" ? ["C:\\addp-crm\\server\\connector-home"] : []),
-  ];
+  ].filter(Boolean);
 
-  const foundHomes = [];
+  const historyMatches = [];
+  const credOnlyMatches = [];
   const seenDirs = new Set();
+
+  const inspectSessionDir = (fullDir) => {
+    const resolvedDir = path.resolve(fullDir);
+    if (seenDirs.has(resolvedDir)) return;
+    seenDirs.add(resolvedDir);
+
+    const cliDir = path.join(resolvedDir, ".zalo-agent-cli");
+    const histPath = path.join(cliDir, "history.jsonl");
+    const credDir = path.join(cliDir, "credentials");
+
+    if (fs.existsSync(histPath)) {
+      try {
+        const stat = fs.statSync(histPath);
+        historyMatches.push({
+          dir: resolvedDir,
+          historyPath: histPath,
+          mtime: stat.mtimeMs || 0,
+          size: stat.size || 0,
+        });
+        return;
+      } catch {}
+    }
+
+    if (fs.existsSync(credDir)) {
+      let credMtime = 0;
+      try {
+        const stat = fs.statSync(credDir);
+        credMtime = stat.mtimeMs || 0;
+        if (stat.isDirectory()) {
+          for (const f of fs.readdirSync(credDir)) {
+            const fStat = fs.statSync(path.join(credDir, f));
+            if (fStat.mtimeMs > credMtime) credMtime = fStat.mtimeMs;
+          }
+        }
+      } catch {}
+      credOnlyMatches.push({
+        dir: resolvedDir,
+        mtime: credMtime,
+      });
+    }
+  };
 
   for (const base of baseHomeCandidates) {
     if (!fs.existsSync(base)) continue;
     try {
+      // Nếu ZALO_CONNECTOR_HOME trỏ thẳng vào thư mục phiên có sẵn .zalo-agent-cli
+      if (fs.existsSync(path.join(base, ".zalo-agent-cli"))) {
+        inspectSessionDir(base);
+      }
+
       const entries = fs.readdirSync(base, { withFileTypes: true });
       for (const ent of entries) {
         if (!ent.isDirectory()) continue;
-        const fullDir = path.resolve(base, ent.name);
-        if (seenDirs.has(fullDir)) continue;
-        seenDirs.add(fullDir);
-
-        const cliDir = path.join(fullDir, ".zalo-agent-cli");
-        const credDir = path.join(cliDir, "credentials");
-        if (fs.existsSync(credDir)) {
-          let latestCredMtime = 0;
-          try {
-            const stat = fs.statSync(credDir);
-            latestCredMtime = stat.mtimeMs;
-            if (stat.isDirectory()) {
-              for (const f of fs.readdirSync(credDir)) {
-                const fStat = fs.statSync(path.join(credDir, f));
-                if (fStat.mtimeMs > latestCredMtime) latestCredMtime = fStat.mtimeMs;
-              }
-            }
-          } catch {}
-
-          let historySize = 0;
-          try {
-            const histPath = path.join(cliDir, "history.jsonl");
-            if (fs.existsSync(histPath)) {
-              historySize = fs.statSync(histPath).size;
-            }
-          } catch {}
-
-          foundHomes.push({
-            dir: fullDir,
-            mtime: latestCredMtime,
-            historySize,
-          });
-        }
+        inspectSessionDir(path.resolve(base, ent.name));
       }
     } catch {}
   }
 
-  // Sắp xếp ưu tiên: nếu thời gian tạo credentials chênh lệch > 5 phút thì lấy mới nhất;
-  // nếu tạo cùng đợt (như khi git clone) thì ưu tiên thư mục có history.jsonl lớn hơn.
-  foundHomes.sort((a, b) => {
-    if (Math.abs(b.mtime - a.mtime) > 300000) {
-      return b.mtime - a.mtime;
-    }
-    if (b.historySize !== a.historySize) {
-      return b.historySize - a.historySize;
-    }
-    return b.mtime - a.mtime;
-  });
+  // Sắp xếp ưu tiên tuyệt đối theo thời gian sửa đổi gần nhất (mtime mới nhất) của history.jsonl
+  historyMatches.sort((a, b) => b.mtime - a.mtime || b.size - a.size);
+  credOnlyMatches.sort((a, b) => b.mtime - a.mtime);
 
-  return foundHomes.map((h) => h.dir);
+  return [
+    ...historyMatches.map((h) => h.dir),
+    ...credOnlyMatches.map((c) => c.dir),
+  ];
 }
 
+/**
+ * Tự động tìm thư mục Zalo đang hoạt động (Active Zalo Home):
+ * 1. Quét `../server/connector-home/`, `server/connector-home/` (hoặc `ZALO_CONNECTOR_HOME`).
+ * 2. Tìm tất cả các file `.zalo-agent-cli/history.jsonl` và chọn thư mục có `mtime` mới nhất.
+ * 3. Nếu không tìm thấy trong `connector-home`, mới fallback về `.zalo-agent-cli` trong thư mục hiện tại.
+ */
 export function getActiveZaloHome() {
-  try {
-    // 1. Ưu tiên đọc tài khoản Zalo Cá Nhân đang CONNECTED từ .data/channels.json
-    const channelFiles = [
-      path.resolve(process.cwd(), ".data", "channels.json"),
-      path.resolve(process.cwd(), "portal", ".data", "channels.json"),
-    ];
-    for (const cf of channelFiles) {
-      if (fs.existsSync(cf)) {
-        try {
-          const channels = JSON.parse(fs.readFileSync(cf, "utf8"));
-          if (Array.isArray(channels)) {
-            const connectedZalo = channels
-              .filter(
-                (c) =>
-                  c &&
-                  c.platform === "ZALO_PERSONAL" &&
-                  c.status === "CONNECTED" &&
-                  c.config?.homeDir
-              )
-              .sort(
-                (a, b) =>
-                  new Date(b.updatedAt || b.createdAt || 0).getTime() -
-                  new Date(a.updatedAt || a.createdAt || 0).getTime()
-              );
-            for (const ch of connectedZalo) {
-              const hd = ch.config.homeDir;
-              if (hd && fs.existsSync(path.join(hd, ".zalo-agent-cli", "credentials"))) {
-                return hd;
-              }
-            }
-          }
-        } catch {}
-      }
-    }
+  let activePath = "";
 
-    // 2. Fallback: quét các thư mục connector-home có chứa credentials mới nhất
+  try {
     const allHomes = getAllZaloHomes();
     if (allHomes.length > 0) {
-      return allHomes[0];
+      activePath = allHomes[0];
     }
   } catch (err) {
     console.error("[GET_ACTIVE_ZALO_HOME_ERROR]", err);
   }
 
-  const fallback = path.resolve(process.cwd(), "connector-home", "zalo-default");
-  try {
-    fs.mkdirSync(fallback, { recursive: true });
-  } catch {}
-  return fallback;
+  // Fallback về thư mục hiện tại (chứa .zalo-agent-cli) nếu không tìm thấy trong connector-home
+  if (!activePath) {
+    const cwd = path.resolve(process.cwd());
+    const cwdCli = path.join(cwd, ".zalo-agent-cli");
+    try {
+      fs.mkdirSync(cwdCli, { recursive: true });
+    } catch {}
+    activePath = cwd;
+  }
+
+  const now = Date.now();
+  if (
+    globalThis.__lastLoggedActiveZaloHome !== activePath ||
+    !globalThis.__lastLoggedActiveZaloHomeAt ||
+    now - globalThis.__lastLoggedActiveZaloHomeAt > 30000
+  ) {
+    globalThis.__lastLoggedActiveZaloHome = activePath;
+    globalThis.__lastLoggedActiveZaloHomeAt = now;
+    console.log(`[Zalo Runner] Đã tự động kết nối thư mục Zalo active: ${activePath}`);
+  }
+
+  return activePath;
 }
 
 /**
@@ -417,13 +424,18 @@ export function getAllZaloHistoryFiles(primaryHome) {
   addIfExist(path.resolve(process.cwd(), "data", "zalo_history_1781287338457243967.jsonl"));
   addIfExist(path.resolve(process.cwd(), "portal", "data", "zalo_history_1781287338457243967.jsonl"));
 
-  // 2. Các thư mục connector-home khác
-  for (const h of getAllZaloHomes()) {
+  // 2. Các thư mục connector-home khác (đảo ngược để thư mục có mtime mới nhất nằm sau cùng, ghi đè trạng thái mới nhất)
+  const allHomesOldestFirst = [...getAllZaloHomes()].reverse();
+  for (const h of allHomesOldestFirst) {
     addIfExist(path.join(h, ".zalo-agent-cli", "crm-group-history.jsonl"));
     addIfExist(path.join(h, ".zalo-agent-cli", "history.jsonl"));
   }
 
-  // 3. Thư mục chính hiện tại (đặt cuối để ghi đè trạng thái mới nhất nếu trùng)
+  // 3. Fallback .zalo-agent-cli trong thư mục hiện tại (nếu có)
+  addIfExist(path.resolve(process.cwd(), ".zalo-agent-cli", "crm-group-history.jsonl"));
+  addIfExist(path.resolve(process.cwd(), ".zalo-agent-cli", "history.jsonl"));
+
+  // 4. Thư mục chính hiện tại (đặt cuối để ghi đè trạng thái mới nhất nếu trùng)
   if (targetHome) {
     addIfExist(path.join(targetHome, ".zalo-agent-cli", "crm-group-history.jsonl"));
     addIfExist(path.join(targetHome, ".zalo-agent-cli", "history.jsonl"));
