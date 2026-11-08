@@ -120,27 +120,29 @@ export function analyzeVietnameseGenderAndPronoun(customerName = "", genderHint 
 }
 
 const SYMPTOM_PATTERNS = [
-  { label: "tê bì", regex: /\b(tê\s*bì|tê\s*tay|tê\s*chân|châm\s*chích)\b/i, tag: "#TeBiChanTay" },
-  { label: "chuột rút", regex: /\b(chuột\s*rút|co\s*cơ)\b/i, tag: "#ChuotRut" },
-  { label: "mất ngủ", regex: /\b(mất\s*ngủ|khó\s*ngủ|ngủ\s*không\s*sâu|trằn\s*trọc|ngủ\s*kém)\b/i, tag: "#MatNgu" },
-  { label: "tiểu đêm", regex: /\b(tiểu\s*đêm|đi\s*tiểu\s*nhiều|đái\s*đêm)\b/i, tag: "#TieuDem" },
-  { label: "khô miệng", regex: /\b(khô\s*miệng|khát\s*nước|khô\s*cổ)\b/i, tag: "#KhoMieng" },
-  { label: "mệt mỏi", regex: /\b(mệt\s*mỏi|mệt|hụt\s*hơi|uể\s*oải|đói\s*lả|suy\s*nhược|kiệt\s*sức)\b/i, tag: "#MetMoi" },
-  { label: "sụt cân", regex: /\b(sụt\s*cân|sút\s*cân|tụt\s*cân|gầy|ốm\s*đi|giảm\s*cân\s*nhiều)\b/i, tag: "#SutCan" },
-  { label: "teo cơ", regex: /\b(teo\s*cơ|mất\s*cơ|nhão\s*cơ)\b/i, tag: "#TeoCo" },
-  { label: "huyết áp", regex: /\b(huyết\s*áp|cao\s*huyết\s*áp|tăng\s*huyết\s*áp)\b/i, tag: "#HuyetAp" },
-  { label: "mỡ máu", regex: /\b(mỡ\s*máu|cholesterol|máu\s*nhiễm\s*mỡ)\b/i, tag: "#MoMau" },
-  { label: "tim mạch", regex: /\b(tim\s*mạch|nhịp\s*tim|đau\s*tức\s*ngực)\b/i, tag: "#TimMach" },
-  { label: "men gan", regex: /\b(men\s*gan|gan\s*nhiễm\s*mỡ|nóng\s*gan|mẩn\s*ngứa)\b/i, tag: "#MenGan" },
+  { label: "tê bì", regex: /(tê\s*bì|tê\s*tay|tê\s*chân|châm\s*chích|\btê\b)/i, tag: "#TeBiChanTay" },
+  { label: "đau nhức xương khớp", regex: /(nhức|đau\s*lưng|mỏi\s*lưng|đau\s*xương|đau\s*khớp|xương\s*khớp)/i, tag: "#DauNhucXuongKhop" },
+  { label: "chuột rút", regex: /(chuột\s*rút|co\s*cơ)/i, tag: "#ChuotRut" },
+  { label: "mất ngủ", regex: /(mất\s*ngủ|khó\s*ngủ|ngủ\s*không\s*sâu|trằn\s*trọc|ngủ\s*kém)/i, tag: "#MatNgu" },
+  { label: "tiểu đêm", regex: /(tiểu\s*đêm|đi\s*tiểu\s*nhiều|đái\s*đêm)/i, tag: "#TieuDem" },
+  { label: "khô miệng", regex: /(khô\s*miệng|khát\s*nước|khô\s*cổ)/i, tag: "#KhoMieng" },
+  { label: "thèm ngọt", regex: /(thèm\s*ngọt|thèm\s*ăn|đói\s*thèm|hay\s*đói|lúc\s*nào\s*cũng\s*đói|lk\s*nào\s*cx\s*đói|đói\s*cồn\s*cào|đói\s*lả|đói\s*bụng)/i, tag: "#ThemNgotDoiLa" },
+  { label: "mệt mỏi", regex: /(mệt\s*mỏi|mệt|hụt\s*hơi|uể\s*oải|suy\s*nhược|kiệt\s*sức|suy\s*tư)/i, tag: "#MetMoi" },
+  { label: "sụt cân", regex: /(sụt\s*cân|sút\s*cân|tụt\s*cân|(?:sụt|sút|tụt|giảm)\s*\d+\s*(?:cân|kg|ký)|gầy|ốm\s*đi)/i, tag: "#SutCan" },
+  { label: "teo cơ", regex: /(teo\s*cơ|mất\s*cơ|nhão\s*cơ)/i, tag: "#TeoCo" },
+  { label: "huyết áp", regex: /(huyết\s*áp|cao\s*huyết\s*áp|tăng\s*huyết\s*áp)/i, tag: "#HuyetAp" },
+  { label: "mỡ máu", regex: /(mỡ\s*máu|cholesterol|máu\s*nhiễm\s*mỡ)/i, tag: "#MoMau" },
+  { label: "tim mạch", regex: /(tim\s*mạch|nhịp\s*tim|đau\s*tức\s*ngực)/i, tag: "#TimMach" },
+  { label: "men gan", regex: /(men\s*gan|gan\s*nhiễm\s*mỡ|nóng\s*gan|mẩn\s*ngứa)/i, tag: "#MenGan" },
 ];
 
 const GOAL_PATTERNS = [
-  { label: "tăng cân", regex: /\b(tăng\s*cân|lên\s*cân|béo\s*lên|tăng\s*\d+\s*(kg|cân))\b/i, tag: "#MuonTangCan" },
-  { label: "bồi bổ", regex: /\b(bồi\s*bổ|tăng\s*sức\s*đề\s*kháng|phục\s*hồi\s*sức\s*khỏe|bổ\s*sung\s*dinh\s*dưỡng|đủ\s*chất)\b/i, tag: "#BoiBoTheTrang" },
-  { label: "hạ đường", regex: /\b(hạ\s*đường|giảm\s*đường|hạ\s*chỉ\s*số)\b/i, tag: "#HaDuongHuyet" },
-  { label: "ổn đường", regex: /\b(ổn\s*đường|ổn\s*định\s*đường|bình\s*ổn\s*đường|kiểm\s*soát\s*đường)\b/i, tag: "#OnDinhDuongHuyet" },
-  { label: "giảm tiểu đêm", regex: /\b(giảm\s*tiểu\s*đêm|hết\s*tiểu\s*đêm|đỡ\s*tiểu\s*đêm)\b/i, tag: "#GiamTieuDem" },
-  { label: "ngủ ngon", regex: /\b(ngủ\s*ngon|ngủ\s*sâu|dễ\s*ngủ|cải\s*thiện\s*giấc\s*ngủ)\b/i, tag: "#NguNgon" },
+  { label: "tăng cân", regex: /(tăng\s*cân|lên\s*cân|béo\s*lên|tăng\s*\d+\s*(?:kg|cân))/i, tag: "#MuonTangCan" },
+  { label: "bồi bổ", regex: /(bồi\s*bổ|tăng\s*sức\s*đề\s*kháng|phục\s*hồi\s*sức\s*khỏe|bổ\s*sung\s*dinh\s*dưỡng|đủ\s*chất)/i, tag: "#BoiBoTheTrang" },
+  { label: "hạ đường", regex: /(hạ\s*đường|giảm\s*đường|hạ\s*chỉ\s*số)/i, tag: "#HaDuongHuyet" },
+  { label: "ổn đường", regex: /(ổn\s*đường|ổn\s*định\s*đường|bình\s*ổn\s*đường|kiểm\s*soát\s*đường)/i, tag: "#OnDinhDuongHuyet" },
+  { label: "giảm tiểu đêm", regex: /(giảm\s*tiểu\s*đêm|hết\s*tiểu\s*đêm|đỡ\s*tiểu\s*đêm)/i, tag: "#GiamTieuDem" },
+  { label: "ngủ ngon", regex: /(ngủ\s*ngon|ngủ\s*sâu|dễ\s*ngủ|cải\s*thiện\s*giấc\s*ngủ)/i, tag: "#NguNgon" },
 ];
 
 /**
@@ -219,7 +221,7 @@ export function extractMedicalEntities(text = "", currentMedicalRecord = {}) {
 
     // B. Trích xuất thời gian mắc bệnh (duration): "X tháng", "X năm", "mới phát hiện", "lâu năm"
     const durationRegex =
-      /(?:mới\s*(?:bị|phát\s*hiện)?\s*)?\b(\d{1,2}\s*(?:tháng|năm|tuần))(?:\s*nay|\s*rồi)?\b|\b(mới\s*phát\s*hiện|mới\s*bị|lâu\s*năm|nhiều\s*năm)\b/i;
+      /(?:mới\s*(?:bị|phát\s*hiện)?\s*)?(\d{1,2}\s*(?:tháng|năm|tuần))(?:\s*nay|\s*rồi|\s*r)?|(mới\s*phát\s*hiện|mới\s*bị|lâu\s*năm|nhiều\s*năm)/i;
     const durMatch = normalized.match(durationRegex);
     if (durMatch) {
       const rawDur = (durMatch[1] || durMatch[2] || "").trim().replace(/\s+/g, " ");
@@ -232,16 +234,26 @@ export function extractMedicalEntities(text = "", currentMedicalRecord = {}) {
       }
     }
 
-    // C. Trích xuất số cân muốn tăng (nếu khách nói "tăng 3 cân", "lên 4kg")
-    const weightMatch = normalized.match(/(?:tăng|lên|thêm)\s*(?:khoảng|tầm)?\s*(\d{1,2})\s*(?:cân|kg|ký)/i);
-    if (weightMatch && weightMatch[1]) {
-      newDesiredWeightGain = `${weightMatch[1]} kg`;
+    // C. Trích xuất số cân muốn tăng hoặc bị sụt ("tăng 3 cân", "tụt 3 cân", "sụt 4kg")
+    const weightGainMatch = normalized.match(/(?:tăng|lên|thêm)\s*(?:khoảng|tầm)?\s*(\d{1,2})\s*(?:cân|kg|ký)/i);
+    if (weightGainMatch && weightGainMatch[1]) {
+      newDesiredWeightGain = `${weightGainMatch[1]} kg`;
+    }
+    const weightLossMatch = normalized.match(/(?:sụt|sút|tụt|giảm)\s*(?:khoảng|tầm|mất)?\s*(\d{1,2})\s*(?:cân|kg|ký)/i);
+    if (weightLossMatch && weightLossMatch[1] && !newDesiredWeightGain) {
+      newDesiredWeightGain = `${weightLossMatch[1]} kg`;
     }
 
-    // D. Trích xuất triệu chứng (symptoms)
+    // D. Trích xuất triệu chứng (symptoms), loại trừ các triệu chứng khách phủ định ("không tiểu đêm", "k tiểu đêm", "ko tê bì")
     for (const item of SYMPTOM_PATTERNS) {
-      if (item.regex.test(normalized)) {
-        newSymptoms.push(item.label);
+      const m = normalized.match(item.regex);
+      if (m) {
+        const matchIndex = m.index || 0;
+        const prefixSlice = normalized.slice(Math.max(0, matchIndex - 12), matchIndex);
+        const isNegated = /(?:không|ko|k|chưa|chẳng)\s*(?:bị|có|hay)?\s*$/i.test(prefixSlice);
+        if (!isNegated) {
+          newSymptoms.push(item.label);
+        }
       }
     }
 

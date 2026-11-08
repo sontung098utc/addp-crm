@@ -674,6 +674,12 @@ if (!globalThis.__zaloBotRepliedMsgIds) {
 if (!globalThis.__zaloBotInFlightMsgIds) {
   globalThis.__zaloBotInFlightMsgIds = new Set();
 }
+if (!globalThis.__zaloBotInFlightThreads) {
+  globalThis.__zaloBotInFlightThreads = new Map();
+}
+if (!globalThis.__zaloBotLastReplyByThread) {
+  globalThis.__zaloBotLastReplyByThread = new Map();
+}
 if (!globalThis.__zaloBotLoggedHumanSkipIds) {
   globalThis.__zaloBotLoggedHumanSkipIds = new Set();
 }
@@ -782,6 +788,7 @@ export async function processIncomingZaloMessageWithBot({
   }
 
   globalThis.__zaloBotInFlightMsgIds.add(dedupKey);
+  globalThis.__zaloBotInFlightThreads.set(String(threadId), msgToken);
 
   try {
     const targetHome = homeDir || getActiveZaloHome();
@@ -791,6 +798,22 @@ export async function processIncomingZaloMessageWithBot({
       `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, msgId: ${msgToken}, isMe: ${Boolean(isMe)})`
     );
     console.log(`[Zalo AI Bot] Mode: ${effectiveMode}`);
+
+    // Bổ sung câu trả lời gần nhất của Bot trên thread này vào conversationHistory để chống lặp 100%
+    const lastSentReply = globalThis.__zaloBotLastReplyByThread.get(String(threadId));
+    const historyWithLastBotReply = Array.isArray(conversationHistory)
+      ? [...conversationHistory]
+      : [];
+    if (
+      lastSentReply &&
+      !historyWithLastBotReply.some((m) => m && m.isMe && m.text === lastSentReply)
+    ) {
+      historyWithLastBotReply.push({
+        isMe: true,
+        text: lastSentReply,
+        timestamp: Date.now() - 1000,
+      });
+    }
 
     // 4. Đấu nối chuẩn State-Aware Prompting: truyền đầy đủ customerProfile (kèm medicalRecord vừa đồng bộ)
     const aiResult = await generateHumanLikeReply({
@@ -808,7 +831,7 @@ export async function processIncomingZaloMessageWithBot({
         channelId,
         accountName: effectiveAccountName,
       },
-      conversationHistory,
+      conversationHistory: historyWithLastBotReply,
     });
 
     // Thời gian chờ typing delay 3s (3000ms) trước khi gửi tin
@@ -816,6 +839,18 @@ export async function processIncomingZaloMessageWithBot({
     console.log(`[Zalo AI Bot] Đang trả lời sau ${delayMs} ms: ${aiResult.replyText}`);
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    // Nếu trong 3s chờ gõ phím, khách vừa gửi tiếp 1 tin nhắn mới hơn trên cùng threadId -> nhường cho tin nhắn mới nhất trả lời gộp 1 lần!
+    if (
+      !forceReply &&
+      globalThis.__zaloBotInFlightThreads.get(String(threadId)) !== msgToken
+    ) {
+      globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+      console.log(
+        `[Zalo AI Bot] Gộp phản hồi sang tin nhắn mới hơn của khách trên hội thoại ${threadId}.`
+      );
+      return { skipped: true, reason: "SUPERSEDED_BY_NEWER_CUSTOMER_MESSAGE" };
+    }
 
     // 5. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
     if (!isChannelBotEnabled(channelId)) {
@@ -846,6 +881,7 @@ export async function processIncomingZaloMessageWithBot({
 
     if (sendRes.ok) {
       globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+      globalThis.__zaloBotLastReplyByThread.set(String(threadId), String(aiResult.replyText));
       console.log(`[Zalo AI Bot] Trả lời RAG thành công: ${aiResult.replyText}`);
     }
 
@@ -862,6 +898,9 @@ export async function processIncomingZaloMessageWithBot({
     };
   } finally {
     globalThis.__zaloBotInFlightMsgIds.delete(dedupKey);
+    if (globalThis.__zaloBotInFlightThreads.get(String(threadId)) === msgToken) {
+      globalThis.__zaloBotInFlightThreads.delete(String(threadId));
+    }
   }
 }
 

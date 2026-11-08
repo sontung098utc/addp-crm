@@ -1,14 +1,13 @@
 /**
- * ADDP Omnichannel AI CRM — Bộ Não AI Sinh Câu Trả Lời Theo Trạng Thái (State-Tracking & Autonomous Entity Extraction)
- * Áp dụng cho TOÀN BỘ KHÁCH HÀNG:
- * 1. Nhận diện thực thể tự động qua `extractMedicalEntities(text, currentMedicalRecord)`:
- *    `bloodSugar`, `duration`, `symptoms`, `goals`.
- * 2. Xây dựng `CUSTOMER_KNOWN_STATE` & System Instruction theo "QUY TRÌNH GỌI ĐIỆN CHĂM SÓC KHÁCH HÀNG TIỂU ĐƯỜNG":
- *    - TUYỆT ĐỐI KHÔNG HỎI LẠI bất kỳ thông tin nào đã có giá trị trong `CUSTOMER_KNOWN_STATE`.
- *    - Nếu đường huyết đã biết: Đánh giá trực diện mức độ an toàn theo quy trình và chuyển sang bước tiếp theo (hỏi chế độ ăn uống, giấc ngủ hoặc biến chứng tê bì, tiểu đêm, sụt cân).
- *    - Nếu khách nêu nhu cầu/triệu chứng mới (muốn tăng cân, sụt cân...): Giải thích cơ chế chuyển hóa/kém hấp thu theo quy trình và đưa giải pháp sữa hạt Glucare Plus.
- *    - Độ dài: 2-3 câu ngắn (dưới 45 từ), luôn kết thúc bằng 1 câu hỏi mở.
- *    - Chỉ chào hỏi duy nhất 1 lần trong ngày.
+ * ADDP Omnichannel AI CRM — Bộ Não AI Sinh Câu Trả Lời Tự Nhiên & Đồng Cảm (State-Aware, Empathy & Anti-Duplicate)
+ * Điều chỉnh toàn diện 4 cơ chế cốt lõi:
+ * 1. Empathy & Explanation: Khi khách nêu triệu chứng ("thèm ngọt", "tụt 3 cân", "đói cồn cào", "tê bì", "nhức lưng"...),
+ *    giải thích ngay cơ chế bệnh lý (tế bào đói năng lượng do không chuyển hóa được đường) + hướng dẫn ăn đảo ngược (Rau -> Đạm -> Tinh bột) & dùng 1 ly sữa hạt Isomalt.
+ * 2. Anti-Interrogation Policy: Nếu hồ sơ đã có >= 2 thông tin (ví dụ: đường huyết + sụt cân/thèm ngọt/thời gian bị),
+ *    NGỪNG TOÀN BỘ câu hỏi điều tra triệu chứng ("có tê bì không", "có tiểu đêm không", "có sụt cân không"), chuyển sang định hướng giải pháp dinh dưỡng.
+ * 3. Context-Aware Greeting: Khi khách nhắn mở đầu ngắn ("Nói đi em", "Alo", "Tư vấn đi", "Có việc gì" hoặc "C đã hỏi gì đâu..."),
+ *    trả lời lịch thiệp hỏi nhu cầu chứ tuyệt đối không xả bài quảng cáo sản phẩm.
+ * 4. Anti-Duplicate Response: Tính độ tương đồng với `lastBotReply` (và các câu bot vừa gửi). Nếu > 60%, hủy câu cũ và sinh câu trả lời mới bám sát tin nhắn mới nhất của khách.
  */
 
 import { retrieveRelevantKnowledge } from "./knowledgeBase.js";
@@ -19,7 +18,7 @@ import {
 } from "../customerStore.js";
 
 /**
- * Xác định cách xưng hô giới tính khách hàng ("chị" / "anh" / "mình") và tên ngắn gọn (ví dụ "chị Mai", "anh Hoàng")
+ * Xác định cách xưng hô giới tính khách hàng ("chị" / "anh" / "mình") và tên ngắn gọn (ví dụ "chị Quyên", "anh Hoàng")
  */
 export function detectCustomerPronoun(customerName = "", avatarUrl = "", genderFromProfile = "") {
   return analyzeVietnameseGenderAndPronoun(customerName, genderFromProfile);
@@ -29,7 +28,6 @@ export function detectCustomerPronoun(customerName = "", avatarUrl = "", genderF
  * Chuẩn hóa tên tài khoản đang trực để xưng tên tự nhiên:
  * - "Zalo Cá Nhân (Sơn Tùng)" hoặc "Zalo: Sơn Tùng" -> "Sơn Tùng"
  * - "Thuỷ Tiên" -> "Thuỷ Tiên"
- * - Nếu không có tên cụ thể -> null (xưng "em bên Dược phẩm ADDP")
  */
 export function resolveActiveStaffDisplayName(accountOrChannelName = "") {
   const raw = String(accountOrChannelName || "").trim();
@@ -96,6 +94,70 @@ export function hasAlreadyGreetedToday(conversationHistory = []) {
 }
 
 /**
+ * Tính độ tương đồng từ vựng (Jaccard / Overlap Similarity 0.0 -> 1.0) giữa 2 câu trả lời
+ * Phục vụ cơ chế Anti-Duplicate Response (> 0.60 là chặn ngay).
+ */
+export function calculateTextSimilarity(textA = "", textB = "") {
+  const cleanA = String(textA || "")
+    .toLowerCase()
+    .replace(/[.,?!:;()[\]"']/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
+  const cleanB = String(textB || "")
+    .toLowerCase()
+    .replace(/[.,?!:;()[\]"']/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1);
+
+  if (cleanA.length === 0 || cleanB.length === 0) return 0;
+
+  const setA = new Set(cleanA);
+  const setB = new Set(cleanB);
+  let intersection = 0;
+  for (const w of setA) {
+    if (setB.has(w)) intersection++;
+  }
+
+  const minSize = Math.min(setA.size, setB.size);
+  const unionSize = new Set([...setA, ...setB]).size;
+  const jaccard = unionSize > 0 ? intersection / unionSize : 0;
+  const overlap = minSize > 0 ? intersection / minSize : 0;
+  return Math.max(jaccard, overlap * 0.85);
+}
+
+/**
+ * Lấy câu trả lời gần nhất của Bot/Nhân viên trong lịch sử hội thoại (`lastBotReply`)
+ */
+export function getLastBotReplyFromHistory(conversationHistory = []) {
+  if (!Array.isArray(conversationHistory) || conversationHistory.length === 0) return "";
+  for (let i = conversationHistory.length - 1; i >= 0; i--) {
+    const m = conversationHistory[i];
+    if (m && (m.isMe || m.isSelf || m.role === "assistant") && m.text) {
+      const txt = String(m.text).trim();
+      if (txt.toLowerCase() !== "stop") return txt;
+    }
+  }
+  return "";
+}
+
+/**
+ * Đếm số lượng thông tin y khoa đã biết trong `knownState`
+ * Nếu `knownFactCount >= 2` -> Kích hoạt Anti-Interrogation Policy (Ngừng hỏi thăm dò triệu chứng).
+ */
+export function countKnownMedicalFacts(knownState = {}) {
+  let count = 0;
+  if (knownState?.bloodSugar) count++;
+  if (knownState?.duration) count++;
+  if (Array.isArray(knownState?.symptoms) && knownState.symptoms.length > 0) {
+    count += knownState.symptoms.length;
+  }
+  if (Array.isArray(knownState?.goals) && knownState.goals.length > 0) {
+    count += knownState.goals.length;
+  }
+  return count;
+}
+
+/**
  * Gộp toàn bộ thực thể y khoa từ hồ sơ cũ + lịch sử hội thoại + tin nhắn mới nhất
  * để tạo ra `CUSTOMER_KNOWN_STATE` đầy đủ và chính xác nhất.
  */
@@ -122,7 +184,6 @@ export function buildConsolidatedMedicalState(
     desiredWeightGain: customerProfile?.medicalRecord?.desiredWeightGain || null,
   };
 
-  // Quét qua các tin nhắn của khách trong lịch sử hội thoại để không bỏ sót thông tin khách đã nói trước đó
   if (Array.isArray(conversationHistory)) {
     for (const msg of conversationHistory) {
       if (!msg || msg.isMe || msg.isSelf || msg.role === "assistant" || !msg.text) continue;
@@ -130,7 +191,6 @@ export function buildConsolidatedMedicalState(
     }
   }
 
-  // Quét tin nhắn hiện tại của khách (ghi đè chỉ số mới nhất nếu khách vừa cập nhật)
   const finalState = extractMedicalEntities(customerMessage, state);
   return finalState;
 }
@@ -177,13 +237,14 @@ export function extractCustomerPhoneFromMessage(text = "") {
 }
 
 /**
- * 3. Xây dựng System Instruction động chứa `CUSTOMER_KNOWN_STATE` và Quy tắc Bất Di Bất Dịch
+ * Xây dựng System Instruction động chứa `CUSTOMER_KNOWN_STATE`, Anti-Interrogation Policy & Anti-Duplicate
  */
 export function buildStateAwareSystemPrompt({
   staffName = null,
   pronounInfo,
   knownState,
   alreadyGreeted = false,
+  lastBotReply = "",
   ragContext = "",
   customerPhone = null,
 } = {}) {
@@ -201,6 +262,7 @@ export function buildStateAwareSystemPrompt({
     Array.isArray(knownState?.goals) && knownState.goals.length > 0
       ? knownState.goals.join(", ")
       : "Chưa rõ";
+  const factCount = countKnownMedicalFacts(knownState);
 
   return [
     staffIntro,
@@ -212,17 +274,17 @@ export function buildStateAwareSystemPrompt({
     `- Thời gian bị: ${knownState?.duration || "Chưa rõ"}`,
     `- Nhu cầu cốt lõi (goals): ${goalsList}`,
     `- Triệu chứng đã ghi nhận (symptoms): ${symptomsList}`,
-    `- Số điện thoại: ${customerPhone || "Chưa rõ"}`,
+    `- Tổng số thông tin đã thu thập: ${factCount}`,
+    `- Câu trả lời vừa gửi gần nhất (CẤM LẶP LẠI): "${lastBotReply || "Chưa có"}"`,
     "",
     "=== QUY TẮC BẤT DI BẤT DỊCH ===",
-    "1. TUYỆT ĐỐI KHÔNG HỎI LẠI bất kỳ thông tin nào đã có giá trị trong CUSTOMER_KNOWN_STATE (ví dụ: nếu Đường huyết hoặc Thời gian bị đã khác 'Chưa rõ' thì cấm hỏi lại đường huyết mấy chấm hay bị bao lâu rồi).",
-    "2. Nếu đường huyết đã biết: Trả lời trực diện vào mức đường huyết đó (đánh giá mức độ an toàn/ổn định theo quy trình) và chuyển bước tiếp theo sang hỏi về chế độ ăn uống, giấc ngủ hoặc triệu chứng tê bì chân tay, tiểu đêm, sụt cân.",
-    "3. Nếu khách nói về một triệu chứng hoặc nhu cầu mới (như muốn tăng cân, sụt cân): Giải thích nguyên nhân chuyển hóa/kém hấp thu của người tiểu đường theo quy trình và đưa giải pháp sữa hạt Glucare Plus.",
-    "4. Độ dài câu trả lời: Luôn duy trì 2-3 câu ngắn, dưới 45 từ, kết thúc bằng 1 câu hỏi mở để lắng nghe khách.",
+    "1. ĐỒNG CẢM & GIẢI THÍCH CƠ CHẾ (Empathy & Explanation): Khi khách nêu triệu chứng ('thèm ngọt', 'tụt cân', 'đói', 'tê bì', 'nhức mỏi'), giải thích ngay nguyên nhân do cơ thể không chuyển hóa được đường vào tế bào khiến tế bào bị đói năng lượng, kèm lời khuyên ăn đảo ngược (Rau -> Đạm -> Tinh bột) và bổ sung 1 ly sữa hạt đường Isomalt.",
+    "2. CHÍNH SÁCH CHỐNG ĐIỀU TRA (Anti-Interrogation): Nếu hồ sơ đã có >= 2 thông tin (ví dụ đã có đường huyết + triệu chứng/thời gian), NGỪNG TOÀN BỘ câu hỏi thăm dò triệu chứng ('có tê bì không', 'có tiểu đêm không', 'có sụt cân không'). Chuyển ngay sang định hướng giải pháp dinh dưỡng.",
+    "3. PHẢN XẠ MỞ ĐẦU LINH HOẠT: Khi khách nhắn ngắn ('Nói đi em', 'Alo', 'Tư vấn đi', 'Chị đã hỏi gì đâu'), trả lời lịch thiệp hỏi xem khách muốn ổn định đường huyết hay cải thiện cân nặng/thể trạng, tuyệt đối không xả bài quảng cáo sản phẩm.",
+    "4. CHỐNG LẶP CÂU TRẢ LỜI: Tuyệt đối không lặp lại câu trả lời vừa gửi trước đó. Giữ độ dài 2-3 câu ngắn (< 45 từ).",
     alreadyGreeted
-      ? `5. Chỉ chào hỏi duy nhất 1 lần trong ngày: Hôm nay đã chào khách rồi, BỎ HOÀN TOÀN câu chào mở đầu, trả lời thẳng vào vấn đề của ${addressWithName}.`
-      : `5. Chỉ chào hỏi duy nhất 1 lần trong ngày: Đây là tin nhắn đầu tiên trong ngày, mở đầu ngắn gọn chào ${addressWithName}.`,
-    "6. Tuyệt đối KHÔNG xưng 'bác sĩ', 'dược sĩ', 'chuyên gia' và KHÔNG dùng cụm 'anh/chị'.",
+      ? `5. Hôm nay đã chào khách rồi: BỎ HOÀN TOÀN câu chào mở đầu, trả lời thẳng vào ý vừa nhắn của ${addressWithName}.`
+      : `5. Đây là tin nhắn đầu tiên trong ngày: Mở đầu chào ngắn gọn ${addressWithName}.`,
     "",
     "=== KHO TRI THỨC & QUY TRÌNH DINH DƯỠNG ADDP ===",
     ragContext,
@@ -230,29 +292,35 @@ export function buildStateAwareSystemPrompt({
 }
 
 /**
- * Xác định câu hỏi thăm khám kế tiếp thông minh dựa trên những trường CÒN THIẾU trong `CUSTOMER_KNOWN_STATE`
- * Đảm bảo 100% không bao giờ hỏi lại thông tin khách đã cung cấp.
+ * Chọn câu kết thúc định hướng giải pháp (khi đã có >= 2 thông tin) hoặc câu hỏi thăm khám (khi mới có < 2 thông tin)
+ * Tuân thủ nghiêm ngặt Anti-Interrogation Policy.
  */
-function pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName) {
+function pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName) {
+  const factCount = countKnownMedicalFacts(knownState);
   const hasBloodSugar = Boolean(knownState?.bloodSugar);
   const hasDuration = Boolean(knownState?.duration);
   const symptoms = Array.isArray(knownState?.symptoms) ? knownState.symptoms : [];
   const goals = Array.isArray(knownState?.goals) ? knownState.goals : [];
 
-  const hasNeuroOrSleepSymptom = symptoms.some((s) =>
-    ["tê bì", "mất ngủ", "tiểu đêm", "chuột rút"].includes(s)
-  );
-  const hasWeightIssue =
-    symptoms.includes("sụt cân") ||
-    symptoms.includes("teo cơ") ||
-    goals.includes("tăng cân");
+  // ANTI-INTERROGATION POLICY:
+  // Nếu đã có >= 2 thông tin (ví dụ: đường huyết 7.0 + thời gian 1 năm / hoặc đường huyết + sụt cân / thèm ngọt),
+  // NGỪNG TOÀN BỘ câu hỏi điều tra triệu chứng ("có tê bì không", "có tiểu đêm không", "có sụt cân không").
+  // Chuyển sang định hướng giải pháp dinh dưỡng & hướng dẫn cách cải thiện.
+  if (factCount >= 2) {
+    if (symptoms.includes("thèm ngọt") || symptoms.includes("sụt cân")) {
+      return `Em gửi ${addressWithName} hướng dẫn chi tiết cách ăn đảo ngược và liều dùng sữa hạt vào bữa phụ để mình áp dụng ngay nhé ạ?`;
+    }
+    if (symptoms.includes("mất ngủ") || symptoms.includes("đau nhức xương khớp") || symptoms.includes("tê bì")) {
+      return `${addressWithName.charAt(0).toUpperCase() + addressWithName.slice(1)} muốn em hướng dẫn chi tiết khung giờ uống sữa hạt kết hợp chế độ ăn để cải thiện sớm tình trạng này nhé ạ?`;
+    }
+    return `Hiện ${pronoun} có đang phải kiêng khem tinh bột quá mức không để em hướng dẫn chế độ ăn đảo ngược phù hợp nhất cho ${pronoun} ạ?`;
+  }
 
-  // 1. Nếu khách muốn tăng cân mà chưa rõ muốn tăng mấy cân & chưa rõ đường huyết
+  // Khi mới có < 2 thông tin (giai đoạn đầu mới làm quen):
   if (goals.includes("tăng cân") && !knownState?.desiredWeightGain && !hasBloodSugar) {
     return `Hiện ${pronoun} muốn tăng mấy cân và đường huyết đang mấy chấm ạ?`;
   }
 
-  // 2. Nếu chưa biết chỉ số đường huyết -> Hỏi chỉ số đường huyết (và thời gian nếu chưa biết)
   if (!hasBloodSugar) {
     if (!hasDuration) {
       return `Hiện đường huyết của ${pronoun} khoảng mấy chấm và mình bị lâu chưa ạ?`;
@@ -260,30 +328,51 @@ function pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName) {
     return `Hiện đường huyết lúc đói của ${pronoun} khoảng mấy chấm rồi ạ?`;
   }
 
-  // 3. Đã biết đường huyết! Kiểm tra xem đã biết triệu chứng tê bì / tiểu đêm / mất ngủ / ăn uống kiêng khem chưa
-  const isLongTerm =
-    hasDuration &&
-    (/năm|lâu/i.test(knownState.duration) && !/mới/i.test(knownState.duration));
-
-  if (isLongTerm && !hasNeuroOrSleepSymptom) {
-    return `Tối ngủ ${pronoun} có hay bị tê bì chân tay hay tiểu đêm không ${pronoun}?`;
-  }
-
-  if (!hasNeuroOrSleepSymptom) {
-    return `Hiện tại ${pronoun} ăn uống có kiêng khem quá hay tối có khó ngủ không ạ?`;
-  }
-
-  if (!hasWeightIssue) {
-    return `Đợt này ${pronoun} có bị sụt cân hay xế chiều hay đói mệt không ạ?`;
-  }
-
-  return `Hiện ${addressWithName} muốn dùng thử gói 3 lon sữa hạt Glucare Plus để ổn định sức khỏe nhé ạ?`;
+  // Mới chỉ có duy nhất 1 thông tin là bloodSugar (chưa có duration, chưa có symptoms, chưa có goals):
+  return `Tối ngủ ${pronoun} có hay bị tê bì chân tay hay tiểu đêm không ${pronoun}?`;
 }
 
 /**
- * Bộ máy sinh câu trả lời theo trạng thái (`State-Aware Dialogue Generator`):
- * Đọc trực tiếp `knownState` (vừa trích xuất từ tin nhắn mới + hồ sơ cũ) để phản hồi trực diện vào con số/triệu chứng của khách,
- * tuyệt đối không hỏi lại bất kỳ trường nào đã có trong `knownState`.
+ * Kiểm tra tin nhắn có phải là câu mở lời ngắn / giục nói ("Nói đi em", "Alo", "Tư vấn đi", "Có việc gì", "Sao em")
+ * hoặc khách vặn lại vì chưa hỏi sản phẩm ("C đã hỏi gì đâu mà bt c hỏi sữa hạt")
+ */
+function isShortConversationalPrompt(msgLower = "") {
+  const clean = msgLower.replace(/[.,?!~]/g, "").trim();
+  const shortOpeners = [
+    "nói đi em",
+    "nói đi",
+    "noi di em",
+    "noi di",
+    "alo",
+    "alo em",
+    "tư vấn đi",
+    "tư vấn đi em",
+    "có việc gì",
+    "có gì không em",
+    "sao em",
+    "gì thế em",
+    "em nói đi",
+    "chào em",
+    "hi",
+    "hello",
+    "dạ",
+    "vâng",
+    "ok em",
+    "ừ",
+    "uh",
+  ];
+  if (shortOpeners.includes(clean)) return true;
+  if (
+    clean.length <= 16 &&
+    /(nói đi|tư vấn đi|sao đấy|việc gì|gì đấy|alo)/i.test(clean)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Bộ máy sinh câu trả lời theo trạng thái, giàu sự đồng cảm & giải thích cơ chế bệnh lý
  */
 function generateStateAwareResponse({
   customerMessage = "",
@@ -292,7 +381,7 @@ function generateStateAwareResponse({
   alreadyGreeted = false,
   knownState,
   detectedPhoneInMsg = null,
-  ragResult,
+  lastBotReply = "",
 }) {
   const msgLower = String(customerMessage || "").toLowerCase().trim();
   const { pronoun, addressWithName } = pronounInfo;
@@ -307,25 +396,104 @@ function generateStateAwareResponse({
   const bsValue = knownState?.bloodSugar;
   const bsNum = Number(knownState?.bloodSugarNumeric || parseFloat(bsValue) || 0);
   const durationVal = knownState?.duration;
+  const allSymptoms = Array.isArray(knownState?.symptoms) ? knownState.symptoms : [];
 
-  // TH1: Khách phàn nàn trả lời lặp / giống nhau
+  // =========================================================================
+  // 1. Khi khách vặn lại ("C đã hỏi gì đâu mà bt c hỏi sữa hạt") hoặc phàn nàn Bot đơ / không đọc tin ("M đơ ak", "K đọc ak AI", "Sao tl giống nhau thế")
+  // =========================================================================
   if (
-    msgLower.includes("giống nhau") ||
-    msgLower.includes("tl giống") ||
-    msgLower.includes("trả lời giống") ||
-    msgLower.includes("lặp lại")
+    msgLower.includes("hỏi gì đâu") ||
+    msgLower.includes("biết chị hỏi") ||
+    msgLower.includes("bt c hỏi") ||
+    msgLower.includes("chưa hỏi")
   ) {
-    const nextQ = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
-    return `Dạ ${pronoun} thông cảm cho em nhé, em đang đối chiếu chỉ số của ${addressWithName} để tư vấn chuẩn nhất ạ. ${nextQ}`;
+    return `Dạ em xin lỗi ${addressWithName} vì em giới thiệu hơi vội ạ. Bên em thấy mình đang quan tâm chăm sóc sức khỏe tiểu đường, hiện ${pronoun} đang muốn ổn định chỉ số đường huyết hay cải thiện cân nặng và thể trạng vậy ạ?`;
   }
 
-  // TH2: Khách vừa gửi số điện thoại
+  if (
+    msgLower.includes("đơ ak") ||
+    msgLower.includes("đơ à") ||
+    msgLower.includes("k đọc") ||
+    msgLower.includes("không đọc") ||
+    msgLower.includes("k thấy chị tl") ||
+    msgLower.includes("giống nhau") ||
+    msgLower.includes("tl giống") ||
+    msgLower.includes("lặp lại")
+  ) {
+    // Nếu khách đã chia sẻ sụt cân / thèm ngọt trước đó thì giải thích ngay cho khách thay vì nói chung chung!
+    if (allSymptoms.includes("thèm ngọt") || allSymptoms.includes("sụt cân")) {
+      return `Dạ ${pronoun} thông cảm giúp em tin nhắn vừa bị trễ nhịp ạ. Hiện tượng sụt cân và đói thèm ngọt liên tục là do đường không vào được tế bào khiến tế bào bị đói năng lượng đó ${addressWithName}. ${
+        addressWithName.charAt(0).toUpperCase() + addressWithName.slice(1)
+      } áp dụng ăn rau trước, đạm sau và uống 1 ly sữa hạt đường Isomalt khi đói sẽ cắt cơn thèm ngọt và giữ cân rất tốt ạ!`;
+    }
+    const nextStep = pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName);
+    return `Dạ ${pronoun} thông cảm cho em nhé, em đang đối chiếu lại chỉ số sức khỏe của ${addressWithName} để tư vấn cho chuẩn xác ạ. ${nextStep}`;
+  }
+
+  // =========================================================================
+  // 2. Phản xạ mở đầu linh hoạt (Context-Aware Greeting) khi khách nhắn "Nói đi em", "Alo", "Tư vấn đi"...
+  // =========================================================================
+  if (isShortConversationalPrompt(msgLower)) {
+    return `Dạ ${addressWithName}, bên em thấy mình đang tìm hiểu giải pháp dinh dưỡng cho người tiểu đường. ${
+      pronoun.charAt(0).toUpperCase() + pronoun.slice(1)
+    } đang muốn tìm giải pháp ổn định đường huyết hay muốn cải thiện cân nặng và thể trạng vậy ạ?`;
+  }
+
+  // =========================================================================
+  // 3. Cơ chế Đồng cảm & Giải thích (Empathy & Explanation) khi khách chia sẻ triệu chứng "thèm ngọt", "tụt cân", "đói cồn cào"
+  // =========================================================================
+  const mentionsCravingOrHunger =
+    newly.symptoms?.includes("thèm ngọt") ||
+    /(thèm\s*ngọt|đói\s*thèm|lk\s*nào\s*cx\s*đói|lúc\s*nào\s*cũng\s*đói|hay\s*đói|đói\s*cồn\s*cào|đói\s*lả)/i.test(
+      msgLower
+    );
+  const mentionsWeightLossNow =
+    newly.symptoms?.includes("sụt cân") ||
+    /(tụt\s*\d*\s*cân|sụt\s*\d*\s*cân|sút\s*\d*\s*cân|tụt\s*cân|sụt\s*cân)/i.test(msgLower);
+
+  if (mentionsCravingOrHunger || (mentionsWeightLossNow && allSymptoms.includes("thèm ngọt"))) {
+    return `Dạ hiện tượng sụt cân và thèm ngọt liên tục là do cơ thể không chuyển hóa được đường vào tế bào, khiến tế bào bị đói năng lượng đó ${addressWithName}. Mình áp dụng ăn đảo ngược (ăn rau trước, đạm sau, tinh bột cuối) và dùng 1 ly sữa hạt đường Isomalt khi đói để cắt cơn thèm ngọt an toàn ${pronoun} nhé?`;
+  }
+
+  if (mentionsWeightLossNow) {
+    if (hasBloodSugar) {
+      return `Dạ tình trạng bị tụt cân dù đường huyết ${bsValue} là do cơ thể không chuyển hóa được đường vào nuôi tế bào khiến cơ bắp bị hao hụt đó ${addressWithName}. Mình áp dụng ăn đảo ngược (Rau -> Đạm -> Tinh bột) kết hợp bổ sung đạm thực vật từ sữa hạt đường Isomalt vào bữa phụ sẽ phục hồi cân nặng êm mà không tăng đường ${pronoun} nhé?`;
+    }
+    const nextQ = pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName);
+    return `${greetingPrefix}Người tiểu đường kém hấp thu nên dễ sụt cân, bổ sung sữa hạt Glucare Plus giúp ${pronoun} tăng cân êm. ${nextQ}`;
+  }
+
+  // =========================================================================
+  // 4. Khi khách chia sẻ triệu chứng đau nhức lưng/chân tay, tê bì, mất ngủ, tiểu đêm
+  // =========================================================================
+  if (
+    newly.symptoms?.includes("đau nhức xương khớp") ||
+    /(nhức|đau\s*lưng|mỏi\s*lưng|chân\s*tay\s*nhức)/i.test(msgLower)
+  ) {
+    return `Dạ tình trạng nhức mỏi tay chân và đau lưng ở người tiểu đường là do tuần hoàn máu kém và thiếu hụt Canxi, Vitamin D3 nuôi dưỡng xương khớp đó ${addressWithName}. Bổ sung sữa hạt Glucare Plus giàu Canxi, Omega 6-9 kết hợp ngâm chân nước ấm buổi tối sẽ giúp ${pronoun} đỡ nhức mỏi và ngủ sâu giấc hơn nhiều ạ. Hiện bữa ăn hàng ngày ${pronoun} có kiêng khem quá mức không ạ?`;
+  }
+
+  if (
+    newly.symptoms?.includes("tê bì") ||
+    newly.symptoms?.includes("mất ngủ") ||
+    newly.symptoms?.includes("tiểu đêm") ||
+    newly.symptoms?.includes("mệt mỏi")
+  ) {
+    const symText = newly.symptoms.join(" và ");
+    return `Dạ hiện tượng ${symText} là do đường huyết chưa chuyển hóa tốt vào tế bào khiến hệ thần kinh ngoại biên thiếu dưỡng chất đó ${addressWithName}. Mình kết hợp ngâm chân nước ấm gừng muối trước khi ngủ và dùng sữa hạt Glucare Plus (có Đông trùng hạ thảo, Quả nhàu) vào bữa phụ sẽ giúp ${pronoun} khỏe người, ngủ ngon hơn nhé ạ?`;
+  }
+
+  // =========================================================================
+  // 5. Khi khách vừa gửi số điện thoại
+  // =========================================================================
   if (detectedPhoneInMsg) {
-    const nextQ = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
+    const nextQ = pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName);
     return `Dạ em đã lưu số Zalo ${detectedPhoneInMsg} của ${addressWithName} rồi ạ. ${nextQ}`;
   }
 
-  // TH3: Khách hỏi vị sữa ("Sữa vị gì đấy ngon k?")
+  // =========================================================================
+  // 6. Khi khách hỏi vị sữa ("Sữa vị gì đấy ngon k?")
+  // =========================================================================
   if (
     msgLower.includes("vị gì") ||
     msgLower.includes("vị thế nào") ||
@@ -337,7 +505,9 @@ function generateStateAwareResponse({
     return `Dạ dòng sữa hạt bên em có vị hạt tự nhiên thơm bùi, ngọt thanh nhẹ từ đường ăn kiêng Isomalt rất dễ uống ${pronoun} nhé. Hiện ${pronoun} thích uống ngọt nhẹ hay không ngọt hẳn ạ?`;
   }
 
-  // TH4: Khách hỏi giá ("Sữa Glucare Plus giá bao nhiêu em?")
+  // =========================================================================
+  // 7. Khi khách hỏi giá ("Sữa Glucare Plus giá bao nhiêu em?")
+  // =========================================================================
   if (
     msgLower.includes("giá") ||
     msgLower.includes("bao nhiêu") ||
@@ -351,7 +521,9 @@ function generateStateAwareResponse({
     return `Dạ sữa lon 900g giá 450.000đ, combo 3 lon chỉ 1.250.000đ tặng bình lắc giữ nhiệt và miễn ship ${pronoun} ạ. ${nextQ}`;
   }
 
-  // TH5: Khách vừa cung cấp chỉ số đường huyết (và/hoặc thời gian mắc bệnh)
+  // =========================================================================
+  // 8. Khi khách vừa cung cấp chỉ số đường huyết (và/hoặc thời gian mắc bệnh)
+  // =========================================================================
   if (newly.bloodSugar) {
     const displayGlucose = msgLower.includes("chấm")
       ? `${parseFloat(bsValue)} chấm`
@@ -364,58 +536,90 @@ function generateStateAwareResponse({
     } else if (bsNum >= 8.0) {
       clinicalAssessment = `mức đường ${displayGlucose} sau ${durationVal || "một thời gian"} của ${addressWithName} còn hơi cao, dễ gây thiếu năng lượng ạ.`;
     } else {
-      clinicalAssessment = `em đã ghi nhận mức đường ${displayGlucose}${durationPhrase} của ${addressWithName}, kiên trì điều chỉnh sẽ rất nhanh êm ạ.`;
+      clinicalAssessment = `em đã ghi nhận mức đường ${displayGlucose}${durationPhrase} của ${addressWithName}, kiên trì điều chỉnh dinh dưỡng sẽ rất nhanh êm ạ.`;
     }
 
-    const followUp = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
+    // Riêng khi khách mới báo đường huyết + thời gian (chưa có triệu chứng nào), hỏi thăm nhẹ 1 câu về giấc ngủ/ăn uống hoặc tê bì
+    let followUp = "";
+    if (allSymptoms.length === 0) {
+      const isLongTerm =
+        durationVal && /năm|lâu/i.test(durationVal) && !/mới/i.test(durationVal);
+      followUp = isLongTerm
+        ? `Tối ngủ ${pronoun} có hay bị tê bì chân tay hay tiểu đêm không ${pronoun}?`
+        : `Hiện tại ${pronoun} ăn uống có kiêng khem quá hay tối có khó ngủ không ạ?`;
+    } else {
+      followUp = pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName);
+    }
+
     const sentenceStart = alreadyGreeted
       ? `Dạ ${clinicalAssessment}`
       : `${greetingPrefix}${clinicalAssessment.charAt(0).toUpperCase() + clinicalAssessment.slice(1)}`;
     return `${sentenceStart} ${followUp}`;
   }
 
-  // TH6: Khách nói về nhu cầu muốn tăng cân / bị sụt cân ("Tôi muốn tăng cân")
-  if (
-    newly.goals?.includes("tăng cân") ||
-    newly.symptoms?.includes("sụt cân") ||
-    msgLower.includes("tăng cân") ||
-    msgLower.includes("sụt cân") ||
-    msgLower.includes("tụt cân")
-  ) {
-    const followUp = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
+  // =========================================================================
+  // 9. Khi khách nói muốn tăng cân ("Tôi muốn tăng cân")
+  // =========================================================================
+  if (newly.goals?.includes("tăng cân") || msgLower.includes("tăng cân")) {
+    const followUp = pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName);
     return `${greetingPrefix}Người tiểu đường kém hấp thu nên dễ sụt cân, bổ sung sữa hạt Glucare Plus giúp ${pronoun} tăng cân êm. ${followUp}`;
   }
 
-  // TH7: Khách chia sẻ thêm triệu chứng mới (tê bì, mất ngủ, tiểu đêm, mệt mỏi...)
-  if (newly.symptoms && newly.symptoms.length > 0) {
-    const symText = newly.symptoms.join(", ");
-    const followUp = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
-    return `${greetingPrefix}Tình trạng ${symText} là do tế bào thiếu chất lâu ngày, ${addressWithName} bổ sung 2 ly sữa hạt Glucare Plus mỗi ngày sẽ cải thiện rất tốt ạ. ${followUp}`;
-  }
-
-  // TH8: Khách mới chỉ cho biết thời gian mắc bệnh mà chưa rõ đường huyết
-  if (newly.duration && !hasBloodSugar) {
-    const followUp = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
-    return `${greetingPrefix}Mình bị tiểu đường ${newly.duration} thì bổ sung dinh dưỡng GI thấp rất quan trọng để tránh sụt cân và biến chứng ${pronoun} ạ. ${followUp}`;
-  }
-
-  // TH9: Nếu trong hồ sơ đã có sẵn đường huyết từ trước (không hỏi lại đường huyết nữa)
-  if (hasBloodSugar) {
-    const followUp = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
-    return `${greetingPrefix}Với mức đường ${bsValue} của ${addressWithName}, duy trì ăn đảo ngược kèm 2 ly sữa hạt Glucare Plus mỗi ngày sẽ giữ đường huyết rất êm ạ. ${followUp}`;
-  }
-
-  // TH10: Tin nhắn mở đầu chung khi chưa có thông tin bệnh lý
+  // =========================================================================
+  // 10. Tin nhắn mở đầu hoặc câu hỏi chung khác (Tuyệt đối không xả quảng cáo sản phẩm nếu khách chưa hỏi)
+  // =========================================================================
   if (!alreadyGreeted) {
-    return `Dạ em chào ${addressWithName}${staffIntroShort}. Hiện tại ${pronoun} đang muốn ổn định đường huyết hay đang bị sụt cân cần bổ sung dinh dưỡng tăng cân an toàn vậy ${pronoun}?`;
+    return `Dạ chào ${addressWithName}${staffIntroShort}. Bên em thấy mình đang tìm hiểu giải pháp dinh dưỡng cho người tiểu đường, ${pronoun} đang muốn ổn định đường huyết hay cải thiện cân nặng và thể trạng vậy ạ?`;
   }
 
-  const followUp = pickNextUnaskedFollowUpQuestion(knownState, pronoun, addressWithName);
-  return `Dạ sữa hạt Glucare Plus dùng đường Isomalt và đạm hạt kết hợp Đông trùng hạ thảo giúp bồi bổ thể trạng mà giữ đường huyết rất êm ${pronoun} ạ. ${followUp}`;
+  if (hasBloodSugar) {
+    return `Dạ để ổn định mức đường ${bsValue} và tránh đói mệt, ${addressWithName} áp dụng nguyên tắc ăn đảo ngược (ăn rau xanh trước, đạm sau, tinh bột cuối) kết hợp 1-2 ly sữa hạt đường Isomalt vào bữa phụ nhé. Em gửi ${pronoun} chi tiết lộ trình dùng thử nha ạ?`;
+  }
+
+  return `Dạ ${addressWithName}, bên em đồng hành tư vấn chế độ dinh dưỡng chuyên biệt cho người tiểu đường. Hiện ${pronoun} đang muốn tìm giải pháp ổn định đường huyết hay muốn cải thiện cân nặng và thể trạng vậy ạ?`;
 }
 
 /**
- * Gọi LLM nếu có cấu hình OPENAI_API_KEY, truyền đầy đủ `CUSTOMER_KNOWN_STATE`
+ * 4. Chặn Tuyệt Đối Lặp Lại Cùng Một Câu Trả Lời (Anti-Duplicate Response)
+ * Nếu `candidateReply` có độ tương đồng > 60% (`> 0.60`) với `lastBotReply`,
+ * hủy bỏ ngay câu đó và sinh câu trả lời mới tập trung trực tiếp vào tin nhắn mới nhất của khách.
+ */
+export function ensureNonDuplicateReply({
+  candidateReply = "",
+  lastBotReply = "",
+  customerMessage = "",
+  pronounInfo,
+  knownState,
+}) {
+  if (!lastBotReply) return candidateReply;
+
+  const similarity = calculateTextSimilarity(candidateReply, lastBotReply);
+  if (similarity <= 0.6) {
+    return candidateReply;
+  }
+
+  const { pronoun, addressWithName } = pronounInfo || {
+    pronoun: "chị",
+    addressWithName: "chị",
+  };
+  const msgClean = String(customerMessage || "").trim();
+  const symptoms = Array.isArray(knownState?.symptoms) ? knownState.symptoms : [];
+  const bs = knownState?.bloodSugar;
+
+  // Sinh câu trả lời thay thế hoàn toàn mới tập trung vào nội dung khách vừa nhắn
+  if (symptoms.includes("thèm ngọt") || symptoms.includes("sụt cân")) {
+    return `Dạ hiện tượng sụt cân và thèm ngọt liên tục là do cơ thể không chuyển hóa được đường vào tế bào, khiến tế bào bị đói năng lượng đó ${addressWithName}. Mình áp dụng ăn đảo ngược (Rau -> Đạm -> Tinh bột) và uống 1 ly sữa hạt đường Isomalt khi đói sẽ cắt cơn thèm ngọt và giữ cân rất tốt ạ!`;
+  }
+
+  if (bs) {
+    return `Dạ em ghi nhận thêm chia sẻ "${msgClean}" của ${addressWithName} rồi ạ. Với mức đường ${bs} hiện tại, mình kết hợp chế độ ăn đảo ngược (ăn rau trước, đạm sau) và bổ sung 1 ly sữa hạt đường Isomalt vào bữa phụ xế chiều sẽ giúp cơ thể đủ chất, hết mệt mỏi ngay ${pronoun} nhé!`;
+  }
+
+  return `Dạ em cảm ơn ${addressWithName} đã chia sẻ ạ. Để em tư vấn sát nhất với thể trạng của mình, không biết hiện tại ${pronoun} đang ưu tiên giữ ổn định chỉ số đường huyết hay muốn bồi bổ để người khỏe khoắn, đỡ mệt mỏi hơn ạ?`;
+}
+
+/**
+ * Gọi LLM nếu có cấu hình OPENAI_API_KEY
  */
 async function callExternalLlmIfAvailable({
   systemPrompt,
@@ -463,7 +667,7 @@ async function callExternalLlmIfAvailable({
 }
 
 /**
- * Hàm chính sinh câu trả lời theo trạng thái (`State-Aware Prompting & Autonomous Entity Extraction`)
+ * Hàm chính sinh câu trả lời theo trạng thái (`State-Aware`, `Empathy`, `Anti-Interrogation`, `Anti-Duplicate`)
  */
 export async function generateHumanLikeReply({
   customerMessage = "",
@@ -500,6 +704,7 @@ export async function generateHumanLikeReply({
   const pronounInfo = detectCustomerPronoun(customerName, avatarUrl, genderFromProfile);
   const staffName = resolveActiveStaffDisplayName(effectiveAccountName);
   const alreadyGreeted = hasAlreadyGreetedToday(conversationHistory);
+  const lastBotReply = getLastBotReplyFromHistory(conversationHistory);
 
   // 1. Trích xuất và hợp nhất trạng thái y khoa (`CUSTOMER_KNOWN_STATE`)
   const knownState = buildConsolidatedMedicalState(
@@ -508,45 +713,36 @@ export async function generateHumanLikeReply({
     conversationHistory
   );
 
-  // 2. Xây dựng System Instruction động chứa `CUSTOMER_KNOWN_STATE`
+  // 2. Xây dựng System Instruction động chứa `CUSTOMER_KNOWN_STATE` & `lastBotReply`
   const fullSystemPrompt = buildStateAwareSystemPrompt({
     staffName,
     pronounInfo,
     knownState,
     alreadyGreeted,
+    lastBotReply,
     ragContext: ragResult.contextPrompt,
     customerPhone,
   });
 
-  // 3. Nếu tin nhắn chứa các thực thể y khoa mới (đường huyết, thời gian, triệu chứng, mục tiêu) hoặc kịch bản quy trình,
-  // ưu tiên dùng State-Aware Generator chuẩn xác để đảm bảo 100% không hỏi lại thông tin đã biết và dưới 45 từ.
-  const hasNewEntitiesOrProtocol =
-    Boolean(knownState.newlyExtracted?.bloodSugar) ||
-    Boolean(knownState.newlyExtracted?.duration) ||
-    (knownState.newlyExtracted?.symptoms?.length || 0) > 0 ||
-    (knownState.newlyExtracted?.goals?.length || 0) > 0 ||
-    Boolean(knownState.bloodSugar);
+  // 3. Sinh câu trả lời chuẩn xác theo State-Aware Empathy Engine
+  let replyText = generateStateAwareResponse({
+    customerMessage: cleanMessage,
+    pronounInfo,
+    staffName,
+    alreadyGreeted,
+    knownState,
+    detectedPhoneInMsg: detectedPhone,
+    lastBotReply,
+  });
 
-  let replyText = null;
-  if (!hasNewEntitiesOrProtocol) {
-    replyText = await callExternalLlmIfAvailable({
-      systemPrompt: fullSystemPrompt,
-      userPrompt: cleanMessage || "Tư vấn giúp mình",
-      conversationHistory,
-    });
-  }
-
-  if (!replyText) {
-    replyText = generateStateAwareResponse({
-      customerMessage: cleanMessage,
-      pronounInfo,
-      staffName,
-      alreadyGreeted,
-      knownState,
-      detectedPhoneInMsg: detectedPhone,
-      ragResult,
-    });
-  }
+  // 4. Chặn tuyệt đối lặp lại cùng một câu trả lời (> 60% similarity với `lastBotReply`)
+  replyText = ensureNonDuplicateReply({
+    candidateReply: replyText,
+    lastBotReply,
+    customerMessage: cleanMessage,
+    pronounInfo,
+    knownState,
+  });
 
   replyText = sanitizeHumanChatText(replyText);
   const typingDelayMs = calculateTypingDelayMs(replyText);
