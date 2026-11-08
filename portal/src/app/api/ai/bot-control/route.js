@@ -6,6 +6,7 @@ import {
   triggerHumanTakeover,
   resumeAiBot,
 } from "@/lib/botControlStore.js";
+import { scanAndAutoReplyZaloHistories } from "@/lib/zaloRunner.js";
 
 /**
  * ADDP Omnichannel AI CRM — API Điều Khiển AI Bot & Human-Takeover (Module 2 & 3)
@@ -72,8 +73,17 @@ export async function POST(request) {
     let state;
     if (action === "resume") {
       state = resumeAiBot(threadId);
+      console.log(
+        `[Zalo AI Bot] Đã bật chế độ AI Tự động 24/7 cho hội thoại ${threadId} (Mode: AI)`
+      );
+      scanAndAutoReplyZaloHistories().catch((err) => {
+        console.error("[Zalo AI Bot] Lỗi quét tự động trả lời khi resume:", err.message);
+      });
     } else {
       state = triggerHumanTakeover(threadId, staffId, pauseMinutes);
+      console.log(
+        `[Zalo AI Bot] Nhân viên tiếp quản hội thoại ${threadId} (Mode: HUMAN, tạm dừng ${pauseMinutes} phút)`
+      );
     }
 
     return NextResponse.json({

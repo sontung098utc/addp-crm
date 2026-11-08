@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   runZaloCommand,
   getActiveZaloHome,
+  getOwnIdForHome,
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
   processIncomingZaloMessageWithBot,
@@ -128,10 +129,11 @@ export async function GET(request) {
     }
 
     const targetHome = getActiveZaloHome();
+    const ownId = getOwnIdForHome(targetHome);
     ensureZaloMcpDaemon(targetHome);
 
     // 2. Ưu tiên đọc lịch sử tin nhắn thật từ tất cả các file history JSONL (siêu tốc <5ms)
-    const localMessages = getThreadMessagesFromAllHistories(targetHome, threadId);
+    const localMessages = getThreadMessagesFromAllHistories(targetHome, threadId, ownId);
 
     // 3. Kèm theo tin nhắn vừa gửi từ CRM trong phiên làm việc (Unified Message Router)
     const omniMsgs = await getThreadMessages(threadId, channel, pageId);
@@ -158,13 +160,14 @@ export async function GET(request) {
     if (localMessages.length > 0) {
       localMessages.sort((a, b) => a.timestamp - b.timestamp);
 
-      // Nếu tin nhắn mới nhất là của khách hàng (!isMe) vừa gửi đến trong 45s gần đây -> Chạy luồng AI Bot Dược sĩ Thảo
+      // Nếu tin nhắn mới nhất là của khách hàng (!isMe) vừa gửi đến trong 15 phút gần đây -> Chạy luồng AI Bot Dược sĩ Thảo
       const lastMsg = localMessages[localMessages.length - 1];
       if (
         lastMsg &&
         !lastMsg.isMe &&
         searchParams.get("type") !== "GROUP" &&
-        Date.now() - Number(lastMsg.timestamp || 0) < 45000
+        String(threadId) !== String(ownId) &&
+        Date.now() - Number(lastMsg.timestamp || 0) < 15 * 60 * 1000
       ) {
         processIncomingZaloMessageWithBot({
           msgId: lastMsg.id,
@@ -176,7 +179,9 @@ export async function GET(request) {
           channelId: channel || "ZALO_PERSONAL",
           conversationHistory: localMessages.slice(-8),
           homeDir: targetHome,
-        }).catch(() => {});
+        }).catch((err) => {
+          console.error("[Zalo AI Bot] Lỗi xử lý tại messages API:", err.message);
+        });
       }
 
       return NextResponse.json({

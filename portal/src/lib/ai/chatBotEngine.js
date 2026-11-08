@@ -28,17 +28,18 @@ function sanitizeHumanChatText(rawText = "") {
 }
 
 /**
- * Tính toán độ trễ giả lập người thật đang gõ phím (từ 3000ms đến 6000ms tùy độ dài câu trả lời)
+ * Tính toán độ trễ giả lập người thật đang gõ phím (từ 3000ms đến 5000ms tùy độ dài câu trả lời).
+ * TUYỆT ĐỐI KHÔNG áp dụng giãn cách 45-120s của Smart Broadcast vào luồng chat 1-1 trực tiếp.
  * @param {string} replyText
- * @returns {number} typingDelayMs (3000 - 6000)
+ * @returns {number} typingDelayMs (3000 - 5000)
  */
 export function calculateTypingDelayMs(replyText = "") {
   const charCount = String(replyText || "").length;
-  // Base 3000ms + tối đa 2400ms theo độ dài văn bản + dao động ngẫu nhiên 0-600ms
-  const lengthFactor = Math.min(2400, Math.floor((charCount / 280) * 2400));
-  const jitter = Math.floor(Math.random() * 601);
+  // Base 3000ms + tối đa 1500ms theo độ dài văn bản + dao động ngẫu nhiên 0-500ms (luôn trong khoảng 3-5 giây)
+  const lengthFactor = Math.min(1500, Math.floor((charCount / 280) * 1500));
+  const jitter = Math.floor(Math.random() * 501);
   const total = 3000 + lengthFactor + jitter;
-  return Math.max(3000, Math.min(6000, total));
+  return Math.max(3000, Math.min(5000, total));
 }
 
 /**

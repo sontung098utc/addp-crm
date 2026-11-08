@@ -5,6 +5,7 @@ import {
   ensureZaloMcpDaemon,
   syncZaloGroupsAndMetadata,
   getAllZaloHistoryFiles,
+  scanAndAutoReplyZaloHistories,
 } from "../../../../../lib/zaloRunner.js";
 import {
   getOmnichannelConversations,
@@ -175,6 +176,11 @@ export async function GET(request) {
 
     // 3. Đọc toàn bộ lịch sử tin nhắn thực tế sau khi worker đã cập nhật
     const threadsMap = getLatestThreadsFromAllHistories(targetHome, ownId);
+
+    // 3.5. Kích hoạt kiểm tra và tự động trả lời ngay lập tức nếu có tin nhắn mới từ khách (!isSelf)
+    scanAndAutoReplyZaloHistories(targetHome, ownId).catch((err) => {
+      console.error("[Zalo AI Bot] Lỗi scan từ conversations API:", err.message);
+    });
 
     const activeZaloConversations = [];
     const contactOnlyConversations = [];

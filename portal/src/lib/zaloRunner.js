@@ -126,6 +126,36 @@ export function ensureZaloMcpDaemon(homeDir) {
       } catch {}
     }
 
+    // 0. Luôn kích hoạt trình theo dõi history.jsonl thời gian thực (Realtime AI Watcher)
+    startZaloRealtimeAiWatcher(targetHome);
+
+    // Dọn dẹp các tiến trình mcp daemon cũ của những thư mục connector-home không còn active
+    // để giải phóng cổng 3099 và tránh xung đột WebSocket (CLOSE_DUPLICATE 3000)
+    try {
+      for (const [otherHome, info] of globalThis.__zaloMcpDaemons.entries()) {
+        if (otherHome !== targetHome && info?.pid) {
+          try {
+            process.kill(info.pid);
+          } catch {}
+          globalThis.__zaloMcpDaemons.delete(otherHome);
+        }
+      }
+      for (const otherDir of getAllZaloHomes()) {
+        if (path.resolve(otherDir) !== path.resolve(targetHome)) {
+          const oldPidFile = path.join(otherDir, ".zalo-agent-cli", "mcp.pid");
+          if (fs.existsSync(oldPidFile)) {
+            try {
+              const oldPid = Number(fs.readFileSync(oldPidFile, "utf8").trim());
+              if (oldPid && isPidAlive(oldPid)) {
+                process.kill(oldPid);
+              }
+              fs.unlinkSync(oldPidFile);
+            } catch {}
+          }
+        }
+      }
+    } catch {}
+
     // 1. Kiểm tra trong bộ nhớ process hiện tại
     const existingMem = globalThis.__zaloMcpDaemons.get(targetHome);
     if (existingMem && existingMem.pid && isPidAlive(existingMem.pid)) {
@@ -287,6 +317,41 @@ export function getAllZaloHomes() {
 
 export function getActiveZaloHome() {
   try {
+    // 1. Ưu tiên đọc tài khoản Zalo Cá Nhân đang CONNECTED từ .data/channels.json
+    const channelFiles = [
+      path.resolve(process.cwd(), ".data", "channels.json"),
+      path.resolve(process.cwd(), "portal", ".data", "channels.json"),
+    ];
+    for (const cf of channelFiles) {
+      if (fs.existsSync(cf)) {
+        try {
+          const channels = JSON.parse(fs.readFileSync(cf, "utf8"));
+          if (Array.isArray(channels)) {
+            const connectedZalo = channels
+              .filter(
+                (c) =>
+                  c &&
+                  c.platform === "ZALO_PERSONAL" &&
+                  c.status === "CONNECTED" &&
+                  c.config?.homeDir
+              )
+              .sort(
+                (a, b) =>
+                  new Date(b.updatedAt || b.createdAt || 0).getTime() -
+                  new Date(a.updatedAt || a.createdAt || 0).getTime()
+              );
+            for (const ch of connectedZalo) {
+              const hd = ch.config.homeDir;
+              if (hd && fs.existsSync(path.join(hd, ".zalo-agent-cli", "credentials"))) {
+                return hd;
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // 2. Fallback: quét các thư mục connector-home có chứa credentials mới nhất
     const allHomes = getAllZaloHomes();
     if (allHomes.length > 0) {
       return allHomes[0];
@@ -300,6 +365,35 @@ export function getActiveZaloHome() {
     fs.mkdirSync(fallback, { recursive: true });
   } catch {}
   return fallback;
+}
+
+/**
+ * Lấy ownId thực tế của tài khoản Zalo đang kết nối từ crm-meta-cache.json hoặc accounts.json
+ */
+export function getOwnIdForHome(homeDir) {
+  const targetHome = homeDir || getActiveZaloHome();
+  const cliDir = path.join(targetHome, ".zalo-agent-cli");
+
+  const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
+  if (fs.existsSync(metaCachePath)) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
+      if (cached?.ownId) return String(cached.ownId);
+    } catch {}
+  }
+
+  const accountsPath = path.join(cliDir, "accounts.json");
+  if (fs.existsSync(accountsPath)) {
+    try {
+      const accounts = JSON.parse(fs.readFileSync(accountsPath, "utf8"));
+      if (Array.isArray(accounts)) {
+        const activeAcc = accounts.find((a) => a.active && a.ownId) || accounts[0];
+        if (activeAcc?.ownId) return String(activeAcc.ownId);
+      }
+    } catch {}
+  }
+
+  return "1781287338457243967";
 }
 
 /**
@@ -532,14 +626,20 @@ export function runZaloCommand(args, options = {}) {
 if (!globalThis.__zaloBotRepliedMsgIds) {
   globalThis.__zaloBotRepliedMsgIds = new Set();
 }
+if (!globalThis.__zaloBotInFlightMsgIds) {
+  globalThis.__zaloBotInFlightMsgIds = new Set();
+}
+if (!globalThis.__zaloBotLoggedHumanSkipIds) {
+  globalThis.__zaloBotLoggedHumanSkipIds = new Set();
+}
 
 /**
- * Xử lý tự động tin nhắn mới từ khách hàng trên Zalo Cá Nhân (Module 5):
+ * Xử lý tự động tin nhắn mới từ khách hàng trên Zalo Cá Nhân (Module 5 - Realtime Auto-Reply):
  * 1. Kiểm tra isChannelBotEnabled(channelId) và getConversationBotState(threadId).
  * 2. Bóc tách SĐT (nếu có) và cập nhật Hồ sơ 360 qua getOrCreateCustomerByPhone.
  * 3. Nếu mode === 'HUMAN' -> Bỏ qua, không tự động trả lời.
- * 4. Nếu mode === 'AI' -> Sinh câu trả lời Dược sĩ Thảo, chờ typingDelayMs (3-6s),
- *    kiểm tra lại lần nữa xem nhân viên có nhảy vào tiếp quản trong lúc chờ không, rồi gửi phản hồi qua Zalo.
+ * 4. Nếu mode === 'AI' -> Sinh câu trả lời Dược sĩ Thảo ngay lập tức, chờ typingDelayMs (3-5s),
+ *    kiểm tra lại lần nữa xem nhân viên có nhảy vào tiếp quản trong lúc chờ không, rồi gọi trực tiếp sendTextMessage về cho khách.
  */
 export async function processIncomingZaloMessageWithBot({
   msgId,
@@ -551,94 +651,266 @@ export async function processIncomingZaloMessageWithBot({
   channelId = "ZALO_PERSONAL",
   conversationHistory = [],
   homeDir,
+  forceReply = false,
 } = {}) {
-  if (isMe || !threadId || !text || type === "GROUP") {
-    return { skipped: true, reason: "SELF_OR_GROUP_OR_EMPTY" };
+  const cleanText = String(text || "").trim();
+  if (
+    !threadId ||
+    !cleanText ||
+    type === "GROUP" ||
+    cleanText.startsWith("[chat.undo") ||
+    cleanText === "[Nhãn dán]"
+  ) {
+    return { skipped: true, reason: "GROUP_OR_EMPTY_OR_SYSTEM" };
   }
 
-  const dedupKey = String(msgId || `${threadId}_${text}`);
-  if (globalThis.__zaloBotRepliedMsgIds.has(dedupKey)) {
-    return { skipped: true, reason: "ALREADY_PROCESSED" };
+  const dedupKey = String(msgId || `${threadId}_${cleanText}`);
+  if (!forceReply) {
+    if (globalThis.__zaloBotRepliedMsgIds.has(dedupKey)) {
+      return { skipped: true, reason: "ALREADY_PROCESSED" };
+    }
+    if (globalThis.__zaloBotInFlightMsgIds.has(dedupKey)) {
+      return { skipped: true, reason: "IN_FLIGHT" };
+    }
+  }
+
+  const channelEnabled = isChannelBotEnabled(channelId);
+  const convState = getConversationBotState(threadId);
+  const effectiveMode = !channelEnabled || convState.mode === "HUMAN" ? "HUMAN" : "AI";
+
+  if (isMe) {
+    return { skipped: true, reason: "SELF_MESSAGE" };
   }
 
   // 1. Tự động bóc tách SĐT và cập nhật vào Hồ sơ 360
-  const detectedPhone = extractCustomerPhoneFromMessage(text);
+  const detectedPhone = extractCustomerPhoneFromMessage(cleanText);
   let customerRecord = null;
   if (detectedPhone) {
     customerRecord = getOrCreateCustomerByPhone({
       phone: detectedPhone,
       fullName: senderName || "Khách Zalo",
       source: "ZALO_PERSONAL",
-      note: `Tự động cập nhật SĐT từ tin nhắn Zalo: "${text.slice(0, 100)}"`,
+      note: `Tự động cập nhật SĐT từ tin nhắn Zalo: "${cleanText.slice(0, 100)}"`,
     });
   }
 
-  // 2. Kiểm tra trạng thái Bot trên kênh & hội thoại
-  if (!isChannelBotEnabled(channelId)) {
-    return { skipped: true, reason: "CHANNEL_BOT_DISABLED" };
-  }
-  const convState = getConversationBotState(threadId);
-  if (convState.mode === "HUMAN") {
+  // 2. Kiểm tra trạng thái Bot trên kênh & hội thoại và in log rõ ràng
+  if (effectiveMode === "HUMAN") {
+    if (!globalThis.__zaloBotLoggedHumanSkipIds.has(dedupKey)) {
+      globalThis.__zaloBotLoggedHumanSkipIds.add(dedupKey);
+      console.log(
+        `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, isMe: ${Boolean(isMe)})`
+      );
+      console.log(
+        `[Zalo AI Bot] Mode: HUMAN (channelEnabled: ${channelEnabled}, botState: ${JSON.stringify(convState)})`
+      );
+    }
     return { skipped: true, reason: "HUMAN_TAKEOVER_ACTIVE", state: convState };
   }
 
-  globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+  globalThis.__zaloBotInFlightMsgIds.add(dedupKey);
 
-  // 3. Sinh câu trả lời tự nhiên chuẩn Dược sĩ Thảo + độ trễ gõ phím
-  const aiResult = await generateHumanLikeReply({
-    customerMessage: text,
-    customerProfile: customerRecord || {
-      fullName: senderName,
-      phone: detectedPhone,
-    },
-    conversationHistory,
-  });
+  try {
+    console.log(
+      `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, isMe: ${Boolean(isMe)})`
+    );
+    console.log(`[Zalo AI Bot] Mode: ${effectiveMode}`);
 
-  const delayMs = Number(aiResult.typingDelayMs) || 3500;
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
+    // 3. Gọi ngay lập tức generateHumanLikeReply (Persona Dược sĩ Thảo + RAG)
+    const aiResult = await generateHumanLikeReply({
+      customerMessage: cleanText,
+      customerProfile: customerRecord || {
+        fullName: senderName,
+        phone: detectedPhone,
+      },
+      conversationHistory,
+    });
 
-  // 4. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
-  if (!isChannelBotEnabled(channelId)) {
-    return { skipped: true, reason: "CHANNEL_DISABLED_DURING_TYPING" };
+    // Thời gian chờ phản hồi chỉ áp dụng typingDelayMs (3000 - 5000ms = 3-5 giây) để tạo cảm giác người thật đang gõ,
+    // TUYỆT ĐỐI KHÔNG áp dụng giãn cách 45-120s của Smart Broadcast vào luồng chat 1-1 trực tiếp này.
+    const rawDelay = Number(aiResult.typingDelayMs) || 3500;
+    const delayMs = Math.max(3000, Math.min(5000, rawDelay));
+
+    console.log(`[Zalo AI Bot] Đang trả lời sau ${delayMs} ms: ${aiResult.replyText}`);
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    // 4. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
+    if (!isChannelBotEnabled(channelId)) {
+      console.log(`[Zalo AI Bot] Đã hủy gửi vì kênh ${channelId} vừa tắt Bot trong lúc chờ gõ phím.`);
+      return { skipped: true, reason: "CHANNEL_DISABLED_DURING_TYPING" };
+    }
+    const afterDelayState = getConversationBotState(threadId);
+    if (afterDelayState.mode === "HUMAN") {
+      console.log(
+        `[Zalo AI Bot] Đã hủy gửi vì nhân viên vừa tiếp quản hội thoại ${threadId} (Mode: HUMAN).`
+      );
+      return { skipped: true, reason: "HUMAN_TOOK_OVER_DURING_TYPING", state: afterDelayState };
+    }
+
+    // 5. Gọi trực tiếp hàm gửi tin nhắn sendTextMessage về cho khách
+    const targetHome = homeDir || getActiveZaloHome();
+    const sendRes = await sendTextMessage(
+      "Dược sĩ Thảo (AI)",
+      String(threadId),
+      String(aiResult.replyText),
+      { homeDir: targetHome }
+    );
+
+    if (sendRes.ok) {
+      globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+    }
+
+    return {
+      skipped: false,
+      sent: sendRes.ok,
+      replyText: aiResult.replyText,
+      typingDelayMs: delayMs,
+      detectedPhone: aiResult.detectedPhone || detectedPhone,
+      error: sendRes.error || null,
+    };
+  } finally {
+    globalThis.__zaloBotInFlightMsgIds.delete(dedupKey);
   }
-  const afterDelayState = getConversationBotState(threadId);
-  if (afterDelayState.mode === "HUMAN") {
-    return { skipped: true, reason: "HUMAN_TOOK_OVER_DURING_TYPING", state: afterDelayState };
-  }
+}
 
-  // 5. Gửi tin nhắn phản hồi qua Zalo CLI và lưu vào history.jsonl
-  const targetHome = homeDir || getActiveZaloHome();
-  const sendRes = await runZaloCommand(
-    ["msg", "send", String(threadId), String(aiResult.replyText), "--json"],
-    { homeDir: targetHome, timeout: 15000 }
-  );
+/**
+ * Quét các file history.jsonl để phát hiện tức thì tin nhắn mới từ khách hàng (!isSelf)
+ * và kích hoạt AI Bot Dược sĩ Thảo tự động trả lời ngay lập tức (kể cả khi nhân viên chưa bấm vào hội thoại).
+ */
+export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "") {
+  try {
+    const targetHome = homeDir || getActiveZaloHome();
+    const ownId = String(ownIdOverride || getOwnIdForHome(targetHome));
+    const cliDir = path.join(targetHome, ".zalo-agent-cli");
 
-  if (sendRes.ok) {
-    try {
-      const histPath = path.join(targetHome, ".zalo-agent-cli", "history.jsonl");
-      if (fs.existsSync(path.dirname(histPath))) {
-        const lineObj = {
-          msgId: String(sendRes.data?.msgId || `bot_${Date.now()}`),
-          threadId: String(threadId),
-          senderId: "1781287338457243967",
-          senderName: "Dược sĩ Thảo (AI)",
-          text: String(aiResult.replyText),
-          timestamp: Date.now(),
-          isSelf: true,
-          type: "text",
-        };
-        fs.appendFileSync(histPath, JSON.stringify(lineObj) + "\n", "utf8");
+    // Đọc danh sách nhóm để loại trừ chat nhóm khỏi AI Bot 1-1
+    const groupIds = new Set();
+    const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
+    if (fs.existsSync(metaCachePath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
+        for (const g of meta?.groups || []) {
+          if (g?.threadId) groupIds.add(String(g.threadId));
+        }
+      } catch {}
+    }
+
+    const historyFiles = getAllZaloHistoryFiles(targetHome);
+    const threadsHistory = new Map();
+    const seenMsgIds = new Set();
+    const now = Date.now();
+    const isInitialSeed = !globalThis.__zaloBotInitialSeedDone;
+
+    for (const filePath of historyFiles) {
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        const content = fs.readFileSync(filePath, "utf8");
+        const lines = content.split("\n");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const msg = JSON.parse(trimmed);
+            const tid = String(msg.threadId || "");
+            if (!tid) continue;
+
+            const rawTs = Number(msg.timestamp) || 0;
+            const ts =
+              rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs > 0 && rawTs < 1e11 ? rawTs * 1000 : rawTs;
+            if (ts <= 0) continue;
+
+            const msgId = String(msg.msgId || msg.cliMsgId || `${tid}_${ts}`);
+            if (seenMsgIds.has(msgId)) continue;
+            seenMsgIds.add(msgId);
+
+            const isGroup =
+              msg.threadType === "group" || Boolean(msg.isGroup) || groupIds.has(tid);
+            if (isGroup) continue;
+
+            const isMe = Boolean(
+              msg.isSelf || (ownId && msg.senderId && String(msg.senderId) === ownId)
+            );
+            const text = String(msg.text || "").trim();
+
+            // Khi khởi động server lần đầu: đánh dấu các tin nhắn cũ (> 3 phút trước) đã xử lý để không trả lời lại tin cũ
+            if (isInitialSeed && now - ts > 180000) {
+              globalThis.__zaloBotRepliedMsgIds.add(msgId);
+              globalThis.__zaloBotRepliedMsgIds.add(`${tid}_${text}`);
+            }
+
+            if (!threadsHistory.has(tid)) {
+              threadsHistory.set(tid, []);
+            }
+            threadsHistory.get(tid).push({
+              id: msgId,
+              threadId: tid,
+              senderId: String(msg.senderId || ""),
+              senderName: msg.senderName || (isMe ? "Sơn Tùng" : "Khách Zalo"),
+              isMe,
+              text,
+              type: msg.type || "text",
+              timestamp: ts,
+            });
+          } catch {}
+        }
+      } catch {}
+    }
+
+    globalThis.__zaloBotInitialSeedDone = true;
+
+    // Kiểm tra tin nhắn cuối cùng của từng hội thoại DM
+    for (const [tid, msgs] of threadsHistory.entries()) {
+      if (!msgs || msgs.length === 0) continue;
+      // Không tự trả lời vào Cloud của tôi (threadId === ownId)
+      if (ownId && tid === ownId) continue;
+
+      msgs.sort((a, b) => a.timestamp - b.timestamp);
+      const lastMsg = msgs[msgs.length - 1];
+
+      // Nếu tin nhắn cuối cùng trong hội thoại là của khách (!isMe), thuộc loại văn bản và gửi trong vòng 15 phút gần đây
+      if (
+        lastMsg &&
+        !lastMsg.isMe &&
+        lastMsg.text &&
+        lastMsg.type === "text" &&
+        now - lastMsg.timestamp < 15 * 60 * 1000
+      ) {
+        processIncomingZaloMessageWithBot({
+          msgId: lastMsg.id,
+          threadId: tid,
+          senderName: lastMsg.senderName || "Khách Zalo",
+          text: lastMsg.text,
+          isMe: false,
+          type: "DIRECT",
+          channelId: "ZALO_PERSONAL",
+          conversationHistory: msgs.slice(-8),
+          homeDir: targetHome,
+        }).catch((err) => {
+          console.error("[Zalo AI Bot] Lỗi xử lý tự động trả lời:", err.message);
+        });
       }
-    } catch {}
+    }
+  } catch (err) {
+    console.error("[Zalo AI Bot] Lỗi quét history.jsonl:", err.message);
   }
+}
 
-  return {
-    skipped: false,
-    sent: sendRes.ok,
-    replyText: aiResult.replyText,
-    typingDelayMs: delayMs,
-    detectedPhone: aiResult.detectedPhone || detectedPhone,
-  };
+/**
+ * Khởi động vòng lặp theo dõi ngầm history.jsonl mỗi 3 giây để phản hồi khách hàng 24/7 theo thời gian thực
+ */
+export function startZaloRealtimeAiWatcher(homeDir) {
+  if (globalThis.__zaloAiWatcherTimer) {
+    return;
+  }
+  globalThis.__zaloAiWatcherTimer = setInterval(() => {
+    const activeHome = homeDir || getActiveZaloHome();
+    scanAndAutoReplyZaloHistories(activeHome).catch(() => {});
+  }, 3000);
+
+  if (typeof globalThis.__zaloAiWatcherTimer.unref === "function") {
+    globalThis.__zaloAiWatcherTimer.unref();
+  }
 }
 
 /**
@@ -689,37 +961,57 @@ export function hasExistingZaloConnection(targetZaloId = "", customerPhone = "")
  * @param {string} accountPhone - SĐT hoặc định danh tài khoản Zalo gửi
  * @param {string} targetZaloId - ThreadId hoặc SĐT khách nhận
  * @param {string} text - Nội dung tin nhắn đã cá nhân hóa
+ * @param {object} [options] - Tùy chọn { homeDir, isGroup }
  */
-export async function sendTextMessage(accountPhone, targetZaloId, text) {
+export async function sendTextMessage(accountPhone, targetZaloId, text, options = {}) {
   const recipient = String(targetZaloId || "").trim();
   const message = String(text || "").trim();
   if (!recipient || !message) {
     return { ok: false, error: "Thiếu người nhận hoặc nội dung tin nhắn Zalo." };
   }
 
-  const targetHome = getActiveZaloHome();
-  const res = await runZaloCommand(["msg", "send", recipient, message, "-t", "0", "--json"], {
-    homeDir: targetHome,
-    timeout: 15000,
-  });
+  const targetHome = options.homeDir || getActiveZaloHome();
+  const ownId = getOwnIdForHome(targetHome);
+  const typeFlag = options.isGroup ? "1" : "0";
+
+  const res = await runZaloCommand(
+    ["msg", "send", recipient, message, "-t", typeFlag, "--json"],
+    {
+      homeDir: targetHome,
+      timeout: 15000,
+    }
+  );
 
   if (res.ok) {
+    const sentMsgId = String(
+      res.data?.message?.msgId || res.data?.msgId || `bot_${Date.now()}`
+    );
+    console.log(
+      `[Zalo AI Bot] Đã gửi tin nhắn Zalo thành công tới ${recipient} (msgId: ${sentMsgId})`
+    );
     try {
       const histPath = path.join(targetHome, ".zalo-agent-cli", "history.jsonl");
-      if (fs.existsSync(path.dirname(histPath))) {
-        const lineObj = {
-          msgId: String(res.data?.msgId || `bcast_${Date.now()}`),
-          threadId: recipient,
-          senderId: "1781287338457243967",
-          senderName: accountPhone || "Sơn Tùng (Broadcast)",
-          text: message,
-          timestamp: Date.now(),
-          isSelf: true,
-          type: "text",
-        };
-        fs.appendFileSync(histPath, JSON.stringify(lineObj) + "\n", "utf8");
-      }
-    } catch {}
+      fs.mkdirSync(path.dirname(histPath), { recursive: true });
+      const lineObj = {
+        msgId: sentMsgId,
+        threadId: recipient,
+        threadType: options.isGroup ? "group" : "dm",
+        senderId: ownId,
+        senderName: accountPhone || "Dược sĩ Thảo (AI)",
+        text: message,
+        timestamp: Date.now(),
+        isSelf: true,
+        type: "text",
+      };
+      fs.appendFileSync(histPath, JSON.stringify(lineObj) + "\n", "utf8");
+    } catch (err) {
+      console.warn("[Zalo AI Bot] Không thể ghi history.jsonl:", err.message);
+    }
+  } else {
+    console.error(
+      `[Zalo AI Bot] Lỗi gửi tin nhắn Zalo tới ${recipient}:`,
+      res.error || res.raw
+    );
   }
 
   return res;

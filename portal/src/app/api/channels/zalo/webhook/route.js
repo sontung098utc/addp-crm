@@ -107,8 +107,11 @@ export async function POST(request) {
     // 3. Kiểm tra trạng thái Bot của Kênh và Hội thoại
     const channelEnabled = isChannelBotEnabled(channelId);
     const convState = getConversationBotState(threadId);
+    const effectiveMode = !channelEnabled || convState.mode === "HUMAN" ? "HUMAN" : "AI";
 
-    if (!channelEnabled || convState.mode === "HUMAN") {
+    if (effectiveMode === "HUMAN") {
+      console.log(`[Zalo AI Bot] Nhận tin từ khách: ${text}`);
+      console.log(`[Zalo AI Bot] Mode: HUMAN`);
       return NextResponse.json({
         ok: true,
         message: savedMsg,

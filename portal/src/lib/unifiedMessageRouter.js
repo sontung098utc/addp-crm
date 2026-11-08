@@ -15,7 +15,7 @@
 
 import fs from "fs";
 import path from "path";
-import { runZaloCommand } from "./zaloRunner.js";
+import { runZaloCommand, sendTextMessage } from "./zaloRunner.js";
 import { extractPhoneNumbersFromText, getOrCreateCustomerByPhone } from "./customerIdentityResolver.js";
 import { listAllChannels } from "./connectionHub.js";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
@@ -181,11 +181,17 @@ export async function handleIncomingAiBotAutoReply({
   }
 
   const channelKey = String(channelId || channel || "DEFAULT");
-  if (!isChannelBotEnabled(channelKey)) {
+  const channelEnabled = isChannelBotEnabled(channelKey);
+  const initialBotState = getConversationBotState(threadId);
+  const effectiveMode = !channelEnabled || initialBotState.mode === "HUMAN" ? "HUMAN" : "AI";
+
+  console.log(`[Zalo AI Bot] Nhận tin từ khách: ${text}`);
+  console.log(`[Zalo AI Bot] Mode: ${effectiveMode}`);
+
+  if (!channelEnabled) {
     return { skipped: true, reason: "CHANNEL_BOT_DISABLED" };
   }
 
-  const initialBotState = getConversationBotState(threadId);
   if (initialBotState.mode === "HUMAN") {
     return { skipped: true, reason: "HUMAN_TAKEOVER_ACTIVE", state: initialBotState };
   }
@@ -213,8 +219,11 @@ export async function handleIncomingAiBotAutoReply({
     });
   }
 
-  // Chờ đủ thời gian giả lập người thật gõ phím (3000ms - 6000ms)
-  const delayMs = Number(aiResult.typingDelayMs) || 3500;
+  // Chờ đủ thời gian giả lập người thật gõ phím (3000ms - 5000ms = 3-5 giây)
+  const rawDelay = Number(aiResult.typingDelayMs) || 3500;
+  const delayMs = Math.max(3000, Math.min(5000, rawDelay));
+  console.log(`[Zalo AI Bot] Đang trả lời sau ${delayMs} ms: ${aiResult.replyText}`);
+
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 
   // Kiểm tra lại lần thứ 2 sau khi chờ: nếu nhân viên vừa nhảy vào gõ trả lời thì hủy gửi ngay
@@ -557,9 +566,11 @@ export async function sendUnifiedMessage({ channel, recipientId, text, channelId
   }
 
   if (channel === "ZALO_PERSONAL") {
-    const res = await runZaloCommand(["msg", "send", String(recipientId), String(text), "--json"], {
-      timeout: 15000,
-    });
+    const res = await sendTextMessage(
+      "Dược sĩ Thảo (AI)",
+      String(recipientId),
+      String(text)
+    );
     if (res.ok) {
       await addUnifiedMessage({
         channel: "ZALO_PERSONAL",
@@ -567,9 +578,10 @@ export async function sendUnifiedMessage({ channel, recipientId, text, channelId
         channelName: "Zalo Cá Nhân (Sơn Tùng)",
         threadId: recipientId,
         senderId: "me",
-        senderName: "Tôi",
+        senderName: "Dược sĩ Thảo (AI)",
         text,
         isMe: true,
+        metadata: { skipAiBot: true },
       });
       return { ok: true, message: "Đã gửi qua Zalo cá nhân!" };
     }
