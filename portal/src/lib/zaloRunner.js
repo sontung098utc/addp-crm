@@ -936,6 +936,9 @@ export function startZaloRealtimeAiWatcher(homeDir) {
   }
 }
 
+// Khởi động ngay khi module zaloRunner.js được load để chạy độc lập không phụ thuộc vào request từ giao diện
+startZaloRealtimeAiWatcher();
+
 /**
  * Kiểm tra khách hàng đã từng có kết nối / tin nhắn Zalo từ trước hay chưa
  * (Tuân thủ Module 3: Tuyệt đối không gửi Broadcast cho người lạ chưa có thread)

@@ -309,7 +309,7 @@ let runtimeSeedState = {
   tasks: generateSeededCareTasks(),
 };
 
-export function runStage1Seed() {
+export function runStage1Seed(forStaff = null) {
   runtimeSeedState = {
     seededAt: new Date().toISOString(),
     seedCount: (runtimeSeedState.seedCount || 0) + 1,
@@ -317,7 +317,7 @@ export function runStage1Seed() {
     orders: [...INITIAL_ORDERS],
     tasks: generateSeededCareTasks(),
   };
-  return getSeedSummary();
+  return getSeedSummary(forStaff);
 }
 
 export function getSeedSummary(forStaff = null) {
