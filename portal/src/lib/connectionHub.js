@@ -100,192 +100,144 @@ export function decryptCredential(cipherText) {
   }
 }
 
-const PERSISTED_CHANNELS_PATH = path.join(process.cwd(), "data", "connected_channels.json");
+const PERSISTED_CHANNELS_PATH = path.join(process.cwd(), ".data", "channels.json");
+
+// Danh sách cấu hình khung mặc định cho 7 nền tảng (ở trạng thái Chưa kết nối / Sẵn sàng cấu hình)
+const DEFAULT_CHANNELS_CONFIG = [
+  {
+    id: "101",
+    platform: "MAGENTO",
+    name: "Website ADDP.vn (CustomForm & Minigame)",
+    externalId: "addp_vn_main",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ nhập API Token)",
+    config: {
+      domain: "https://addp.vn",
+      encryptedApiToken: "",
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+  {
+    id: "fb_page_default",
+    platform: "FACEBOOK",
+    name: "Fanpage Facebook",
+    externalId: "fb_pending",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ Meta OAuth)",
+    config: {
+      pageId: "",
+      pageAccessToken: "",
+      avatar: "",
+      category: "",
+      autoHidePhone: true,
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+  {
+    id: "104",
+    platform: "ZALO_PERSONAL",
+    name: "Zalo Cá Nhân (Multi-QR)",
+    externalId: "zalo_qr_pending",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ quét mã QR)",
+    config: {
+      sessionDir: "zalo_session_default",
+      phone: "",
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+  {
+    id: "106",
+    platform: "ZALO_OA",
+    name: "Zalo OA Doanh Nghiệp",
+    externalId: "zalo_oa_pending",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ nhập OA Secret Key)",
+    config: {
+      oaId: "",
+      appId: "",
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+  {
+    id: "107",
+    platform: "TIKTOK_SHOP",
+    name: "TikTok Shop Mall",
+    externalId: "tts_pending",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ ủy quyền Shop ID)",
+    config: {
+      shopId: "",
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+  {
+    id: "108",
+    platform: "SHOPEE",
+    name: "Shopee Mall",
+    externalId: "shopee_pending",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ cấp quyền Partner Key)",
+    config: {
+      shopId: "",
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+  {
+    id: "109",
+    platform: "KIOTVIET",
+    name: "KiotViet POS & Kho",
+    externalId: "kiotviet_pending",
+    status: "READY_TO_CONNECT",
+    statusLabel: "Chưa kết nối (Chờ Webhook KiotViet)",
+    config: {
+      retailer: "",
+    },
+    lastCheckedAt: new Date().toISOString(),
+    assignedStaffCodes: ["ADMIN"],
+  },
+];
 
 // Lưu trữ bộ nhớ runtime cho các tài khoản kênh
-let runtimeChannelsStore = new Map([
-  [
-    "101",
-    {
-      id: "101",
-      platform: "MAGENTO",
-      name: "Website ADDP.vn (CustomForm & Minigame)",
-      externalId: "addp_vn_main",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ nhập API Token",
-      config: {
-        domain: "https://addp.vn",
-        encryptedApiToken: "",
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["S001", "S002"],
-    },
-  ],
-  [
-    "fb_352284187972091",
-    {
-      id: "fb_352284187972091",
-      platform: "FACEBOOK",
-      name: "Dược Phẩm ADDP",
-      externalId: "fb_352284187972091",
-      status: "CONNECTED",
-      statusLabel: "Đã kết nối trực tiếp (Meta OAuth)",
-      config: {
-        pageId: "352284187972091",
-        pageAccessToken:
-          "EAAZA1eyz2HWoBSzHcupwyhLptv0lx7dTz4NSSyN3yRhcGHPpPb72lZA8Jli7gWJIZBrASKSdqZBSega1KGTdDiEBTAk8F4igOQhPVs1eT9oIZCRjyindF6TRP9T9qwvV95nUCCE7QpGBZCZCTJwDeK7AjC8zqfGvqZCzZCQRT7KEZBe1No41gbe1UznuQAwT4pSfMSo8ObRRQiZBoRzFuHb8ZAwi",
-        avatar: "",
-        category: "Y tế & Sức khỏe",
-        autoHidePhone: true,
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
-    },
-  ],
-  [
-    "fb_361639000358537",
-    {
-      id: "fb_361639000358537",
-      platform: "FACEBOOK",
-      name: "Sống khỏe mỗi ngày",
-      externalId: "fb_361639000358537",
-      status: "CONNECTED",
-      statusLabel: "Đã kết nối trực tiếp (Meta OAuth)",
-      config: {
-        pageId: "361639000358537",
-        pageAccessToken:
-          "EAAZA1eyz2HWoBS9YyssPDZAMUqboPpbGeWk7DZAgtwjTLvtBu1eazRlvhNQ3tKARSElBDLzp0z5e8bgzGXvDfRZBvZADVPXgENc9BzIuZCugw6TDBuuKXWuCdZBfsSFupmG1SAfz3dhzvVmey8IZBW6iJrjkgO6MCZB1J9C2IcezH7aq1WYEHkGf2UgB62AZCFWG8oQ4gknQc3dlyUaZB2i9Dc2",
-        avatar: "",
-        category: "Trang web sức khỏe và sự khỏe mạnh",
-        autoHidePhone: true,
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
-    },
-  ],
-  [
-    "fb_103590525665701",
-    {
-      id: "fb_103590525665701",
-      platform: "FACEBOOK",
-      name: "Dược phẩm ADDP",
-      externalId: "fb_103590525665701",
-      status: "CONNECTED",
-      statusLabel: "Đã kết nối trực tiếp (Meta OAuth)",
-      config: {
-        pageId: "103590525665701",
-        pageAccessToken:
-          "EAAZA1eyz2HWoBSZCITqY8lvIi8IZBm8gLlqO5e9lwwbIpkOgZCD2Wpuvo4eqiRrDO3uHO6tww7WpZAs81qGSYZBWcjhT5AFHt4BCkTA572olSAE06b7jQ8WgoUL9evCegGxBrFRmUqLwSyHcyiN8SRApgpZAtiTnHwqlgKbXFt0werxkhuS63suf4BD8pKIBkKCn0DgDwP2I1iq1hTZB65EZD",
-        avatar: "",
-        category: "Người sáng tạo nội dung số",
-        autoHidePhone: true,
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
-    },
-  ],
-  [
-    "104",
-    {
-      id: "104",
-      platform: "ZALO_PERSONAL",
-      name: "Zalo Tư Vấn 01 (Dược Sĩ Thu Hà)",
-      externalId: "zalo_qr_ha",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ quét mã QR trên Server",
-      config: {
-        sessionDir: "zalo_session_ha",
-        phone: "0988000003",
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["S002"],
-    },
-  ],
-  [
-    "106",
-    {
-      id: "106",
-      platform: "ZALO_OA",
-      name: "Zalo OA Dược Phẩm ADDP Official",
-      externalId: "zalo_oa_addp",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ xác thực OA v3",
-      config: {
-        oaId: "18928374659102",
-        appId: "2837465910293",
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["S001", "CS01"],
-    },
-  ],
-  [
-    "107",
-    {
-      id: "107",
-      platform: "TIKTOK_SHOP",
-      name: "TikTok Shop ADDP Health Mall",
-      externalId: "tts_addp_mall",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ ủy quyền Shop ID",
-      config: {
-        shopId: "VN_TTS_992819",
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["S001", "KHO01"],
-    },
-  ],
-  [
-    "108",
-    {
-      id: "108",
-      platform: "SHOPEE",
-      name: "Shopee ADDP Official Store",
-      externalId: "shopee_addp_store",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ cấp quyền Open API",
-      config: {
-        shopId: "77889911",
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["KHO01"],
-    },
-  ],
-  [
-    "109",
-    {
-      id: "109",
-      platform: "KIOTVIET",
-      name: "KiotViet Kho Tổng ADDP Hà Nội",
-      externalId: "kv_addp_hanoi",
-      status: "READY_TO_CONNECT",
-      statusLabel: "Chờ Webhook KiotViet",
-      config: {
-        retailer: "addpharma",
-      },
-      lastCheckedAt: new Date().toISOString(),
-      assignedStaffCodes: ["CS01", "KHO01"],
-    },
-  ],
-]);
+let runtimeChannelsStore = new Map();
+
+function initDefaultChannelsMap() {
+  const map = new Map();
+  for (const ch of DEFAULT_CHANNELS_CONFIG) {
+    map.set(String(ch.id), { ...ch });
+  }
+  return map;
+}
 
 function loadPersistedChannels() {
   try {
     if (fs.existsSync(PERSISTED_CHANNELS_PATH)) {
-      const items = JSON.parse(fs.readFileSync(PERSISTED_CHANNELS_PATH, "utf8"));
+      const raw = fs.readFileSync(PERSISTED_CHANNELS_PATH, "utf8");
+      const items = JSON.parse(raw);
       if (Array.isArray(items)) {
+        runtimeChannelsStore = new Map();
         for (const item of items) {
           if (item && item.id) {
-            if (item.config?.pageAccessToken && item.status !== "CONNECTED") {
-              item.status = "CONNECTED";
-              item.statusLabel = "Đã kết nối trực tiếp (Meta OAuth)";
-            }
             runtimeChannelsStore.set(String(item.id), item);
           }
         }
+        return;
       }
     }
   } catch (err) {
     console.error("[CONNECTION_HUB_LOAD_ERR]", err);
+  }
+
+  // Nếu chưa có file channels.json -> Khởi tạo mặc định và lưu xuống file
+  if (runtimeChannelsStore.size === 0) {
+    runtimeChannelsStore = initDefaultChannelsMap();
+    savePersistedChannels();
   }
 }
 
@@ -361,20 +313,21 @@ export function listAllChannels() {
     (c) => c.platform === "FACEBOOK" && (c.status === "CONNECTED" || Boolean(c.config?.pageAccessToken))
   );
 
-  // Nếu đã có Zalo live hoặc Fanpage thật thì thay thế tài khoản mẫu chờ cấu hình
-  const combined = [...liveZalo];
-  const seenExternalIds = new Set(liveZalo.map((z) => String(z.externalId)));
+  // Nếu có live Zalo hoặc Fanpage kết nối thật thì kết hợp
+  const combined = [];
+  const seenExternalIds = new Set();
+
+  for (const z of liveZalo) {
+    if (z.externalId) seenExternalIds.add(String(z.externalId));
+    combined.push(z);
+  }
 
   for (const item of staticList) {
     if (item.platform === "ZALO_PERSONAL" && liveZalo.length > 0) {
-      continue; // Đã có tài khoản Zalo thật
+      continue;
     }
     if (item.platform === "FACEBOOK" && hasConnectedFb && !item.config?.pageAccessToken) {
-      continue; // Bỏ qua thẻ Fanpage mẫu chưa có token khi đã kết nối Fanpage thật
-    }
-    if (item.config?.pageAccessToken && item.status !== "CONNECTED") {
-      item.status = "CONNECTED";
-      item.statusLabel = "Đã kết nối trực tiếp (Meta OAuth)";
+      continue;
     }
     if (item.externalId && seenExternalIds.has(String(item.externalId))) {
       continue;

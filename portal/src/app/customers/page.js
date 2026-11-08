@@ -210,7 +210,7 @@ export default function CustomersPage() {
             <div className="text-3xl">👥</div>
             <h3 className="text-sm font-bold text-white">Chưa có dữ liệu khách hàng</h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-              Tuân thủ Điều 11 AGENTS.md: Hệ thống không tự tạo số liệu ảo. Dữ liệu sẽ tự động đồng bộ khi có khách nhắn tin qua Zalo / Facebook hoặc phát sinh đơn hàng từ Magento, KiotViet, TikTok Shop, Shopee.
+              Hệ thống ở chế độ Vận Hành Sạch (Production Ready). Dữ liệu khách hàng sẽ tự động đồng bộ khi kết nối kênh hoặc tạo đơn mới.
             </p>
             <button
               onClick={() => setShowAddModal(true)}

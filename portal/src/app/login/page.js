@@ -9,23 +9,15 @@ import {
   Lock,
   User,
   ArrowRight,
-  ShieldCheck,
   AlertCircle,
   Loader2,
 } from "lucide-react";
 
-const DEMO_ACCOUNTS = [
-  { code: "ADMIN", label: "ADMIN (Toàn quyền hệ thống)", role: "Quản trị viên" },
-  { code: "S001", label: "S001 (Trưởng nhóm Kinh doanh)", role: "Sale Leader" },
-  { code: "S002", label: "S002 (Nhân viên Sale & CSKH)", role: "Sale / CSKH" },
-  { code: "KHO01", label: "KHO01 (Quản lý Kho & Điều phối)", role: "Kho / Kế toán" },
-];
-
 export default function LoginPage() {
   const router = useRouter();
   const { theme, toggleTheme } = useTheme();
-  const [username, setUsername] = useState("ADMIN");
-  const [password, setPassword] = useState("123456");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -116,7 +108,7 @@ export default function LoginPage() {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="VD: ADMIN, S001, S002, KHO01"
+              placeholder="Nhập tên đăng nhập hoặc mã nhân viên"
               className="w-full rounded-xl bg-slate-800 border border-slate-700 px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>
@@ -154,39 +146,6 @@ export default function LoginPage() {
             )}
           </button>
         </form>
-
-        {/* Chọn nhanh tài khoản theo Vai trò RBAC để kiểm thử */}
-        <div className="pt-4 border-t border-slate-800 space-y-2.5">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Chọn nhanh tài khoản kiểm thử phân quyền (MK: 123456)</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {DEMO_ACCOUNTS.map((acc) => (
-              <button
-                key={acc.code}
-                type="button"
-                onClick={() => {
-                  setUsername(acc.code);
-                  setPassword("123456");
-                }}
-                className={`text-left p-2.5 rounded-xl border text-xs transition-all duration-150 cursor-pointer ${
-                  username === acc.code
-                    ? "bg-blue-600/20 border-blue-500 text-white ring-1 ring-blue-500 shadow-xs"
-                    : "bg-slate-800/60 border-slate-800 text-slate-300 hover:bg-slate-800"
-                }`}
-              >
-                <div className="font-bold flex items-center justify-between">
-                  <span>{acc.code}</span>
-                  {username === acc.code && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-400 truncate mt-0.5">{acc.role}</div>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

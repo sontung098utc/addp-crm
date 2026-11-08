@@ -23,6 +23,8 @@ import {
   Plug,
   X,
   MessageSquare,
+  BookOpen,
+  ExternalLink,
 } from "lucide-react";
 
 const PLATFORM_TABS = [
@@ -44,6 +46,7 @@ export default function ChannelsPage() {
   const [isZaloQrOpen, setIsZaloQrOpen] = useState(false);
   const [isFbModalOpen, setIsFbModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [guidePlatform, setGuidePlatform] = useState(null);
   const [testingId, setTestingId] = useState(null);
   const [banner, setBanner] = useState(null);
   const [copiedText, setCopiedText] = useState(null);
@@ -434,6 +437,16 @@ export default function ChannelsPage() {
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setGuidePlatform(ch.platform)}
+                    className="rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 text-xs font-semibold py-2 px-3 transition-colors inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
+                    title="Hướng dẫn lấy API Key và cấu hình Webhook"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                    <span>Hướng Dẫn Cấu Hình</span>
+                  </button>
+
                   <button
                     type="button"
                     disabled={isTesting}
@@ -892,6 +905,240 @@ export default function ChannelsPage() {
           loadChannels();
         }}
       />
+
+      {/* Modal Hướng Dẫn Cấu Hình Liên Kết Từng Kênh */}
+      {guidePlatform && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+        >
+          <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 text-xs space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-blue-500/15 text-blue-400">
+                  <BookOpen className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Hướng Dẫn Cấu Hình &amp; Lấy API Key — {PLATFORM_INFO[guidePlatform]?.label || guidePlatform}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Tài liệu hướng dẫn từng bước tích hợp Webhook và khóa bảo mật vào ADDP CRM
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGuidePlatform(null)}
+                className="p-1 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Nội dung hướng dẫn theo từng nền tảng */}
+            {guidePlatform === "MAGENTO" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-orange-500/10 border border-orange-500/20 p-3 text-orange-200">
+                  <strong>Website Magento 2.4.8 (https://addp.vn):</strong> Tự động nhận Lead từ Addp_CustomForm, Minigame và đơn hàng đặt trên website chính.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 1: Cấu hình Webhook trên Magento 2.4.8</div>
+                  <p className="text-slate-400">Dán URL Webhook sau vào module CustomForm hoặc Webhook Observer của Magento:</p>
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-cyan-300">
+                    <span>https://crm.addp.vn/api/webhooks/magento</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard("https://crm.addp.vn/api/webhooks/magento", "mgn_webhook")}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white"
+                    >
+                      {copiedText === "mgn_webhook" ? "Đã chép" : "Sao chép"}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 2: Lấy Magento REST API Integration Token</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Đăng nhập Trang Quản Trị Magento Admin: <code className="text-white">https://addp.vn/admin</code></li>
+                    <li>Vào menu <strong className="text-white">System &rarr; Extensions &rarr; Integrations &rarr; Add New Integration</strong>.</li>
+                    <li>Đặt tên: <code className="text-white">ADDP_CRM_INTEGRATION</code>.</li>
+                    <li>Tại tab <strong className="text-white">API</strong>, chọn tài nguyên cấp quyền: <code className="text-emerald-400">Sales, Customers, Products, CustomForm</code>.</li>
+                    <li>Bấm <strong className="text-white">Save &amp; Activate</strong>. Sao chép chuỗi <code className="text-amber-400 font-mono">Access Token</code> dán vào ô API Token trên CRM.</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {guidePlatform === "FACEBOOK" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 p-3 text-blue-200">
+                  <strong>Fanpage Facebook (Meta Messenger &amp; Comment):</strong> Tự động đồng bộ tin nhắn khách, thu thập Lead và tự động ẩn bình luận chứa SĐT.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Cách 1: Kết nối tự động 1-Click (Khuyên dùng)</div>
+                  <p className="text-slate-400">Bấm nút <strong className="text-blue-400">&quot;Kết Nối Fanpage 1-Click&quot;</strong> ở trên, đăng nhập tài khoản Facebook Admin để hệ thống tự động nhận diện danh sách Fanpage và lưu Token vĩnh viễn.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Cách 2: Nhập Page ID &amp; Token thủ công từ Meta for Developers</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Truy cập <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-blue-400 underline inline-flex items-center gap-1">Meta for Developers <ExternalLink className="w-3 h-3" /></a>.</li>
+                    <li>Vào mục <strong className="text-white">Messenger &rarr; Settings &rarr; Access Tokens</strong> &rarr; Chọn Fanpage cần kết nối &rarr; Bấm <strong>Generate Token</strong>.</li>
+                    <li>Cấu hình Webhook Callback URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/facebook</code></li>
+                    <li>Verify Token nhập vào Meta: <code className="text-amber-400 font-mono">addp_crm_fb_webhook_secret_2026</code></li>
+                    <li>Đăng ký các trường sự kiện: <code className="text-emerald-400">messages, messaging_postbacks, feed (comments)</code>.</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {guidePlatform === "ZALO_PERSONAL" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-cyan-500/10 border border-cyan-500/20 p-3 text-cyan-200">
+                  <strong>Zalo Cá Nhân (Multi-QR Isolation):</strong> Đăng nhập nhiều nick Zalo tư vấn độc lập trên server. Tuân thủ Điều 4 AGENTS.md: cơ chế giãn cách gửi tin 45–120s chống khóa nick.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Cách thức kết nối:</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Bấm nút <strong className="text-cyan-400">&quot;Quét Mã QR Zalo Cá Nhân&quot;</strong> ở góc trên bên phải.</li>
+                    <li>Mở ứng dụng Zalo trên điện thoại của nhân viên Sale &rarr; Chọn biểu tượng quét QR.</li>
+                    <li>Quét mã hiển thị trên màn hình và bấm <strong className="text-white">Xác nhận Đăng nhập trên máy tính</strong>.</li>
+                    <li>Hệ thống máy chủ sẽ tự động lưu phiên làm việc cô lập trong thư mục connector-home và duy trì kết nối 24/7.</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            {guidePlatform === "ZALO_OA" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-sky-500/10 border border-sky-500/20 p-3 text-sky-200">
+                  <strong>Zalo Official Account (Open API v3):</strong> Kênh OA Doanh nghiệp chính thức, gửi tin ZNS và chăm sóc khách hàng.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 1: Lấy App ID &amp; Secret Key trên Zalo for Developers</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Truy cập <a href="https://developers.zalo.me" target="_blank" rel="noreferrer" className="text-blue-400 underline inline-flex items-center gap-1">Zalo for Developers <ExternalLink className="w-3 h-3" /></a> &rarr; Ứng dụng của tôi.</li>
+                    <li>Sao chép <strong className="text-white">App ID</strong> và <strong className="text-white">Khóa bí mật (Secret Key)</strong>.</li>
+                    <li>Lấy <strong className="text-white">OA ID</strong> trong trang quản trị Zalo OA (<code className="text-cyan-300">https://oa.zalo.me</code>).</li>
+                  </ol>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 2: Cài đặt Webhook URL</div>
+                  <p className="text-slate-400">Dán URL Webhook sau vào mục Cài đặt Webhook của ứng dụng Zalo:</p>
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-cyan-300">
+                    <span>https://crm.addp.vn/api/webhooks/zalo-oa</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard("https://crm.addp.vn/api/webhooks/zalo-oa", "zns_webhook")}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white"
+                    >
+                      {copiedText === "zns_webhook" ? "Đã chép" : "Sao chép"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guidePlatform === "TIKTOK_SHOP" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-pink-500/10 border border-pink-500/20 p-3 text-pink-200">
+                  <strong>TikTok Shop &amp; TikTok Ads (TikTok Partner API):</strong> Tự động đồng bộ đơn hàng TikTok Shop, tự giải mã Combo và đối soát lãi/lỗ chi phí Ads GMV Max.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 1: Đăng ký ứng dụng trên TikTok Shop Partner Center</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Truy cập <a href="https://partner.tiktokshop.com" target="_blank" rel="noreferrer" className="text-blue-400 underline inline-flex items-center gap-1">TikTok Shop Partner Center <ExternalLink className="w-3 h-3" /></a>.</li>
+                    <li>Tạo ứng dụng Custom App &rarr; Chọn Category: <strong className="text-white">ERP / CRM / Order Management</strong>.</li>
+                    <li>Lấy <strong className="text-white">App Key</strong> và <strong className="text-white">App Secret</strong>.</li>
+                    <li>Lấy <strong className="text-white">Shop ID (Cipher)</strong> trong mục Seller Center &rarr; Hồ sơ nhà bán hàng.</li>
+                  </ol>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 2: Dán Webhook đồng bộ đơn hàng</div>
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-cyan-300">
+                    <span>https://crm.addp.vn/api/webhooks/tiktok</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard("https://crm.addp.vn/api/webhooks/tiktok", "tts_webhook")}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white"
+                    >
+                      {copiedText === "tts_webhook" ? "Đã chép" : "Sao chép"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guidePlatform === "SHOPEE" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-amber-200">
+                  <strong>Shopee Open API v2:</strong> Tự động đồng bộ đơn hàng Shopee Mall và Shopee thường, theo dõi vận đơn và đối soát phí sàn.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 1: Lấy Partner ID &amp; Partner Key</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Truy cập <a href="https://open.shopee.com" target="_blank" rel="noreferrer" className="text-blue-400 underline inline-flex items-center gap-1">Shopee Open Platform <ExternalLink className="w-3 h-3" /></a>.</li>
+                    <li>Đăng nhập Console &rarr; Tạo App &rarr; Lấy <strong className="text-white">Partner ID</strong> và <strong className="text-white">Partner Key</strong>.</li>
+                    <li>Lấy <strong className="text-white">Shop ID</strong> trong Kênh Người Bán Shopee (<code className="text-cyan-300">banhang.shopee.vn</code> &rarr; Thiết lập Shop).</li>
+                  </ol>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 2: Cấu hình Webhook Shopee (Push Mechanism)</div>
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-cyan-300">
+                    <span>https://crm.addp.vn/api/webhooks/shopee</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard("https://crm.addp.vn/api/webhooks/shopee", "shopee_webhook")}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white"
+                    >
+                      {copiedText === "shopee_webhook" ? "Đã chép" : "Sao chép"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {guidePlatform === "KIOTVIET" && (
+              <div className="space-y-3 text-slate-300">
+                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-emerald-200">
+                  <strong>KiotViet POS &amp; Quản Lý Kho:</strong> Đồng bộ đơn hàng tại quầy thuốc, trừ tồn kho thực tế và tự động kích hoạt lộ trình CSKH.
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 1: Lấy Client ID &amp; Client Secret trên KiotViet</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400">
+                    <li>Đăng nhập trang quản lý KiotViet: <code className="text-white">https://manapp.kiotviet.vn</code></li>
+                    <li>Vào mục <strong className="text-white">Thiết lập cửa hàng &rarr; Thiết lập kết nối API</strong>.</li>
+                    <li>Bấm <strong className="text-white">Tạo mã kết nối</strong> &rarr; Lấy <strong className="text-white">Client ID</strong>, <strong className="text-white">Client Secret</strong> và tên gian hàng (<strong className="text-white">Retailer</strong>).</li>
+                  </ol>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="font-bold text-white">Bước 2: Đăng ký Webhook KiotViet</div>
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800 font-mono text-cyan-300">
+                    <span>https://crm.addp.vn/api/webhooks/kiotviet</span>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard("https://crm.addp.vn/api/webhooks/kiotviet", "kv_webhook")}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white"
+                    >
+                      {copiedText === "kv_webhook" ? "Đã chép" : "Sao chép"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setGuidePlatform(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold cursor-pointer transition"
+              >
+                Đã Hiểu &amp; Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

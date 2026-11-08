@@ -111,51 +111,10 @@ export function buildCareSchedule({
 }
 
 // Bộ nhớ động lưu trữ trạng thái các công việc chăm sóc hàng ngày (WBS-28 & WBS-29)
+// Ở chế độ Production, không tự động sinh task mẫu mà chỉ sinh khi có đơn hàng thực tế
 let dynamicTasksStore = [];
 
 export function getAllCareTasks(seedCustomers = []) {
-  if (dynamicTasksStore.length === 0 && Array.isArray(seedCustomers) && seedCustomers.length > 0) {
-    const today = new Date();
-    seedCustomers.forEach((c) => {
-      const schedule = buildCareSchedule({
-        customerName: c.fullName,
-        productName: "Sữa hạt Glucare Plus",
-        startDate: c.lastOrderDate || today,
-        durationDays: 30,
-      });
-
-      schedule.forEach((item, idx) => {
-        const dueDate = new Date();
-        if (idx === 0) {
-          dueDate.setDate(dueDate.getDate() - 1); // Quá hạn 1 ngày
-        } else if (idx === 1) {
-          // Hôm nay
-        } else {
-          dueDate.setDate(dueDate.getDate() + idx * 2);
-        }
-
-        dynamicTasksStore.push({
-          id: `task_${c.id}_${item.type}`,
-          customerId: c.id,
-          customerName: c.fullName,
-          customerPhone: c.phone,
-          customerPathology: c.pathology,
-          customerGlucose: c.currentGlucose || c.initialGlucose,
-          staffId: c.staffId,
-          staffName: c.staffName,
-          taskType: item.type,
-          title: item.title,
-          deadline: dueDate.toISOString().slice(0, 10),
-          suggestedMessage: item.suggestedMessage,
-          isCompleted: false,
-          completedAt: null,
-          resultNote: null,
-          carePath: c.status || "Đang chăm sóc",
-          channel: c.source || "ZALO_PERSONAL",
-        });
-      });
-    });
-  }
   return dynamicTasksStore;
 }
 

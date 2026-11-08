@@ -10,14 +10,49 @@
  * 4. Tự động tính thứ hạng VIP (calculateVipLevel) khi có phát sinh đơn hàng mới.
  */
 
+import fs from "fs";
+import path from "path";
 import { normalizePhone, isValidVietnamPhone } from "./phone.js";
 export { normalizePhone, isValidVietnamPhone };
 import { calculateVipLevel } from "./customerTiers.js";
 import { routeLeadToStaff } from "./leadRouting.js";
-import { INITIAL_CUSTOMERS } from "./seedData.js";
 
-// Kho lưu trữ khách hàng 360 kế thừa từ mẫu kỹ thuật C:\QuanlyKH (Tuân thủ Điều 11 AGENTS.md)
-let dynamicCustomersStore = Array.isArray(INITIAL_CUSTOMERS) ? [...INITIAL_CUSTOMERS] : [];
+const CUSTOMERS_FILE_PATH = path.join(process.cwd(), ".data", "customers.json");
+
+function ensureStorage() {
+  const dir = path.dirname(CUSTOMERS_FILE_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function loadPersistedCustomers() {
+  ensureStorage();
+  try {
+    if (fs.existsSync(CUSTOMERS_FILE_PATH)) {
+      const data = fs.readFileSync(CUSTOMERS_FILE_PATH, "utf8");
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.error("Lỗi đọc file customers.json:", err);
+  }
+  return [];
+}
+
+function savePersistedCustomers(customers) {
+  ensureStorage();
+  try {
+    fs.writeFileSync(CUSTOMERS_FILE_PATH, JSON.stringify(customers, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    console.error("Lỗi ghi file customers.json:", err);
+    return false;
+  }
+}
+
+// Kho lưu trữ khách hàng 360 thực tế
+let dynamicCustomersStore = loadPersistedCustomers();
 
 /**
  * Trích xuất danh sách số điện thoại Việt Nam từ chuỗi văn bản (tin nhắn chat, bình luận, ghi chú)
@@ -151,6 +186,7 @@ export async function resolveCustomerIdentity(input = {}) {
   };
 
   dynamicCustomersStore.unshift(newCustomer);
+  savePersistedCustomers(dynamicCustomersStore);
 
   return { customer: newCustomer, isNew: true, matchMethod: "CREATED_NEW" };
 }
@@ -159,6 +195,7 @@ export async function resolveCustomerIdentity(input = {}) {
  * Lấy toàn bộ danh sách khách hàng 360
  */
 export function getAllCustomers() {
+  dynamicCustomersStore = loadPersistedCustomers();
   return dynamicCustomersStore;
 }
 
@@ -168,7 +205,7 @@ export function getAllCustomers() {
  */
 export function getCustomerById(id) {
   const numId = Number(id);
-  return dynamicCustomersStore.find((c) => c.id === numId) || null;
+  return getAllCustomers().find((c) => c.id === numId) || null;
 }
 
 /**
@@ -197,5 +234,6 @@ export function updateCustomer(id, updates = {}) {
   }
 
   dynamicCustomersStore[index] = updated;
+  savePersistedCustomers(dynamicCustomersStore);
   return updated;
 }

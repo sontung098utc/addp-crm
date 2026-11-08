@@ -261,7 +261,7 @@ export default function WorkTrackingPage() {
             <div className="text-3xl">📋</div>
             <h3 className="text-sm font-bold text-white">Chưa có công việc chăm sóc</h3>
             <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-              Lộ trình chăm sóc 7 mốc vàng (Ngày 1, 3, 7, 14, 21, 1/2 và 2/3 liệu trình) sẽ tự động được kích hoạt ngay khi có đơn hàng thực tế được giao thành công tới khách hàng.
+              Chưa có dữ liệu công việc chăm sóc. Lộ trình chăm sóc 7 mốc vàng (Ngày 1, 3, 7, 14, 21, 1/2 và 2/3 liệu trình) sẽ tự động kích hoạt ngay khi đơn hàng được tạo hoặc chuyển sang trạng thái Giao thành công.
             </p>
           </div>
         ) : (
