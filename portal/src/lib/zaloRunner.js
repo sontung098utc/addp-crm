@@ -2,7 +2,11 @@ import { execFile, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
+import {
+  isChannelBotEnabled,
+  getConversationBotState,
+  isBotActiveForThread,
+} from "./botControlStore.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 import { getOrCreateCustomerByPhone } from "./customerIdentityResolver.js";
 import { syncCustomerMedicalStateFromMessage } from "./customerStore.js";
@@ -1148,10 +1152,8 @@ export async function processIncomingZaloMessageWithBot({
       : targetOwnId
       ? `zalo_${targetOwnId}`
       : "ZALO_PERSONAL";
-  const channelEnabled =
-    isChannelBotEnabled(specificChannelId) && isChannelBotEnabled("ZALO_PERSONAL");
-  const convState = getConversationBotState(threadId);
-  const effectiveMode = !channelEnabled || convState.mode === "HUMAN" ? "HUMAN" : "AI";
+  const botCheck = isBotActiveForThread(threadId, specificChannelId);
+  const effectiveMode = botCheck.mode;
 
   if (isMe) {
     return { skipped: true, reason: "SELF_MESSAGE" };
@@ -1192,13 +1194,13 @@ export async function processIncomingZaloMessageWithBot({
         `[Zalo AI Bot] Nhận tin từ khách: ${cleanText} (threadId: ${threadId}, msgId: ${msgToken}, isMe: ${Boolean(isMe)})`
       );
       console.log(
-        `[Zalo AI Bot] Mode: HUMAN (channelEnabled: ${channelEnabled}, botState: ${JSON.stringify(convState)})`
+        `[Zalo AI Bot] Mode: HUMAN (reason: ${botCheck.reason}, accountMode: ${botCheck.accountMode})`
       );
     }
     return {
       skipped: true,
-      reason: "HUMAN_TAKEOVER_ACTIVE",
-      state: convState,
+      reason: botCheck.reason,
+      state: botCheck,
       customer: customerRecord,
       medicalRecord: syncedResult?.medicalRecord || null,
     };
@@ -1269,17 +1271,13 @@ export async function processIncomingZaloMessageWithBot({
       return { skipped: true, reason: "SUPERSEDED_BY_NEWER_CUSTOMER_MESSAGE" };
     }
 
-    // 5. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ)
-    if (!isChannelBotEnabled(channelId)) {
-      console.log(`[Zalo AI Bot] Đã hủy gửi vì kênh ${channelId} vừa tắt Bot trong lúc chờ gõ phím.`);
-      return { skipped: true, reason: "CHANNEL_DISABLED_DURING_TYPING" };
-    }
-    const afterDelayState = getConversationBotState(threadId);
-    if (afterDelayState.mode === "HUMAN") {
+    // 5. Kiểm tra lại lần nữa sau khi hết thời gian chờ typingDelayMs (chống xung đột nếu nhân viên nhảy vào gõ hoặc kênh chuyển HUMAN)
+    const afterDelayCheck = isBotActiveForThread(threadId, specificChannelId);
+    if (!afterDelayCheck.active) {
       console.log(
-        `[Zalo AI Bot] Đã hủy gửi vì nhân viên vừa tiếp quản hội thoại ${threadId} (Mode: HUMAN).`
+        `[Zalo AI Bot] Đã hủy gửi vì hội thoại/kênh ${specificChannelId} đang ở Mode HUMAN (${afterDelayCheck.reason}).`
       );
-      return { skipped: true, reason: "HUMAN_TOOK_OVER_DURING_TYPING", state: afterDelayState };
+      return { skipped: true, reason: afterDelayCheck.reason, state: afterDelayCheck };
     }
 
     // 6. Gọi trực tiếp hàm gửi tin nhắn sendTextMessage về cho khách (xưng đúng tên nick đang trực)

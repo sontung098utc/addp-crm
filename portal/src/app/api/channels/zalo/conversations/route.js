@@ -12,6 +12,7 @@ import {
   getOmnichannelConversations,
   getConnectedFacebookPages,
 } from "@/lib/unifiedMessageRouter.js";
+import { getChannelBotMode } from "@/lib/botControlStore.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import fs from "fs";
 
@@ -225,6 +226,7 @@ export async function GET(request) {
       const displayName = acc.displayName || acc.name || "Zalo Cá Nhân";
       const accountName = `Zalo: ${displayName}`;
       const channelLabel = `Zalo Cá Nhân (${displayName})`;
+      const channelBotMode = getChannelBotMode(accountId || ownId || displayName);
       const processedIds = new Set();
       let accActiveCount = 0;
       let accContactCount = 0;
@@ -293,6 +295,7 @@ export async function GET(request) {
           accountDisplayName: displayName,
           accountName,
           channelLabel,
+          channelBotMode,
           zaloHome: acc.homeDir,
           colorIndex: accIdx,
         });
@@ -320,6 +323,7 @@ export async function GET(request) {
             accountDisplayName: displayName,
             accountName,
             channelLabel,
+            channelBotMode,
             zaloHome: acc.homeDir,
             colorIndex: accIdx,
           });
@@ -347,6 +351,7 @@ export async function GET(request) {
             accountDisplayName: displayName,
             accountName,
             channelLabel,
+            channelBotMode,
             zaloHome: acc.homeDir,
             colorIndex: accIdx,
           });
@@ -360,6 +365,7 @@ export async function GET(request) {
         displayName: `Zalo ${displayName}`,
         label: accountName,
         channelLabel,
+        botMode: channelBotMode,
         homeDir: acc.homeDir,
         activeCount: accActiveCount,
         contactCount: accContactCount,

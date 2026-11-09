@@ -171,6 +171,7 @@ export default function LiveZaloInbox() {
   // WBS-32 & WBS-33: Chế độ AI & Trạng thái A.I. Soạn + Human-Takeover Bot State
   const [aiMode, setAiMode] = useState("AUTO_REPLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
   const [convBotMode, setConvBotMode] = useState("AI"); // 'AI' | 'HUMAN'
+  const [isAccountLevelHuman, setIsAccountLevelHuman] = useState(false);
   const [convBotPausedUntil, setConvBotPausedUntil] = useState(null);
   const [togglingBot, setTogglingBot] = useState(false);
   const [aiComposing, setAiComposing] = useState(false);
@@ -498,19 +499,38 @@ export default function LiveZaloInbox() {
     };
   }, [activeConv?.id, activeConv?.phone, activeConv?.name, messages]);
 
-  // 2.5 Đồng bộ trạng thái AI Bot / Human-Takeover cho hội thoại đang mở
+  // 2.5 Đồng bộ trạng thái AI Bot / Human-Takeover cho hội thoại đang mở (kế thừa Cấp Tài Khoản)
   useEffect(() => {
     let cancelled = false;
+    if (activeConv?.channelBotMode === "HUMAN") {
+      setConvBotMode("HUMAN");
+      setIsAccountLevelHuman(true);
+      setAiMode("HUMAN_ONLY");
+    }
     async function fetchBotState() {
       if (!activeConv?.id) return;
+      const targetAccountId =
+        activeConv.accountId ||
+        activeConv.accountOwnId ||
+        activeConv.accountDisplayName ||
+        activeConv.accountName ||
+        activeConv.channel ||
+        "DEFAULT";
       try {
         const res = await fetch(
-          `/api/ai/bot-control?threadId=${encodeURIComponent(activeConv.id)}&channelId=${encodeURIComponent(activeConv.channel || "DEFAULT")}`
+          `/api/ai/bot-control?threadId=${encodeURIComponent(
+            activeConv.id
+          )}&channelId=${encodeURIComponent(
+            activeConv.channel || "DEFAULT"
+          )}&accountId=${encodeURIComponent(targetAccountId)}`
         );
         const data = await res.json();
         if (!cancelled && data.ok && data.state) {
-          const mode = data.state.mode === "HUMAN" ? "HUMAN" : "AI";
+          const mode = data.effectiveMode || (data.state.mode === "HUMAN" ? "HUMAN" : "AI");
+          const isAccHuman =
+            data.accountMode === "HUMAN" || data.state.reason === "ACCOUNT_LEVEL_HUMAN";
           setConvBotMode(mode);
+          setIsAccountLevelHuman(isAccHuman);
           setConvBotPausedUntil(data.state.pausedUntil || null);
           setAiMode(mode === "HUMAN" ? "HUMAN_ONLY" : "AUTO_REPLY");
         }
@@ -520,18 +540,33 @@ export default function LiveZaloInbox() {
     return () => {
       cancelled = true;
     };
-  }, [activeConv?.id, activeConv?.channel]);
+  }, [
+    activeConv?.id,
+    activeConv?.channel,
+    activeConv?.accountId,
+    activeConv?.accountDisplayName,
+    activeConv?.accountName,
+  ]);
 
   // Hàm bật/tắt nhanh AI Bot trực tiếp trên Header Cột 2
   const handleToggleConvBot = async (targetAction) => {
     if (!activeConv?.id || togglingBot) return;
-    const action =
-      targetAction || (convBotMode === "AI" ? "pause" : "resume");
+    const action = targetAction || (convBotMode === "AI" ? "pause" : "resume");
     const nextMode = action === "resume" ? "AI" : "HUMAN";
+    const targetAccountId =
+      activeConv.accountId ||
+      activeConv.accountOwnId ||
+      activeConv.accountDisplayName ||
+      activeConv.accountName ||
+      activeConv.channel ||
+      "DEFAULT";
 
     setTogglingBot(true);
     setConvBotMode(nextMode);
     setAiMode(nextMode === "AI" ? "AUTO_REPLY" : "HUMAN_ONLY");
+    if (nextMode === "AI") {
+      setIsAccountLevelHuman(false);
+    }
 
     try {
       const res = await fetch("/api/ai/bot-control", {
@@ -540,19 +575,27 @@ export default function LiveZaloInbox() {
         body: JSON.stringify({
           threadId: activeConv.id,
           channelId: activeConv.channel || "DEFAULT",
+          accountId: targetAccountId,
           action,
           pauseMinutes: 45,
+          scope: isAccountLevelHuman ? "account" : "thread",
         }),
       });
       const data = await res.json();
       if (data.ok && data.state) {
-        setConvBotMode(data.state.mode);
+        const mode = data.effectiveMode || data.state.mode;
+        const isAccHuman =
+          data.accountMode === "HUMAN" || data.state.reason === "ACCOUNT_LEVEL_HUMAN";
+        setConvBotMode(mode);
+        setIsAccountLevelHuman(isAccHuman);
         setConvBotPausedUntil(data.state.pausedUntil || null);
         setToast({
           type: "success",
           text:
-            data.state.mode === "AI"
+            mode === "AI"
               ? "🤖 Đã bật lại Bot AI Dược sĩ Thảo tự động trực hội thoại."
+              : isAccHuman
+              ? "👤 Tài khoản đang ở chế độ Nhân viên trực (theo cấu hình /channels)."
               : "👤 Đã dừng Bot AI (45 phút) — Nhân viên trực tiếp tiếp quản.",
         });
       }
@@ -1446,6 +1489,8 @@ export default function LiveZaloInbox() {
                     title={
                       convBotMode === "AI"
                         ? "Bấm để dừng Bot AI và chuyển sang Nhân viên trực (45 phút)"
+                        : isAccountLevelHuman
+                        ? "Tài khoản đang ở chế độ Nhân viên trực (theo /channels). Bấm để kích hoạt AI."
                         : "Bấm để bật lại Bot AI Dược sĩ Thảo tự động trực"
                     }
                     className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs ${
@@ -1462,7 +1507,11 @@ export default function LiveZaloInbox() {
                     ) : (
                       <>
                         <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                        <span>👤 Nhân Viên Trực (Đã Dừng Bot)</span>
+                        <span>
+                          {isAccountLevelHuman
+                            ? "👤 Nhân Viên Trực (Theo cấu hình tài khoản)"
+                            : "👤 Nhân Viên Trực (Đã Dừng Bot)"}
+                        </span>
                       </>
                     )}
                   </button>
@@ -1472,7 +1521,7 @@ export default function LiveZaloInbox() {
                       Trực:
                     </span>
                     <select
-                      value={aiMode}
+                      value={convBotMode === "HUMAN" ? "HUMAN_ONLY" : aiMode}
                       onChange={(e) => {
                         const val = e.target.value;
                         setAiMode(val);

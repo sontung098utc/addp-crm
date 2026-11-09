@@ -7,6 +7,7 @@ import {
   updateChannelAccount,
   deleteChannelAccount,
 } from "../../../lib/connectionHub.js";
+import { syncBotStatesWithChannels } from "../../../lib/botControlStore.js";
 import { guardApiRequest } from "../../../lib/rbac.js";
 
 /**
@@ -87,6 +88,10 @@ export async function PUT(request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
+
+    try {
+      syncBotStatesWithChannels();
+    } catch {}
 
     return NextResponse.json({
       ok: true,

@@ -2,27 +2,37 @@ import fs from "fs";
 import path from "path";
 
 /**
- * ADDP Omnichannel AI CRM — Bộ Điều Khiển Trạng Thái AI Bot & Human-Takeover (WBS-32 & WBS-33)
- * Lưu trữ bền vững trạng thái Bot theo Kênh (channelId) và theo Hội thoại (threadId) vào `.data/bot_states.json`.
- * Tự động dừng Bot khi nhân viên nhảy vào chat (Human-Takeover) và tự động bật lại sau 45 phút không có tương tác của nhân viên.
+ * ADDP Omnichannel AI CRM — Bộ Điều Khiển Trạng Thái AI Bot & Human-Takeover Phân Cấp (Hierarchical Bot Control)
+ * Tuân thủ nghiêm ngặt 2 cấp điều khiển:
+ * 1. CẤP TÀI KHOẢN (Channel-level - Master Rule):
+ *    - Đọc trực tiếp `botMode` của từng tài khoản kết nối từ `channels.json`.
+ *    - Nếu tài khoản được cài đặt `botMode === 'HUMAN'`:
+ *      * Khóa AI trên TOÀN BỘ hội thoại thuộc tài khoản này.
+ *      * Bất kể trạng thái riêng của `threadId` là gì, `isBotActiveForThread` PHẢI LUÔN TRẢ VỀ `false` (Mode: HUMAN).
+ *      * Bot Runner tuyệt đối không tự động sinh tin nhắn trả lời.
+ * 2. CẤP HỘI THOẠI (Thread-level - Sub Rule):
+ *    - Chỉ có hiệu lực khi Cấp Tài Khoản đang bật `botMode === 'AI'`.
+ *    - Từng hội thoại có thể chuyển đổi giữa `AI` (tự động) và `HUMAN` (tạm dừng 45 phút khi nhân viên chat tay).
  */
 
 const DEFAULT_PAUSE_MINUTES = 45;
 
+function resolveDataDir() {
+  const cwd = process.cwd();
+  if (fs.existsSync(path.join(cwd, "portal", "package.json"))) {
+    return path.join(cwd, "portal", ".data");
+  }
+  return path.join(cwd, ".data");
+}
+
 function getBotStatesFilePath() {
   try {
-    const candidates = [
-      path.resolve(process.cwd(), ".data", "bot_states.json"),
-      path.resolve(process.cwd(), "portal", ".data", "bot_states.json"),
-    ];
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate) || fs.existsSync(path.dirname(candidate))) {
-        return candidate;
-      }
+    const dataDir = resolveDataDir();
+    const candidate = path.join(dataDir, "bot_states.json");
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
     }
-    const fallback = candidates[0];
-    fs.mkdirSync(path.dirname(fallback), { recursive: true });
-    return fallback;
+    return candidate;
   } catch {
     return null;
   }
@@ -71,18 +81,78 @@ function getStore() {
 }
 
 /**
- * Kiểm tra kênh đó có bật AI Bot hay không (mặc định `true`).
+ * Đọc trực tiếp cấu hình `botMode` cấp độ Tài Khoản (Channel-level) từ `channels.json`.
+ * Hỗ trợ tra cứu theo id, externalId, ownId, tên tài khoản ("Sơn Tùng", "Lê Quyên", "Zalo: Sơn Tùng"...).
+ * @param {string} channelOrAccountId
+ * @returns {'AI' | 'HUMAN'}
+ */
+export function getChannelBotMode(channelOrAccountId = "") {
+  const query = String(channelOrAccountId || "").trim().toLowerCase();
+  if (!query || query === "default") return "AI";
+
+  try {
+    const dataDir = resolveDataDir();
+    const channelsPath = path.join(dataDir, "channels.json");
+    if (fs.existsSync(channelsPath)) {
+      const raw = fs.readFileSync(channelsPath, "utf8").replace(/^\uFEFF/, "");
+      const channels = JSON.parse(raw);
+      if (Array.isArray(channels)) {
+        for (const ch of channels) {
+          if (!ch) continue;
+          const chId = String(ch.id || "").toLowerCase();
+          const extId = String(ch.externalId || "").toLowerCase();
+          const ownId = String(ch.config?.ownId || "").toLowerCase();
+          const accName = String(ch.config?.accountName || ch.name || "").toLowerCase();
+          const label = String(ch.config?.label || "").toLowerCase();
+
+          const isMatch =
+            chId === query ||
+            extId === query ||
+            ownId === query ||
+            `zalo_${extId}` === query ||
+            `zalo_${ownId}` === query ||
+            (query.length >= 3 &&
+              (chId.includes(query) ||
+                extId.includes(query) ||
+                ownId.includes(query) ||
+                accName.includes(query) ||
+                label.includes(query) ||
+                query.includes(accName) ||
+                query.includes(label)));
+
+          if (isMatch) {
+            return ch.botMode === "HUMAN" ? "HUMAN" : "AI";
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[GET_CHANNEL_BOT_MODE_ERR]", err.message);
+  }
+
+  // Fallback kiểm tra trong store.channels của bot_states.json
+  const store = getStore();
+  const entry =
+    store.channels[query] ||
+    store.channels[`zalo_${query}`] ||
+    (query.includes("zalo") ? store.channels["ZALO_PERSONAL"] : null);
+
+  if (entry && typeof entry.enabled === "boolean" && !entry.enabled) {
+    return "HUMAN";
+  }
+
+  return "AI";
+}
+
+/**
+ * Kiểm tra kênh đó có bật AI Bot hay không.
+ * Nếu tài khoản ở channels.json cấu hình `botMode === 'HUMAN'` -> trả về `false`.
  * @param {string} channelId
  * @returns {boolean}
  */
 export function isChannelBotEnabled(channelId = "DEFAULT") {
-  const key = String(channelId || "DEFAULT").trim() || "DEFAULT";
-  const store = getStore();
-  const entry = store.channels[key];
-  if (!entry || typeof entry.enabled !== "boolean") {
-    return true;
-  }
-  return entry.enabled;
+  const mode = getChannelBotMode(channelId);
+  return mode !== "HUMAN";
 }
 
 /**
@@ -98,13 +168,45 @@ export function setChannelBotStatus(channelId = "DEFAULT", enabled = true) {
     updatedAt: Date.now(),
   };
   saveBotStoreToDisk(store);
+
+  // Đồng bộ sang channels.json nếu tìm thấy channel tương ứng
+  try {
+    const dataDir = resolveDataDir();
+    const channelsPath = path.join(dataDir, "channels.json");
+    if (fs.existsSync(channelsPath)) {
+      const raw = fs.readFileSync(channelsPath, "utf8").replace(/^\uFEFF/, "");
+      const channels = JSON.parse(raw);
+      if (Array.isArray(channels)) {
+        let changed = false;
+        const q = key.toLowerCase();
+        for (const ch of channels) {
+          if (!ch) continue;
+          const chId = String(ch.id || "").toLowerCase();
+          const extId = String(ch.externalId || "").toLowerCase();
+          const ownId = String(ch.config?.ownId || "").toLowerCase();
+          if (
+            chId === q ||
+            extId === q ||
+            ownId === q ||
+            `zalo_${extId}` === q ||
+            `zalo_${ownId}` === q
+          ) {
+            ch.botMode = enabled ? "AI" : "HUMAN";
+            changed = true;
+          }
+        }
+        if (changed) {
+          fs.writeFileSync(channelsPath, JSON.stringify(channels, null, 2), "utf8");
+        }
+      }
+    }
+  } catch {}
+
   return store.channels[key];
 }
 
 /**
- * Trả về trạng thái hiện tại của hội thoại.
- * Nếu đang ở chế độ `HUMAN` nhưng đã hết thời gian tạm dừng (`pausedUntil < Date.now()`, mặc định 45 phút),
- * tự động chuyển lại về `AI`.
+ * Trả về trạng thái hiện tại của hội thoại theo threadId.
  * @param {string} threadId
  * @returns {{ threadId: string, mode: 'AI' | 'HUMAN', pausedUntil: number | null, staffId: string | null, updatedAt: number }}
  */
@@ -162,7 +264,115 @@ export function getConversationBotState(threadId) {
 }
 
 /**
- * Gọi ngay lập tức khi nhân viên gõ tin nhắn trả lời thủ công hoặc bấm nút "Tắt Bot / Tiếp quản",
+ * QUY TẮC PHÂN CẤP QUYỀN ĐIỀU KHIỂN BOT (Hierarchical Bot Control):
+ * 1. CẤP TÀI KHOẢN (Channel-level - Master Rule):
+ *    - Đọc `botMode` của tài khoản Zalo sở hữu hội thoại từ `channels.json`.
+ *    - NẾU `botMode === 'HUMAN'`:
+ *      * Khóa Bot AI trên TOÀN BỘ hội thoại thuộc tài khoản này.
+ *      * Bất kể trạng thái riêng của `threadId` là gì, hàm `isBotActiveForThread` PHẢI LUÔN TRẢ VỀ `false` (Mode: HUMAN).
+ *      * Bot Runner tuyệt đối không tự động sinh tin nhắn trả lời.
+ * 2. CẤP HỘI THOẠI (Thread-level - Sub Rule):
+ *    - Chỉ có hiệu lực khi Cấp Tài Khoản đang bật `botMode === 'AI'`.
+ *    - Khi đó, từng hội thoại mới có thể chuyển đổi linh hoạt giữa `AI` (tự động) và `HUMAN` (tạm dừng 45 phút khi nhân viên vào chat tay).
+ *
+ * @param {string} threadId - Mã hội thoại
+ * @param {string} channelOrAccountId - Định danh tài khoản/kênh sở hữu hội thoại
+ * @returns {{ active: boolean, mode: 'AI' | 'HUMAN', reason: string, pausedUntil: number | null, staffId: string | null, accountMode: 'AI' | 'HUMAN' }}
+ */
+export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
+  const tid = String(threadId || "").trim();
+  const accountMode = getChannelBotMode(channelOrAccountId);
+
+  // 1. CẤP TÀI KHOẢN: Master Rule
+  if (accountMode === "HUMAN") {
+    return {
+      active: false,
+      mode: "HUMAN",
+      reason: "ACCOUNT_LEVEL_HUMAN",
+      pausedUntil: null,
+      staffId: "STAFF",
+      accountMode: "HUMAN",
+    };
+  }
+
+  // 2. CẤP HỘI THOẠI: Sub Rule
+  if (!tid) {
+    return {
+      active: true,
+      mode: "AI",
+      reason: "DEFAULT_AI",
+      pausedUntil: null,
+      staffId: null,
+      accountMode: "AI",
+    };
+  }
+
+  const convState = getConversationBotState(tid);
+  if (convState.mode === "HUMAN") {
+    return {
+      active: false,
+      mode: "HUMAN",
+      reason: "THREAD_LEVEL_PAUSED",
+      pausedUntil: convState.pausedUntil,
+      staffId: convState.staffId,
+      accountMode: "AI",
+    };
+  }
+
+  return {
+    active: true,
+    mode: "AI",
+    reason: "AI_ACTIVE",
+    pausedUntil: null,
+    staffId: null,
+    accountMode: "AI",
+  };
+}
+
+/**
+ * Tự động đồng bộ và làm mới bộ nhớ đệm trạng thái bot (`bot_states.json`) theo `channels.json`
+ * để đảm bảo không còn tình trạng kênh báo Nhân viên trực mà thread lại giữ cờ AI cũ.
+ */
+export function syncBotStatesWithChannels() {
+  try {
+    const dataDir = resolveDataDir();
+    const channelsPath = path.join(dataDir, "channels.json");
+    if (!fs.existsSync(channelsPath)) return;
+
+    const raw = fs.readFileSync(channelsPath, "utf8").replace(/^\uFEFF/, "");
+    const channels = JSON.parse(raw);
+    if (!Array.isArray(channels)) return;
+
+    const store = getStore();
+    for (const ch of channels) {
+      if (!ch || !ch.id) continue;
+      const isEnabled = ch.botMode !== "HUMAN";
+      store.channels[String(ch.id)] = {
+        enabled: isEnabled,
+        updatedAt: Date.now(),
+      };
+      if (ch.externalId) {
+        store.channels[String(ch.externalId)] = {
+          enabled: isEnabled,
+          updatedAt: Date.now(),
+        };
+        store.channels[`zalo_${ch.externalId}`] = {
+          enabled: isEnabled,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+    saveBotStoreToDisk(store);
+  } catch (err) {
+    console.error("[SYNC_BOT_STATES_ERR]", err.message);
+  }
+}
+
+// Khởi chạy đồng bộ ngay khi module được nạp
+syncBotStatesWithChannels();
+
+/**
+ * Gọi khi nhân viên gõ tin nhắn trả lời thủ công hoặc bấm nút "Tắt Bot / Tiếp quản",
  * khóa AI trong hội thoại đó.
  * @param {string} threadId
  * @param {string} [staffId]
