@@ -1626,40 +1626,39 @@ export default function LiveZaloInbox() {
                           </option>
                         </select>
                       </div>
+
+                      <button
+                        type="button"
+                        aria-label="Gọi thoại"
+                        title="Gọi thoại"
+                        className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Gọi video"
+                        title="Gọi video"
+                        className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
+                      >
+                        <Video className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowSidePanel(!showSidePanel)}
+                        title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-semibold transition-colors border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                          showSidePanel
+                            ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
+                            : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
+                        }`}
+                      >
+                        <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>Hồ Sơ 360</span>
+                      </button>
                     </div>
                   );
                 })()}
-
-                  <button
-                    type="button"
-                    aria-label="Gọi thoại"
-                    title="Gọi thoại"
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
-                  >
-                    <Phone className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Gọi video"
-                    title="Gọi video"
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
-                  >
-                    <Video className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSidePanel(!showSidePanel)}
-                    title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                    className={`px-2.5 py-2 rounded-xl text-xs font-semibold transition-colors border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-                      showSidePanel
-                        ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
-                        : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
-                    }`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>Hồ Sơ 360</span>
-                  </button>
-                </div>
               </div>
 
               {/* Message Thread Stream (Bong bóng chat 2 chiều) */}
