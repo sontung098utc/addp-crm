@@ -12,7 +12,7 @@ import {
   getOmnichannelConversations,
   getConnectedFacebookPages,
 } from "@/lib/unifiedMessageRouter.js";
-import { getChannelBotMode } from "@/lib/botControlStore.js";
+import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import fs from "fs";
 
@@ -277,6 +277,7 @@ export async function GET(request) {
           name.startsWith("My Documents") ||
           name === "Nhóm Học Tập";
 
+        const botStatus = isBotActiveForThread(thread.threadId, accountId || ownId || displayName);
         accActiveCount++;
         activeZaloConversations.push({
           id: thread.threadId,
@@ -296,6 +297,8 @@ export async function GET(request) {
           accountName,
           channelLabel,
           channelBotMode,
+          botMode: botStatus.mode,
+          isAccountLevelHuman: channelBotMode === "HUMAN",
           zaloHome: acc.homeDir,
           colorIndex: accIdx,
         });
@@ -305,6 +308,7 @@ export async function GET(request) {
         if (!processedIds.has(gid)) {
           processedIds.add(gid);
           const isPinned = pinnedSet.has(gid) || g.name === "Nhóm Học Tập";
+          const gBotStatus = isBotActiveForThread(gid, accountId || ownId || displayName);
           accContactCount++;
           contactOnlyConversations.push({
             id: gid,
@@ -324,6 +328,8 @@ export async function GET(request) {
             accountName,
             channelLabel,
             channelBotMode,
+            botMode: gBotStatus.mode,
+            isAccountLevelHuman: channelBotMode === "HUMAN",
             zaloHome: acc.homeDir,
             colorIndex: accIdx,
           });
@@ -333,6 +339,7 @@ export async function GET(request) {
       for (const [uid, f] of friendMap.entries()) {
         if (!processedIds.has(uid)) {
           processedIds.add(uid);
+          const fBotStatus = isBotActiveForThread(uid, accountId || ownId || displayName);
           accContactCount++;
           contactOnlyConversations.push({
             id: uid,
@@ -352,6 +359,8 @@ export async function GET(request) {
             accountName,
             channelLabel,
             channelBotMode,
+            botMode: fBotStatus.mode,
+            isAccountLevelHuman: channelBotMode === "HUMAN",
             zaloHome: acc.homeDir,
             colorIndex: accIdx,
           });

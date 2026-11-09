@@ -179,6 +179,37 @@ export default function LiveZaloInbox() {
   // WBS-39: Lên đơn hàng nhanh trong chat
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
+  // Kiểm tra xem một cuộc hội thoại có thuộc tài khoản đang cấu hình Nhân Viên Trực (HUMAN) hay không
+  const isConversationAccountHuman = useCallback(
+    (conv) => {
+      if (!conv) return false;
+      if (conv.channelBotMode === "HUMAN" || conv.isAccountLevelHuman) return true;
+      if (conv.botMode === "HUMAN" && (conv.channelBotMode === "HUMAN" || !conv.channelBotMode))
+        return true;
+
+      const targetAccountId = String(conv.accountId || conv.accountOwnId || "");
+      const targetAccountName = String(
+        conv.accountName || conv.accountDisplayName || ""
+      ).toLowerCase();
+      const matchedAccount = connectedZaloAccounts.find(
+        (a) =>
+          (targetAccountId &&
+            (String(a.accountId) === targetAccountId || String(a.ownId) === targetAccountId)) ||
+          (targetAccountName && a.name && targetAccountName.includes(String(a.name).toLowerCase())) ||
+          (targetAccountName &&
+            a.displayName &&
+            targetAccountName.includes(String(a.displayName).toLowerCase()))
+      );
+
+      if (matchedAccount && matchedAccount.botMode === "HUMAN") {
+        return true;
+      }
+
+      return false;
+    },
+    [connectedZaloAccounts]
+  );
+
   const messagesEndRef = useRef(null);
   const activeConvRef = useRef(activeConv);
   const convSignatureRef = useRef("");
@@ -501,14 +532,26 @@ export default function LiveZaloInbox() {
 
   // 2.5 Đồng bộ trạng thái AI Bot / Human-Takeover cho hội thoại đang mở (kế thừa Cấp Tài Khoản)
   useEffect(() => {
+    if (!activeConv?.id) return;
     let cancelled = false;
-    if (activeConv?.channelBotMode === "HUMAN") {
+
+    // Ép cứng ngay lập tức: Nếu tài khoản đang là HUMAN -> khóa AI 100%
+    const isChannelHuman = isConversationAccountHuman(activeConv);
+    if (isChannelHuman) {
       setConvBotMode("HUMAN");
       setIsAccountLevelHuman(true);
       setAiMode("HUMAN_ONLY");
+    } else if (activeConv.botMode === "HUMAN") {
+      setConvBotMode("HUMAN");
+      setIsAccountLevelHuman(false);
+      setAiMode("HUMAN_ONLY");
+    } else {
+      setConvBotMode("AI");
+      setIsAccountLevelHuman(false);
+      setAiMode("AUTO_REPLY");
     }
+
     async function fetchBotState() {
-      if (!activeConv?.id) return;
       const targetAccountId =
         activeConv.accountId ||
         activeConv.accountOwnId ||
@@ -526,13 +569,24 @@ export default function LiveZaloInbox() {
         );
         const data = await res.json();
         if (!cancelled && data.ok && data.state) {
-          const mode = data.effectiveMode || (data.state.mode === "HUMAN" ? "HUMAN" : "AI");
-          const isAccHuman =
-            data.accountMode === "HUMAN" || data.state.reason === "ACCOUNT_LEVEL_HUMAN";
-          setConvBotMode(mode);
-          setIsAccountLevelHuman(isAccHuman);
-          setConvBotPausedUntil(data.state.pausedUntil || null);
-          setAiMode(mode === "HUMAN" ? "HUMAN_ONLY" : "AUTO_REPLY");
+          const isAccHumanNow =
+            isChannelHuman ||
+            data.accountMode === "HUMAN" ||
+            data.state.reason === "ACCOUNT_LEVEL_HUMAN";
+
+          // TUYỆT ĐỐI KHÔNG fallback về AI nếu tài khoản đang là HUMAN
+          if (isAccHumanNow) {
+            setConvBotMode("HUMAN");
+            setIsAccountLevelHuman(true);
+            setAiMode("HUMAN_ONLY");
+            setConvBotPausedUntil(null);
+          } else {
+            const mode = data.effectiveMode || (data.state.mode === "HUMAN" ? "HUMAN" : "AI");
+            setConvBotMode(mode);
+            setIsAccountLevelHuman(false);
+            setConvBotPausedUntil(data.state.pausedUntil || null);
+            setAiMode(mode === "HUMAN" ? "HUMAN_ONLY" : "AUTO_REPLY");
+          }
         }
       } catch {}
     }
@@ -546,6 +600,9 @@ export default function LiveZaloInbox() {
     activeConv?.accountId,
     activeConv?.accountDisplayName,
     activeConv?.accountName,
+    activeConv?.channelBotMode,
+    activeConv?.botMode,
+    isConversationAccountHuman,
   ]);
 
   // Hàm bật/tắt nhanh AI Bot trực tiếp trên Header Cột 2
@@ -898,7 +955,13 @@ export default function LiveZaloInbox() {
       <button
         key={`${conv.channel}_${conv.accountId || ""}_${conv.id}`}
         type="button"
-        onClick={() => setActiveConv(conv)}
+        onClick={() => {
+          const isHuman = isConversationAccountHuman(conv) || conv.botMode === "HUMAN";
+          setConvBotMode(isHuman ? "HUMAN" : "AI");
+          setIsAccountLevelHuman(isConversationAccountHuman(conv));
+          setAiMode(isHuman ? "HUMAN_ONLY" : "AUTO_REPLY");
+          setActiveConv(conv);
+        }}
         className={`w-full text-left px-3 py-2.5 transition-colors flex items-start gap-2.5 cursor-pointer ${
           isSelected
             ? "bg-blue-50/90 dark:bg-slate-800/95 border-l-4 border-blue-500"
@@ -1481,70 +1544,91 @@ export default function LiveZaloInbox() {
                 </div>
 
                 {/* WBS-32 & WBS-33: Bộ chuyển 3 chế độ AI & Nút Toggle Human-Takeover */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleConvBot()}
-                    disabled={togglingBot}
-                    title={
-                      convBotMode === "AI"
-                        ? "Bấm để dừng Bot AI và chuyển sang Nhân viên trực (45 phút)"
-                        : isAccountLevelHuman
-                        ? "Tài khoản đang ở chế độ Nhân viên trực (theo /channels). Bấm để kích hoạt AI."
-                        : "Bấm để bật lại Bot AI Dược sĩ Thảo tự động trực"
-                    }
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs ${
-                      convBotMode === "AI"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30"
-                        : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30"
-                    }`}
-                  >
-                    {convBotMode === "AI" ? (
-                      <>
-                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                        <span>🤖 Bot AI Đang Trực</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
-                        <span>
-                          {isAccountLevelHuman
-                            ? "👤 Nhân Viên Trực (Theo cấu hình tài khoản)"
-                            : "👤 Nhân Viên Trực (Đã Dừng Bot)"}
-                        </span>
-                      </>
-                    )}
-                  </button>
+                {(() => {
+                  const isAccountHuman =
+                    isConversationAccountHuman(activeConv) ||
+                    isAccountLevelHuman ||
+                    activeConv?.channelBotMode === "HUMAN" ||
+                    activeConv?.botMode === "HUMAN";
+                  const isThreadHuman = isAccountHuman || convBotMode === "HUMAN";
 
-                  <div className="hidden lg:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
-                      Trực:
-                    </span>
-                    <select
-                      value={convBotMode === "HUMAN" ? "HUMAN_ONLY" : aiMode}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setAiMode(val);
-                        if (val === "HUMAN_ONLY") {
-                          handleToggleConvBot("pause");
-                        } else if (val === "AUTO_REPLY") {
-                          handleToggleConvBot("resume");
+                  return (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleConvBot()}
+                        disabled={togglingBot}
+                        title={
+                          !isThreadHuman
+                            ? "Bấm để dừng Bot AI và chuyển sang Nhân viên trực (45 phút)"
+                            : isAccountHuman
+                            ? "Tài khoản đang ở chế độ Nhân viên trực (theo cấu hình /channels). Bấm để kích hoạt AI."
+                            : "Bấm để bật lại Bot AI Dược sĩ Thảo tự động trực"
                         }
-                      }}
-                      aria-label="Chế độ trực hội thoại"
-                      className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer border-0 p-0"
-                    >
-                      <option value="HUMAN_ONLY" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200">
-                        Nhân viên trực
-                      </option>
-                      <option value="DRAFT_ONLY" className="bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-300">
-                        A.I. Soạn nháp
-                      </option>
-                      <option value="AUTO_REPLY" className="bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400">
-                        A.I. Tự động 24/7
-                      </option>
-                    </select>
-                  </div>
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shadow-xs ${
+                          !isThreadHuman
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30"
+                            : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30"
+                        }`}
+                      >
+                        {!isThreadHuman ? (
+                          <>
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            <span>🤖 Bot AI Đang Trực</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+                            <span>
+                              {isAccountHuman
+                                ? "👤 Nhân Viên Trực (Theo cấu hình tài khoản)"
+                                : "👤 Nhân Viên Trực (Đã Dừng Bot)"}
+                            </span>
+                          </>
+                        )}
+                      </button>
+
+                      <div className="hidden lg:flex items-center gap-1.5 bg-white dark:bg-slate-950 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium whitespace-nowrap">
+                          Trực:
+                        </span>
+                        <select
+                          value={isThreadHuman ? "HUMAN_ONLY" : aiMode}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAiMode(val);
+                            if (val === "HUMAN_ONLY") {
+                              handleToggleConvBot("pause");
+                            } else if (val === "AUTO_REPLY") {
+                              handleToggleConvBot("resume");
+                            }
+                          }}
+                          aria-label="Chế độ trực hội thoại"
+                          className="bg-transparent text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer border-0 p-0"
+                        >
+                          <option
+                            value="HUMAN_ONLY"
+                            className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                          >
+                            Nhân viên trực
+                          </option>
+                          <option
+                            value="DRAFT_ONLY"
+                            className="bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-300"
+                          >
+                            A.I. Soạn nháp
+                          </option>
+                          <option
+                            value="AUTO_REPLY"
+                            className="bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400"
+                          >
+                            A.I. Tự động 24/7
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                   <button
                     type="button"
