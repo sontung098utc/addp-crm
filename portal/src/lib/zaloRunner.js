@@ -948,6 +948,71 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
   };
 }
 
+/**
+ * Đảm bảo tài khoản Zalo đã được kéo lịch sử hội thoại ban đầu (Universal Initial Sync on Connect)
+ * - Kiểm tra cờ trong `.zalo-sync-state.json` inside targetHome: { initialSyncCompleted: boolean, lastSyncTime: number, totalSynced: number }
+ * - Nếu chưa đồng bộ: khởi động Zalo Daemon (kéo 20 trang WebSocket) và DirectSyncWorker (kéo danh bạ, nhóm, avatar, ghim).
+ * - Cập nhật trạng thái vào `.zalo-sync-state.json`.
+ */
+export async function ensureAccountHistorySynced(zaloHomePath, accountId = "") {
+  const targetHome = zaloHomePath || getActiveZaloHome();
+  const cliDir = path.join(targetHome, ".zalo-agent-cli");
+  const syncStatePath = path.join(cliDir, ".zalo-sync-state.json");
+  const historyPath = path.join(cliDir, "history.jsonl");
+
+  let state = { initialSyncCompleted: false, lastSyncTime: 0, totalSynced: 0 };
+  if (fs.existsSync(syncStatePath)) {
+    try {
+      state = JSON.parse(fs.readFileSync(syncStatePath, "utf8"));
+    } catch {}
+  }
+
+  const hasHistory = fs.existsSync(historyPath) && fs.statSync(historyPath).size > 50;
+  if (state.initialSyncCompleted && hasHistory && Date.now() - state.lastSyncTime < 24 * 3600 * 1000) {
+    return { ok: true, alreadySynced: true, state };
+  }
+
+  console.log(
+    `[Zalo Sync] Khởi tạo đồng bộ lịch sử hội thoại ban đầu cho tài khoản (${accountId || path.basename(targetHome)})...`
+  );
+
+  try {
+    // 1. Khởi chạy Zalo Daemon để tải 20 trang tin nhắn tự động (cmd 510/511)
+    ensureZaloMcpDaemon(targetHome);
+
+    // 2. Kích hoạt trực tiếp DirectSyncWorker để đồng bộ Danh bạ bạn bè, Nhóm chat, Ghim & Avatar
+    await triggerDirectSyncWorker(targetHome, true);
+
+    // 3. Đếm số lượng tin nhắn trong history.jsonl
+    let msgCount = 0;
+    if (fs.existsSync(historyPath)) {
+      try {
+        const content = fs.readFileSync(historyPath, "utf8");
+        msgCount = content.split("\n").filter((l) => l.trim().length > 0).length;
+      } catch {}
+    }
+
+    state = {
+      initialSyncCompleted: true,
+      lastSyncTime: Date.now(),
+      totalSynced: msgCount,
+    };
+
+    fs.mkdirSync(cliDir, { recursive: true });
+    fs.writeFileSync(syncStatePath, JSON.stringify(state, null, 2), "utf8");
+    console.log(
+      `[Zalo Sync] Hoàn thành đồng bộ ban đầu cho ${accountId || path.basename(targetHome)} (${msgCount} tin nhắn).`
+    );
+    return { ok: true, synced: true, state };
+  } catch (err) {
+    console.error(
+      `[Zalo Sync] Lỗi đồng bộ ban đầu cho ${accountId || path.basename(targetHome)}:`,
+      err.message
+    );
+    return { ok: false, error: err.message };
+  }
+}
+
 export function runZaloCommand(args, options = {}) {
   const targetHome = options.homeDir || getActiveZaloHome();
   try {
@@ -1075,7 +1140,16 @@ export async function processIncomingZaloMessageWithBot({
     }
   }
 
-  const channelEnabled = isChannelBotEnabled(channelId);
+  const targetHome = homeDir || getActiveZaloHome();
+  const targetOwnId = getOwnIdForHome(targetHome);
+  const specificChannelId =
+    channelId && channelId !== "ZALO_PERSONAL"
+      ? channelId
+      : targetOwnId
+      ? `zalo_${targetOwnId}`
+      : "ZALO_PERSONAL";
+  const channelEnabled =
+    isChannelBotEnabled(specificChannelId) && isChannelBotEnabled("ZALO_PERSONAL");
   const convState = getConversationBotState(threadId);
   const effectiveMode = !channelEnabled || convState.mode === "HUMAN" ? "HUMAN" : "AI";
 
@@ -1383,7 +1457,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
           text: lastMsg.text,
           isMe: false,
           type: "DIRECT",
-          channelId: "ZALO_PERSONAL",
+          channelId: ownId ? `zalo_${ownId}` : "ZALO_PERSONAL",
           conversationHistory: sortedMsgs.slice(-10),
           homeDir: targetHome,
         }).catch((err) => {
@@ -1401,9 +1475,29 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
  * để phản hồi khách hàng 24/7 theo thời gian thực (khách nhắn vào nick nào -> nick đó trả lời & xưng tên nick đó)
  */
 export function startZaloRealtimeAiWatcher() {
+  if (
+    process.env.NEXT_PHASE === "phase-production-build" ||
+    process.env.NEXT_PHASE?.includes("build") ||
+    process.env.npm_lifecycle_event === "build" ||
+    process.env.NEXT_RUNTIME === "edge"
+  ) {
+    return;
+  }
   if (globalThis.__zaloAiWatcherTimer) {
     return;
   }
+
+  // Tự động kiểm tra và chạy Universal Initial Sync ngầm MỘT LẦN DUY NHẤT khi runtime server khởi động
+  if (!globalThis.__zaloInitialSyncTriggered) {
+    globalThis.__zaloInitialSyncTriggered = true;
+    try {
+      const initAccounts = getAllActiveZaloHomes();
+      for (const acc of initAccounts) {
+        ensureAccountHistorySynced(acc.homeDir, acc.ownId).catch(() => {});
+      }
+    } catch {}
+  }
+
   globalThis.__zaloAiWatcherTimer = setInterval(() => {
     try {
       const accounts = getAllActiveZaloHomes();

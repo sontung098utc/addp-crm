@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAllCustomers, updateCustomer } from "@/lib/customerIdentityResolver";
-import { getAllCareTasks } from "@/lib/careAutomation";
+import { getAllCareTasks, savePersistedTasks } from "@/lib/careAutomation";
 import { getSessionStaff } from "@/lib/auth";
 import { filterRecordsByRbac } from "@/lib/rbac";
 
@@ -92,6 +92,7 @@ export async function POST(request) {
           channel: currentTask.channel,
         });
       }
+      savePersistedTasks(dynamicTasksStore);
     }
 
     return NextResponse.json({

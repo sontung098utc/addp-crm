@@ -1432,7 +1432,7 @@ export default function LiveZaloInbox() {
                         : `ID: ${activeConv.id} • `}
                       {activeConv.channel === "FACEBOOK" && activeConv.pageId
                         ? `Page ID: ${activeConv.pageId} (${activeConv.pageName})`
-                        : `Tài khoản: ${activeConv.accountName || "Zalo Cá Nhân (Sơn Tùng)"}`}
+                        : `Tài khoản: ${activeConv.accountName || (activeConv.accountDisplayName ? `Zalo: ${activeConv.accountDisplayName}` : "Zalo Cá Nhân")}`}
                     </p>
                   </div>
                 </div>

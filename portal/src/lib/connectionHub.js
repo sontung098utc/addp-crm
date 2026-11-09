@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { getAllActiveZaloHomes } from "./zaloRunner.js";
+import { setChannelBotStatus } from "./botControlStore.js";
 
 /**
  * ADDP Omnichannel AI CRM — ConnectionHub (WBS-11)
@@ -226,6 +227,8 @@ function getLiveZaloAccounts() {
       if (seenKeys.has(extKey) || deletedSet.has(chId) || deletedSet.has(extKey)) continue;
       seenKeys.add(extKey);
 
+      const existingRecord = runtimeChannelsStore.get(chId);
+
       accounts.push({
         id: chId,
         connectionId: h.slug || extKey,
@@ -234,6 +237,11 @@ function getLiveZaloAccounts() {
         externalId: extKey,
         status: "CONNECTED",
         statusLabel: "Đã kết nối trực tiếp (Quét QR)",
+        botMode: existingRecord?.botMode || "AI",
+        assignedStaff: existingRecord?.assignedStaff || {
+          id: "ADMIN",
+          name: "Quản Trị Viên ADDP",
+        },
         config: {
           homeDir: h.homeDir,
           ownId: h.ownId || extKey,
@@ -280,6 +288,7 @@ function getLiveZaloAccounts() {
                 !deletedSet.has(`zalo_${conn.id}`)
               ) {
                 seenKeys.add(extKey);
+                const existingRecord = runtimeChannelsStore.get(chId);
                 accounts.push({
                   id: chId,
                   connectionId: conn.id,
@@ -288,6 +297,11 @@ function getLiveZaloAccounts() {
                   externalId: extKey,
                   status: "CONNECTED",
                   statusLabel: "Đã kết nối trực tiếp (Quét QR)",
+                  botMode: existingRecord?.botMode || "AI",
+                  assignedStaff: existingRecord?.assignedStaff || {
+                    id: "ADMIN",
+                    name: "Quản Trị Viên ADDP",
+                  },
                   config: {
                     homeDir: conn.config.home_dir,
                     ownId: activeAcc.ownId,
@@ -351,13 +365,31 @@ export function listAllChannels() {
   // Đồng bộ bền vững các tài khoản Zalo & KiotViet thật vào channels.json để không bao giờ mất khi restart PM2
   for (const z of liveZalo) {
     const existing = runtimeChannelsStore.get(String(z.id));
-    if (
-      !existing ||
-      existing.status !== "CONNECTED" ||
-      existing.config?.homeDir !== z.config?.homeDir
-    ) {
+    if (!existing) {
       runtimeChannelsStore.set(String(z.id), z);
       storeUpdated = true;
+    } else {
+      let changed = false;
+      if (existing.status !== "CONNECTED") {
+        existing.status = "CONNECTED";
+        changed = true;
+      }
+      if (existing.config?.homeDir !== z.config?.homeDir) {
+        existing.config = { ...existing.config, ...z.config };
+        changed = true;
+      }
+      if (!existing.botMode) {
+        existing.botMode = z.botMode || "AI";
+        changed = true;
+      }
+      if (!existing.assignedStaff) {
+        existing.assignedStaff = z.assignedStaff || { id: "ADMIN", name: "Quản Trị Viên ADDP" };
+        changed = true;
+      }
+      if (changed) {
+        runtimeChannelsStore.set(String(z.id), existing);
+        storeUpdated = true;
+      }
     }
   }
 
@@ -468,6 +500,8 @@ export function createChannelAccount(input) {
         ? "Đã kết nối trực tiếp (Quét QR)"
         : "Đã kết nối trực tiếp"
       : "Vừa khởi tạo, sẵn sàng kết nối",
+    botMode: input.botMode === "HUMAN" ? "HUMAN" : "AI",
+    assignedStaff: input.assignedStaff || { id: "ADMIN", name: "Quản Trị Viên ADDP" },
     config: {
       ...input.config,
     },
@@ -492,6 +526,15 @@ export function updateChannelAccount(id, updates) {
   if (updates.status) {
     existing.status = updates.status;
     existing.statusLabel = updates.statusLabel || existing.statusLabel;
+  }
+  if (updates.botMode) {
+    existing.botMode = updates.botMode === "HUMAN" ? "HUMAN" : "AI";
+    try {
+      setChannelBotStatus(id, existing.botMode === "AI");
+    } catch {}
+  }
+  if (updates.assignedStaff) {
+    existing.assignedStaff = updates.assignedStaff;
   }
   if (updates.config) {
     existing.config = { ...existing.config, ...updates.config };

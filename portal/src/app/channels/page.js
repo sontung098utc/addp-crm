@@ -38,6 +38,13 @@ const PLATFORM_TABS = [
   { id: "MAGENTO", label: "Website ADDP", Icon: Zap, badge: "Magento 2.4.8" },
 ];
 
+const STAFF_LIST = [
+  { id: "ADMIN", name: "Quản Trị Viên ADDP" },
+  { id: "CS01", name: "Dược Sĩ Thảo (ADDP)" },
+  { id: "S001", name: "Nhân Viên CSKH 1" },
+  { id: "S002", name: "Nhân Viên CSKH 2" },
+];
+
 export default function ChannelsPage() {
   const [activeTab, setActiveTab] = useState("ALL");
   const [channels, setChannels] = useState([]);
@@ -48,6 +55,8 @@ export default function ChannelsPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [guidePlatform, setGuidePlatform] = useState(null);
   const [testingId, setTestingId] = useState(null);
+  const [syncingChannelId, setSyncingChannelId] = useState(null);
+  const [updatingBotModeId, setUpdatingBotModeId] = useState(null);
   const [banner, setBanner] = useState(null);
   const [copiedText, setCopiedText] = useState(null);
 
@@ -117,6 +126,89 @@ export default function ChannelsPage() {
       }
     } catch {
       setBanner({ type: "error", text: "Lỗi kết nối khi xóa kênh." });
+    }
+  };
+
+  const handleToggleBotMode = async (channel) => {
+    const nextMode = channel.botMode === "HUMAN" ? "AI" : "HUMAN";
+    setUpdatingBotModeId(channel.id);
+    try {
+      const res = await fetch("/api/channels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: channel.id,
+          botMode: nextMode,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBanner({
+          type: "success",
+          text: `Đã chuyển '${channel.name}' sang chế độ ${
+            nextMode === "AI" ? "A.I. Tự động 24/7" : "Nhân viên trực"
+          }!`,
+        });
+        loadChannels();
+      } else {
+        setBanner({ type: "error", text: data.error || "Không thể đổi chế độ trực." });
+      }
+    } catch {
+      setBanner({ type: "error", text: "Lỗi máy chủ khi đổi chế độ trực." });
+    } finally {
+      setUpdatingBotModeId(null);
+    }
+  };
+
+  const handleChangeStaff = async (channel, staff) => {
+    try {
+      const res = await fetch("/api/channels", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: channel.id,
+          assignedStaff: staff,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBanner({
+          type: "success",
+          text: `Đã phân công ${staff.name} phụ trách '${channel.name}'!`,
+        });
+        loadChannels();
+      } else {
+        setBanner({ type: "error", text: data.error || "Không thể phân công nhân sự." });
+      }
+    } catch {
+      setBanner({ type: "error", text: "Lỗi máy chủ khi phân công nhân sự." });
+    }
+  };
+
+  const handleSyncChannelHistory = async (channel) => {
+    setSyncingChannelId(channel.id);
+    try {
+      const res = await fetch("/api/channels/zalo/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          homeDir: channel.config?.homeDir,
+          accountId: channel.externalId,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setBanner({
+          type: "success",
+          text: `Đã đồng bộ lịch sử '${channel.name}' thành công! (${data.state?.totalSynced || 0} tin nhắn)`,
+        });
+      } else {
+        setBanner({ type: "error", text: data.error || data.message || "Không thể đồng bộ." });
+      }
+    } catch {
+      setBanner({ type: "error", text: "Lỗi máy chủ khi đồng bộ lịch sử hội thoại." });
+    } finally {
+      setSyncingChannelId(null);
     }
   };
 
@@ -392,7 +484,7 @@ export default function ChannelsPage() {
 
                   <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{meta.desc}</p>
 
-                  <div className="rounded-xl bg-slate-950 p-3 space-y-1.5 text-[11px] border border-slate-800/80">
+                  <div className="rounded-xl bg-slate-950 p-3 space-y-2 text-[11px] border border-slate-800/80">
                     <div className="flex justify-between gap-2 text-slate-400">
                       <span>Trạng thái:</span>
                       <span
@@ -403,12 +495,73 @@ export default function ChannelsPage() {
                         {ch.statusLabel}
                       </span>
                     </div>
-                    <div className="flex justify-between gap-2 text-slate-400">
-                      <span>Nhân sự phụ trách:</span>
-                      <span className="text-blue-400 font-semibold font-mono">
-                        {ch.assignedStaffCodes?.join(", ") || "ADMIN"}
-                      </span>
+
+                    {/* Chế độ trực: AI vs HUMAN */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                      <span className="text-slate-400">Chế độ trực:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleBotMode(ch)}
+                        disabled={updatingBotModeId === ch.id}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all cursor-pointer border ${
+                          ch.botMode === "HUMAN"
+                            ? "bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20"
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            ch.botMode === "HUMAN"
+                              ? "bg-amber-400"
+                              : "bg-emerald-400 animate-pulse"
+                          }`}
+                        />
+                        <span>
+                          {ch.botMode === "HUMAN" ? "👤 Nhân Viên Trực" : "🤖 A.I. Tự Động 24/7"}
+                        </span>
+                      </button>
                     </div>
+
+                    {/* Phân công nhân sự */}
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+                      <span className="text-slate-400">Nhân sự trực:</span>
+                      <select
+                        value={ch.assignedStaff?.id || "ADMIN"}
+                        onChange={(e) => {
+                          const staff =
+                            STAFF_LIST.find((s) => s.id === e.target.value) || STAFF_LIST[0];
+                          handleChangeStaff(ch, staff);
+                        }}
+                        className="bg-slate-900 border border-slate-700 text-slate-200 text-[10px] rounded-lg px-2 py-0.5 outline-hidden focus:border-blue-500 cursor-pointer"
+                      >
+                        {STAFF_LIST.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Đồng bộ lịch sử tin nhắn cho nick Zalo */}
+                    {ch.platform === "ZALO_PERSONAL" && isConnected && (
+                      <div className="pt-1.5 border-t border-slate-800/60 flex items-center justify-between gap-2">
+                        <span className="text-slate-400 text-[10px]">Lịch sử chat:</span>
+                        <button
+                          type="button"
+                          disabled={syncingChannelId === ch.id}
+                          onClick={() => handleSyncChannelHistory(ch)}
+                          className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 font-semibold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer transition-colors"
+                        >
+                          <RefreshCw
+                            className={`w-3 h-3 ${syncingChannelId === ch.id ? "animate-spin" : ""}`}
+                          />
+                          <span>
+                            {syncingChannelId === ch.id ? "Đang đồng bộ..." : "Đồng Bộ Tin Nhắn"}
+                          </span>
+                        </button>
+                      </div>
+                    )}
+
                     {webhook && (
                       <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between gap-2">
                         <span className="text-slate-400 truncate text-[10px]">
