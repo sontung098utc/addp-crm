@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import {
   getActiveZaloHome,
+  getAllActiveZaloHomes,
   ensureZaloMcpDaemon,
   syncZaloGroupsAndMetadata,
   getAllZaloHistoryFiles,
@@ -163,136 +164,208 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get("refresh") === "1";
-    const targetHome = getActiveZaloHome();
 
-    // 1. Đảm bảo daemon `mcp start --http 3099` luôn chạy ngầm 24/7 để nhận tin nhắn realtime
-    ensureZaloMcpDaemon(targetHome);
+    // Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang kết nối (Sơn Tùng, Lê Quyên...)
+    const discoveredAccounts = getAllActiveZaloHomes();
+    const zaloAccountsToSync =
+      discoveredAccounts.length > 0
+        ? discoveredAccounts
+        : [
+            {
+              accountId: "1781287338457243967",
+              ownId: "1781287338457243967",
+              slug: "default",
+              name: "Sơn Tùng",
+              displayName: "Sơn Tùng",
+              accountName: "Zalo: Sơn Tùng",
+              channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
+              homeDir: getActiveZaloHome(),
+            },
+          ];
 
-    // 2. Đồng bộ song song Metadata + Tin nhắn Nhóm Zalo (HTTP REST) & Hội thoại Fanpage FB
-    const [{ ownId, friendMap, groupMap, pinnedSet }, otherConversations] = await Promise.all([
-      syncZaloGroupsAndMetadata(targetHome, forceRefresh),
+    // 1. Đảm bảo daemon `mcp start --http` luôn chạy ngầm 24/7 cho mọi tài khoản Zalo đang kết nối
+    for (const acc of zaloAccountsToSync) {
+      ensureZaloMcpDaemon(acc.homeDir);
+    }
+
+    // 2. Đồng bộ song song Metadata + Tin nhắn của tất cả tài khoản Zalo & Hội thoại Fanpage FB
+    const [zaloSyncResults, otherConversations] = await Promise.all([
+      Promise.all(
+        zaloAccountsToSync.map(async (acc) => {
+          const meta = await syncZaloGroupsAndMetadata(acc.homeDir, forceRefresh);
+          const effectiveOwnId = String(acc.ownId || meta.ownId || "");
+          const threadsMap = getLatestThreadsFromAllHistories(acc.homeDir, effectiveOwnId);
+
+          // Kích hoạt kiểm tra và tự động trả lời ngay lập tức cho tài khoản Zalo này nếu có tin nhắn mới từ khách (!isSelf)
+          scanAndAutoReplyZaloHistories(acc.homeDir, effectiveOwnId).catch((err) => {
+            console.error(`[Zalo AI Bot] Lỗi scan từ conversations API (${acc.displayName}):`, err.message);
+          });
+
+          return {
+            acc,
+            ownId: effectiveOwnId,
+            friendMap: meta.friendMap,
+            groupMap: meta.groupMap,
+            pinnedSet: meta.pinnedSet,
+            threadsMap,
+          };
+        })
+      ),
       getOmnichannelConversations(forceRefresh),
     ]);
 
-    // 3. Đọc toàn bộ lịch sử tin nhắn thực tế sau khi worker đã cập nhật
-    const threadsMap = getLatestThreadsFromAllHistories(targetHome, ownId);
-
-    // 3.5. Kích hoạt kiểm tra và tự động trả lời ngay lập tức nếu có tin nhắn mới từ khách (!isSelf)
-    scanAndAutoReplyZaloHistories(targetHome, ownId).catch((err) => {
-      console.error("[Zalo AI Bot] Lỗi scan từ conversations API:", err.message);
-    });
-
     const activeZaloConversations = [];
     const contactOnlyConversations = [];
-    const processedIds = new Set();
+    const connectedZaloAccounts = [];
 
-    // 4. Xây dựng danh sách các cuộc hội thoại Zalo có tin nhắn thực tế (timestamp > 0)
-    const activeThreads = Array.from(threadsMap.values()).sort(
-      (a, b) => b.timestamp - a.timestamp || String(a.threadId).localeCompare(String(b.threadId))
-    );
+    // 3. Xây dựng danh sách các cuộc hội thoại từ TẤT CẢ các tài khoản Zalo đã kết nối
+    for (let accIdx = 0; accIdx < zaloSyncResults.length; accIdx++) {
+      const { acc, ownId, friendMap, groupMap, pinnedSet, threadsMap } = zaloSyncResults[accIdx];
+      const accountId = String(acc.accountId || ownId || acc.slug || `zalo_${accIdx}`);
+      const displayName = acc.displayName || acc.name || "Zalo Cá Nhân";
+      const accountName = `Zalo: ${displayName}`;
+      const channelLabel = `Zalo Cá Nhân (${displayName})`;
+      const processedIds = new Set();
+      let accActiveCount = 0;
+      let accContactCount = 0;
 
-    for (const thread of activeThreads) {
-      processedIds.add(thread.threadId);
-      const isGroup = thread.threadType === "group" || groupMap.has(thread.threadId);
-      let name = "";
-      let avatar = "";
-      let memberCount = 0;
-      let phone = "";
+      const activeThreads = Array.from(threadsMap.values()).sort(
+        (a, b) => b.timestamp - a.timestamp || String(a.threadId).localeCompare(String(b.threadId))
+      );
 
-      if (isGroup) {
-        const g = groupMap.get(thread.threadId);
-        name = g?.name || `Nhóm Zalo (${thread.threadId.slice(-4)})`;
-        avatar = g?.avatar || "";
-        memberCount = g?.memberCount || 0;
-      } else {
-        const f = friendMap.get(thread.threadId);
-        if (String(thread.threadId) === String(ownId)) {
-          name = "My Documents (Cloud của tôi)";
-        } else if (f) {
-          name = f.displayName || f.zaloName || thread.peerName || "Khách Zalo";
-          avatar = f.avatar || "";
-          phone = f.phoneNumber || "";
-        } else if (thread.peerName) {
-          name = thread.peerName;
-        } else if (thread.isSelf) {
-          name = "My Documents (Cloud của tôi)";
+      for (const thread of activeThreads) {
+        processedIds.add(thread.threadId);
+        const isGroup = thread.threadType === "group" || groupMap.has(thread.threadId);
+        let name = "";
+        let avatar = "";
+        let memberCount = 0;
+        let phone = "";
+
+        if (isGroup) {
+          const g = groupMap.get(thread.threadId);
+          name = g?.name || `Nhóm Zalo (${thread.threadId.slice(-4)})`;
+          avatar = g?.avatar || "";
+          memberCount = g?.memberCount || 0;
         } else {
-          name = thread.senderName || `Khách Zalo (${thread.threadId.slice(-4)})`;
+          const f = friendMap.get(thread.threadId);
+          if (String(thread.threadId) === String(ownId)) {
+            name = `My Documents (${displayName})`;
+          } else if (f) {
+            name = f.displayName || f.zaloName || thread.peerName || "Khách Zalo";
+            avatar = f.avatar || "";
+            phone = f.phoneNumber || "";
+          } else if (thread.peerName) {
+            name = thread.peerName;
+          } else if (thread.isSelf) {
+            name = `My Documents (${displayName})`;
+          } else {
+            name = thread.senderName || `Khách Zalo (${thread.threadId.slice(-4)})`;
+          }
+        }
+
+        let snippet = thread.text || "[Tin nhắn]";
+        if (thread.isSelf) {
+          snippet = `Bạn: ${snippet}`;
+        } else if (isGroup && thread.senderName) {
+          snippet = `${thread.senderName}: ${snippet}`;
+        }
+
+        const isPinned =
+          pinnedSet.has(thread.threadId) ||
+          name.startsWith("My Documents") ||
+          name === "Nhóm Học Tập";
+
+        accActiveCount++;
+        activeZaloConversations.push({
+          id: thread.threadId,
+          name,
+          type: isGroup ? "GROUP" : "DIRECT",
+          avatar,
+          phone,
+          memberCount,
+          isPinned,
+          lastMessage: snippet,
+          lastActive: formatZaloTimeLabel(thread.timestamp),
+          timestamp: thread.timestamp,
+          channel: "ZALO_PERSONAL",
+          accountId,
+          accountOwnId: ownId,
+          accountDisplayName: displayName,
+          accountName,
+          channelLabel,
+          zaloHome: acc.homeDir,
+          colorIndex: accIdx,
+        });
+      }
+
+      for (const [gid, g] of groupMap.entries()) {
+        if (!processedIds.has(gid)) {
+          processedIds.add(gid);
+          const isPinned = pinnedSet.has(gid) || g.name === "Nhóm Học Tập";
+          accContactCount++;
+          contactOnlyConversations.push({
+            id: gid,
+            name: g.name || "Nhóm Zalo",
+            type: "GROUP",
+            avatar: g.avatar || "",
+            memberCount: g.memberCount || 0,
+            isPinned,
+            isContactOnly: true,
+            lastMessage: `Nhóm ${g.memberCount || 0} thành viên`,
+            lastActive: "Danh bạ",
+            timestamp: 0,
+            channel: "ZALO_PERSONAL",
+            accountId,
+            accountOwnId: ownId,
+            accountDisplayName: displayName,
+            accountName,
+            channelLabel,
+            zaloHome: acc.homeDir,
+            colorIndex: accIdx,
+          });
         }
       }
 
-      let snippet = thread.text || "[Tin nhắn]";
-      if (thread.isSelf) {
-        snippet = `Bạn: ${snippet}`;
-      } else if (isGroup && thread.senderName) {
-        snippet = `${thread.senderName}: ${snippet}`;
+      for (const [uid, f] of friendMap.entries()) {
+        if (!processedIds.has(uid)) {
+          processedIds.add(uid);
+          accContactCount++;
+          contactOnlyConversations.push({
+            id: uid,
+            name: f.displayName || f.zaloName || "Bạn bè",
+            type: "DIRECT",
+            avatar: f.avatar || "",
+            phone: f.phoneNumber || "",
+            isPinned: pinnedSet.has(uid),
+            isContactOnly: true,
+            lastMessage: "Danh bạ Zalo",
+            lastActive: "Danh bạ",
+            timestamp: 0,
+            channel: "ZALO_PERSONAL",
+            accountId,
+            accountOwnId: ownId,
+            accountDisplayName: displayName,
+            accountName,
+            channelLabel,
+            zaloHome: acc.homeDir,
+            colorIndex: accIdx,
+          });
+        }
       }
 
-      const isPinned =
-        pinnedSet.has(thread.threadId) ||
-        name.startsWith("My Documents") ||
-        name === "Nhóm Học Tập";
-
-      activeZaloConversations.push({
-        id: thread.threadId,
-        name,
-        type: isGroup ? "GROUP" : "DIRECT",
-        avatar,
-        phone,
-        memberCount,
-        isPinned,
-        lastMessage: snippet,
-        lastActive: formatZaloTimeLabel(thread.timestamp),
-        timestamp: thread.timestamp,
-        channel: "ZALO_PERSONAL",
-        accountName: "Zalo: Sơn Tùng",
-        channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
+      connectedZaloAccounts.push({
+        accountId,
+        ownId,
+        name: displayName,
+        displayName: `Zalo ${displayName}`,
+        label: accountName,
+        channelLabel,
+        homeDir: acc.homeDir,
+        activeCount: accActiveCount,
+        contactCount: accContactCount,
+        totalCount: accActiveCount + accContactCount,
+        colorIndex: accIdx,
       });
-    }
-
-    // 5. Các nhóm & bạn bè trong danh bạ chưa có tin nhắn: đặt cố định ở cuối danh sách (timestamp = 0),
-    // sắp xếp theo bảng chữ cái để tuyệt đối không bao giờ nhảy lên đầu danh sách hội thoại đang chat.
-    for (const [gid, g] of groupMap.entries()) {
-      if (!processedIds.has(gid)) {
-        processedIds.add(gid);
-        const isPinned = pinnedSet.has(gid) || g.name === "Nhóm Học Tập";
-        contactOnlyConversations.push({
-          id: gid,
-          name: g.name || "Nhóm Zalo",
-          type: "GROUP",
-          avatar: g.avatar || "",
-          memberCount: g.memberCount || 0,
-          isPinned,
-          isContactOnly: true,
-          lastMessage: `Nhóm ${g.memberCount || 0} thành viên`,
-          lastActive: "Danh bạ",
-          timestamp: 0,
-          channel: "ZALO_PERSONAL",
-          accountName: "Zalo: Sơn Tùng",
-          channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
-        });
-      }
-    }
-
-    for (const [uid, f] of friendMap.entries()) {
-      if (!processedIds.has(uid)) {
-        processedIds.add(uid);
-        contactOnlyConversations.push({
-          id: uid,
-          name: f.displayName || f.zaloName || "Bạn bè",
-          type: "DIRECT",
-          avatar: f.avatar || "",
-          phone: f.phoneNumber || "",
-          isPinned: pinnedSet.has(uid),
-          isContactOnly: true,
-          lastMessage: "Danh bạ Zalo",
-          lastActive: "Danh bạ",
-          timestamp: 0,
-          channel: "ZALO_PERSONAL",
-          accountName: "Zalo: Sơn Tùng",
-          channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
-        });
-      }
     }
 
     contactOnlyConversations.sort((a, b) => {
@@ -300,7 +373,7 @@ export async function GET(request) {
       return String(a.name).localeCompare(String(b.name), "vi");
     });
 
-    // 6. Hợp nhất tất cả cuộc hội thoại có tin nhắn thật (Zalo + 3 Fanpage FB + Zalo OA)
+    // 6. Hợp nhất tất cả cuộc hội thoại có tin nhắn thật (Đa Zalo QR + Fanpage FB + Zalo OA)
     // Sắp xếp cố định theo thời gian thực giảm dần, khử hoàn toàn hiện tượng nhảy danh sách
     const allActive = [...activeZaloConversations, ...otherConversations].sort(
       (a, b) => b.timestamp - a.timestamp || String(a.id).localeCompare(String(b.id))
@@ -313,6 +386,7 @@ export async function GET(request) {
       ok: true,
       total: combined.length,
       activeCount: allActive.length,
+      connectedZaloAccounts,
       connectedPages,
       conversations: combined,
     });

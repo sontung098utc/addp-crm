@@ -1,7 +1,7 @@
 import crypto from "crypto";
-
 import fs from "fs";
 import path from "path";
+import { getAllActiveZaloHomes } from "./zaloRunner.js";
 
 /**
  * ADDP Omnichannel AI CRM — ConnectionHub (WBS-11)
@@ -100,122 +100,68 @@ export function decryptCredential(cipherText) {
   }
 }
 
-const PERSISTED_CHANNELS_PATH = path.join(process.cwd(), ".data", "channels.json");
+function resolveDataDir() {
+  const cwd = process.cwd();
+  if (fs.existsSync(path.join(cwd, "portal", "package.json"))) {
+    return path.join(cwd, "portal", ".data");
+  }
+  return path.join(cwd, ".data");
+}
 
-// Danh sách cấu hình khung mặc định cho 7 nền tảng (ở trạng thái Chưa kết nối / Sẵn sàng cấu hình)
-const DEFAULT_CHANNELS_CONFIG = [
-  {
-    id: "101",
-    platform: "MAGENTO",
-    name: "Website ADDP.vn (CustomForm & Minigame)",
-    externalId: "addp_vn_main",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ nhập API Token)",
-    config: {
-      domain: "https://addp.vn",
-      encryptedApiToken: "",
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-  {
-    id: "fb_page_default",
-    platform: "FACEBOOK",
-    name: "Fanpage Facebook",
-    externalId: "fb_pending",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ Meta OAuth)",
-    config: {
-      pageId: "",
-      pageAccessToken: "",
-      avatar: "",
-      category: "",
-      autoHidePhone: true,
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-  {
-    id: "104",
-    platform: "ZALO_PERSONAL",
-    name: "Zalo Cá Nhân (Multi-QR)",
-    externalId: "zalo_qr_pending",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ quét mã QR)",
-    config: {
-      sessionDir: "zalo_session_default",
-      phone: "",
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-  {
-    id: "106",
-    platform: "ZALO_OA",
-    name: "Zalo OA Doanh Nghiệp",
-    externalId: "zalo_oa_pending",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ nhập OA Secret Key)",
-    config: {
-      oaId: "",
-      appId: "",
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-  {
-    id: "107",
-    platform: "TIKTOK_SHOP",
-    name: "TikTok Shop Mall",
-    externalId: "tts_pending",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ ủy quyền Shop ID)",
-    config: {
-      shopId: "",
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-  {
-    id: "108",
-    platform: "SHOPEE",
-    name: "Shopee Mall",
-    externalId: "shopee_pending",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ cấp quyền Partner Key)",
-    config: {
-      shopId: "",
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-  {
-    id: "109",
-    platform: "KIOTVIET",
-    name: "KiotViet POS & Kho",
-    externalId: "kiotviet_pending",
-    status: "READY_TO_CONNECT",
-    statusLabel: "Chưa kết nối (Chờ Webhook KiotViet)",
-    config: {
-      retailer: "",
-    },
-    lastCheckedAt: new Date().toISOString(),
-    assignedStaffCodes: ["ADMIN"],
-  },
-];
+const PERSISTED_CHANNELS_PATH = path.join(resolveDataDir(), "channels.json");
+const DELETED_CHANNELS_PATH = path.join(resolveDataDir(), "deleted_channels.json");
+
+const LEGACY_MOCK_IDS = new Set([
+  "101",
+  "fb_page_default",
+  "104",
+  "106",
+  "107",
+  "108",
+  "109",
+]);
+
+function isLegacyMockPlaceholder(item) {
+  if (!item || typeof item !== "object") return true;
+  const idStr = String(item.id || "");
+  const extId = String(item.externalId || "");
+  if (
+    LEGACY_MOCK_IDS.has(idStr) &&
+    item.status !== "CONNECTED" &&
+    (extId.endsWith("_pending") || extId === "addp_vn_main")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function loadDeletedChannelIds() {
+  try {
+    if (fs.existsSync(DELETED_CHANNELS_PATH)) {
+      const arr = JSON.parse(fs.readFileSync(DELETED_CHANNELS_PATH, "utf8"));
+      if (Array.isArray(arr)) return new Set(arr.map((x) => String(x)));
+    }
+  } catch {}
+  return new Set();
+}
+
+function saveDeletedChannelIds(setObj) {
+  try {
+    const dir = path.dirname(DELETED_CHANNELS_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DELETED_CHANNELS_PATH, JSON.stringify(Array.from(setObj), null, 2), "utf8");
+  } catch {}
+}
 
 // Lưu trữ bộ nhớ runtime cho các tài khoản kênh
 let runtimeChannelsStore = new Map();
 
-function initDefaultChannelsMap() {
-  const map = new Map();
-  for (const ch of DEFAULT_CHANNELS_CONFIG) {
-    map.set(String(ch.id), { ...ch });
-  }
-  return map;
-}
-
+/**
+ * Đọc danh sách kênh từ `portal/.data/channels.json`.
+ * TUYỆT ĐỐI KHÔNG tự động seed kênh rác mặc định (TikTok, Shopee, KiotViet, Fanpage...) khi file đã tồn tại hoặc rỗng.
+ */
 function loadPersistedChannels() {
+  let needsRewrite = false;
   try {
     if (fs.existsSync(PERSISTED_CHANNELS_PATH)) {
       const raw = fs.readFileSync(PERSISTED_CHANNELS_PATH, "utf8");
@@ -223,9 +169,15 @@ function loadPersistedChannels() {
       if (Array.isArray(items)) {
         runtimeChannelsStore = new Map();
         for (const item of items) {
-          if (item && item.id) {
-            runtimeChannelsStore.set(String(item.id), item);
+          if (!item || !item.id) continue;
+          if (isLegacyMockPlaceholder(item)) {
+            needsRewrite = true;
+            continue;
           }
+          runtimeChannelsStore.set(String(item.id), item);
+        }
+        if (needsRewrite) {
+          savePersistedChannels();
         }
         return;
       }
@@ -234,9 +186,9 @@ function loadPersistedChannels() {
     console.error("[CONNECTION_HUB_LOAD_ERR]", err);
   }
 
-  // Nếu chưa có file channels.json -> Khởi tạo mặc định và lưu xuống file
-  if (runtimeChannelsStore.size === 0) {
-    runtimeChannelsStore = initDefaultChannelsMap();
+  // Khởi tạo file rỗng lần đầu nếu chưa có file (TUYỆT ĐỐI KHÔNG seed kênh giả)
+  if (!fs.existsSync(PERSISTED_CHANNELS_PATH)) {
+    runtimeChannelsStore = new Map();
     savePersistedChannels();
   }
 }
@@ -245,7 +197,9 @@ function savePersistedChannels() {
   try {
     const dir = path.dirname(PERSISTED_CHANNELS_PATH);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const all = Array.from(runtimeChannelsStore.values());
+    const all = Array.from(runtimeChannelsStore.values()).filter(
+      (item) => !isLegacyMockPlaceholder(item)
+    );
     fs.writeFileSync(PERSISTED_CHANNELS_PATH, JSON.stringify(all, null, 2), "utf8");
   } catch (err) {
     console.error("[CONNECTION_HUB_SAVE_ERR]", err);
@@ -254,66 +208,169 @@ function savePersistedChannels() {
 
 loadPersistedChannels();
 
+/**
+ * Tự động phát hiện TẤT CẢ các tài khoản Zalo Cá Nhân đang kết nối thật trong `server/connector-home/<slug>/`
+ * và `server/mcp_servers.json` (ví dụ: Sơn Tùng, Lê Quyên...) để hiển thị bền vững qua mọi lần restart PM2.
+ */
 function getLiveZaloAccounts() {
   const accounts = [];
+  const seenKeys = new Set();
+  const deletedSet = loadDeletedChannelIds();
+
+  // 1. Quét trực tiếp từ tất cả các thư mục phiên Zalo trong server/connector-home/*/
+  try {
+    const activeHomes = getAllActiveZaloHomes();
+    for (const h of activeHomes) {
+      const extKey = String(h.ownId || h.accountId || h.slug);
+      const chId = `zalo_${extKey}`;
+      if (seenKeys.has(extKey) || deletedSet.has(chId) || deletedSet.has(extKey)) continue;
+      seenKeys.add(extKey);
+
+      accounts.push({
+        id: chId,
+        connectionId: h.slug || extKey,
+        platform: "ZALO_PERSONAL",
+        name: `Zalo Cá Nhân (${h.displayName})`,
+        externalId: extKey,
+        status: "CONNECTED",
+        statusLabel: "Đã kết nối trực tiếp (Quét QR)",
+        config: {
+          homeDir: h.homeDir,
+          ownId: h.ownId || extKey,
+          label: h.displayName,
+          accountName: h.displayName,
+        },
+        lastCheckedAt: new Date(h.mtime || Date.now()).toISOString(),
+        assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
+      });
+    }
+  } catch (err) {
+    console.error("[GET_LIVE_ZALO_HOMES_ERR]", err.message);
+  }
+
+  // 2. Bổ sung thêm từ mcp_servers.json nếu có
   try {
     const candidates = [
       path.resolve(process.cwd(), "server", "mcp_servers.json"),
       path.resolve(process.cwd(), "..", "server", "mcp_servers.json"),
-      "C:\\addp-crm\\server\\mcp_servers.json",
+      "/home/addp/domains/crm.addp.vn/public_html/server/mcp_servers.json",
     ];
-    let mcpPath = candidates.find((p) => fs.existsSync(p));
-    if (!mcpPath) return accounts;
+    const mcpPath = candidates.find((p) => fs.existsSync(p));
+    if (mcpPath) {
+      const mcpData = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+      const sortedConns = [...(mcpData.connections || [])].reverse();
 
-    const mcpData = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
-    const seenUids = new Set();
-    const sortedConns = [...(mcpData.connections || [])].reverse();
-
-    for (const conn of sortedConns) {
-      if (conn.connector_id === "zalo" && conn.config?.home_dir) {
-        const accPath = path.join(conn.config.home_dir, ".zalo-agent-cli", "accounts.json");
-        const credPath = path.join(conn.config.home_dir, ".zalo-agent-cli", "credentials");
-        if (fs.existsSync(accPath) && fs.existsSync(credPath)) {
-          try {
-            const accList = JSON.parse(fs.readFileSync(accPath, "utf8"));
-            const activeAcc = Array.isArray(accList) ? accList.find((a) => a.active) || accList[0] : null;
-            if (activeAcc && activeAcc.ownId && !seenUids.has(activeAcc.ownId)) {
-              seenUids.add(activeAcc.ownId);
-              accounts.push({
-                id: `zalo_${conn.id}`,
-                connectionId: conn.id,
-                platform: "ZALO_PERSONAL",
-                name: `Zalo Cá Nhân (${activeAcc.name || conn.label})`,
-                externalId: activeAcc.ownId,
-                status: "CONNECTED",
-                statusLabel: "Đã kết nối trực tiếp (Quét QR)",
-                config: {
-                  homeDir: conn.config.home_dir,
-                  ownId: activeAcc.ownId,
-                  label: conn.label,
-                  accountName: activeAcc.name,
-                },
-                lastCheckedAt: new Date().toISOString(),
-                assignedStaffCodes: ["S001", "S002", "CS01"],
-              });
-            }
-          } catch {}
+      for (const conn of sortedConns) {
+        if (conn.connector_id === "zalo" && conn.config?.home_dir) {
+          const accPath = path.join(conn.config.home_dir, ".zalo-agent-cli", "accounts.json");
+          const credPath = path.join(conn.config.home_dir, ".zalo-agent-cli", "credentials");
+          if (fs.existsSync(accPath) && fs.existsSync(credPath)) {
+            try {
+              const accList = JSON.parse(fs.readFileSync(accPath, "utf8"));
+              const activeAcc = Array.isArray(accList)
+                ? accList.find((a) => a.active) || accList[0]
+                : null;
+              const extKey = String(activeAcc?.ownId || conn.id);
+              const chId = `zalo_${extKey}`;
+              if (
+                activeAcc &&
+                extKey &&
+                !seenKeys.has(extKey) &&
+                !deletedSet.has(chId) &&
+                !deletedSet.has(`zalo_${conn.id}`)
+              ) {
+                seenKeys.add(extKey);
+                accounts.push({
+                  id: chId,
+                  connectionId: conn.id,
+                  platform: "ZALO_PERSONAL",
+                  name: `Zalo Cá Nhân (${activeAcc.name || conn.label})`,
+                  externalId: extKey,
+                  status: "CONNECTED",
+                  statusLabel: "Đã kết nối trực tiếp (Quét QR)",
+                  config: {
+                    homeDir: conn.config.home_dir,
+                    ownId: activeAcc.ownId,
+                    label: conn.label,
+                    accountName: activeAcc.name,
+                  },
+                  lastCheckedAt: new Date().toISOString(),
+                  assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
+                });
+              }
+            } catch {}
+          }
         }
       }
     }
   } catch {}
+
   return accounts;
+}
+
+/**
+ * Tự động đồng bộ cấu hình KiotViet đã kết nối trong `.data/kiotviet_config.json` (nếu có)
+ */
+function getLiveKiotVietAccount() {
+  try {
+    const kvPath = path.join(resolveDataDir(), "kiotviet_config.json");
+    if (fs.existsSync(kvPath)) {
+      const cfg = JSON.parse(fs.readFileSync(kvPath, "utf8"));
+      if (cfg && cfg.clientId && cfg.clientSecret && cfg.retailer) {
+        const deletedSet = loadDeletedChannelIds();
+        const extId = `kv_${cfg.retailer}`;
+        if (!deletedSet.has(extId)) {
+          return {
+            id: extId,
+            platform: "KIOTVIET",
+            name: `KiotViet POS (${cfg.retailer})`,
+            externalId: extId,
+            status: "CONNECTED",
+            statusLabel: "Đã kết nối KiotViet Open API",
+            config: {
+              retailer: cfg.retailer,
+              branchId: cfg.branchId || "",
+              autoSync: cfg.autoSync !== false,
+            },
+            lastCheckedAt: cfg.updatedAt || new Date().toISOString(),
+            assignedStaffCodes: ["ADMIN", "S001", "S002", "CS01"],
+          };
+        }
+      }
+    }
+  } catch {}
+  return null;
 }
 
 export function listAllChannels() {
   loadPersistedChannels();
-  const staticList = Array.from(runtimeChannelsStore.values());
   const liveZalo = getLiveZaloAccounts();
-  const hasConnectedFb = staticList.some(
-    (c) => c.platform === "FACEBOOK" && (c.status === "CONNECTED" || Boolean(c.config?.pageAccessToken))
-  );
+  const liveKiotViet = getLiveKiotVietAccount();
+  let storeUpdated = false;
 
-  // Nếu có live Zalo hoặc Fanpage kết nối thật thì kết hợp
+  // Đồng bộ bền vững các tài khoản Zalo & KiotViet thật vào channels.json để không bao giờ mất khi restart PM2
+  for (const z of liveZalo) {
+    const existing = runtimeChannelsStore.get(String(z.id));
+    if (
+      !existing ||
+      existing.status !== "CONNECTED" ||
+      existing.config?.homeDir !== z.config?.homeDir
+    ) {
+      runtimeChannelsStore.set(String(z.id), z);
+      storeUpdated = true;
+    }
+  }
+
+  if (liveKiotViet && !runtimeChannelsStore.has(String(liveKiotViet.id))) {
+    runtimeChannelsStore.set(String(liveKiotViet.id), liveKiotViet);
+    storeUpdated = true;
+  }
+
+  if (storeUpdated) {
+    savePersistedChannels();
+  }
+
+  const staticList = Array.from(runtimeChannelsStore.values());
   const combined = [];
   const seenExternalIds = new Set();
 
@@ -323,12 +380,7 @@ export function listAllChannels() {
   }
 
   for (const item of staticList) {
-    if (item.platform === "ZALO_PERSONAL" && liveZalo.length > 0) {
-      continue;
-    }
-    if (item.platform === "FACEBOOK" && hasConnectedFb && !item.config?.pageAccessToken) {
-      continue;
-    }
+    if (isLegacyMockPlaceholder(item)) continue;
     if (item.externalId && seenExternalIds.has(String(item.externalId))) {
       continue;
     }
@@ -343,23 +395,8 @@ export function listAllChannels() {
 }
 
 export function getChannelById(id) {
-  loadPersistedChannels();
-  const item = runtimeChannelsStore.get(String(id));
-  if (item) {
-    return {
-      ...item,
-      platformMeta: PLATFORM_INFO[item.platform] || {},
-    };
-  }
-  const liveZalo = getLiveZaloAccounts();
-  const found = liveZalo.find((z) => z.id === String(id));
-  if (found) {
-    return {
-      ...found,
-      platformMeta: PLATFORM_INFO[found.platform] || {},
-    };
-  }
-  return null;
+  const all = listAllChannels();
+  return all.find((c) => String(c.id) === String(id) || String(c.externalId) === String(id)) || null;
 }
 
 export function createChannelAccount(input) {
@@ -378,17 +415,34 @@ export function createChannelAccount(input) {
     input.status === "CONNECTED" ||
     Boolean(input.config?.pageAccessToken) ||
     Boolean(input.config?.ownId) ||
-    Boolean(input.config?.apiToken);
+    Boolean(input.config?.homeDir) ||
+    Boolean(input.config?.apiToken) ||
+    Boolean(input.config?.clientSecret) ||
+    Boolean(input.config?.partnerKey) ||
+    Boolean(input.config?.appSecret) ||
+    Boolean(input.config?.secretKey);
+
+  // Nếu tạo lại một kênh từng bị xóa trước đó -> gỡ khỏi danh sách deleted_channels.json
+  const deletedSet = loadDeletedChannelIds();
+  if (extId && deletedSet.has(extId)) {
+    deletedSet.delete(extId);
+    deletedSet.delete(`zalo_${extId}`);
+    saveDeletedChannelIds(deletedSet);
+  }
 
   // Kiểm tra nếu đã tồn tại kênh cùng externalId thì cập nhật luôn không tạo trùng
   if (extId) {
     for (const [k, v] of runtimeChannelsStore.entries()) {
-      if (v.externalId === extId) {
+      if (v.externalId === extId || k === extId || k === `zalo_${extId}`) {
         const updated = {
           ...v,
           name,
           status: isConnected ? "CONNECTED" : v.status,
-          statusLabel: isConnected ? "Đã kết nối trực tiếp (Meta OAuth)" : v.statusLabel,
+          statusLabel: isConnected
+            ? platform === "ZALO_PERSONAL"
+              ? "Đã kết nối trực tiếp (Quét QR)"
+              : "Đã kết nối trực tiếp"
+            : v.statusLabel,
           config: { ...v.config, ...input.config },
           lastCheckedAt: new Date().toISOString(),
         };
@@ -399,14 +453,21 @@ export function createChannelAccount(input) {
     }
   }
 
-  const nextId = extId || String(Date.now());
+  const nextId =
+    platform === "ZALO_PERSONAL" && extId
+      ? `zalo_${extId}`
+      : extId || String(Date.now());
   const newAccount = {
     id: nextId,
     platform,
     name,
-    externalId: extId || `ext_${nextId.slice(-6)}`,
+    externalId: extId || `ext_${String(nextId).slice(-6)}`,
     status: isConnected ? "CONNECTED" : "READY_TO_CONNECT",
-    statusLabel: isConnected ? "Đã kết nối trực tiếp (Meta OAuth)" : "Vừa khởi tạo, sẵn sàng kết nối",
+    statusLabel: isConnected
+      ? platform === "ZALO_PERSONAL"
+        ? "Đã kết nối trực tiếp (Quét QR)"
+        : "Đã kết nối trực tiếp"
+      : "Vừa khởi tạo, sẵn sàng kết nối",
     config: {
       ...input.config,
     },
@@ -414,7 +475,7 @@ export function createChannelAccount(input) {
     assignedStaffCodes: input.assignedStaffCodes || ["ADMIN", "S001", "S002", "CS01"],
   };
 
-  runtimeChannelsStore.set(nextId, newAccount);
+  runtimeChannelsStore.set(String(nextId), newAccount);
   savePersistedChannels();
   return { ok: true, channel: newAccount };
 }
@@ -447,11 +508,31 @@ export function updateChannelAccount(id, updates) {
 
 export function deleteChannelAccount(id) {
   loadPersistedChannels();
-  if (runtimeChannelsStore.has(String(id))) {
-    runtimeChannelsStore.delete(String(id));
+  const targetId = String(id);
+  const existing =
+    runtimeChannelsStore.get(targetId) ||
+    getLiveZaloAccounts().find(
+      (z) => String(z.id) === targetId || String(z.externalId) === targetId
+    );
+
+  const deletedSet = loadDeletedChannelIds();
+  deletedSet.add(targetId);
+  if (existing?.externalId) {
+    deletedSet.add(String(existing.externalId));
+  }
+  saveDeletedChannelIds(deletedSet);
+
+  if (runtimeChannelsStore.has(targetId)) {
+    runtimeChannelsStore.delete(targetId);
     savePersistedChannels();
     return { ok: true };
   }
+
+  if (existing) {
+    savePersistedChannels();
+    return { ok: true };
+  }
+
   return { ok: false, error: "Không tìm thấy tài khoản kênh để xóa." };
 }
 

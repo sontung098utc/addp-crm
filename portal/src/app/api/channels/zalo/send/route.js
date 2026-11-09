@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalizePhone } from "@/lib/phone.js";
-import { runZaloCommand, getActiveZaloHome } from "@/lib/zaloRunner.js";
+import {
+  runZaloCommand,
+  resolveZaloHomeForThread,
+  getOwnIdForHome,
+  getActiveZaloAccountName,
+} from "@/lib/zaloRunner.js";
 import { sendUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
 import { triggerHumanTakeover } from "@/lib/botControlStore.js";
 import fs from "fs";
@@ -9,7 +14,7 @@ import path from "path";
 /**
  * ADDP Omnichannel AI CRM — API Gửi Tin Nhắn Đa Kênh Hợp Nhất (WBS-21 & WBS-22)
  * Hỗ trợ gửi tin tới:
- * 1. Zalo Cá Nhân (Zalo Agent CLI tốc độ cao)
+ * 1. Đa tài khoản Zalo Cá Nhân (Zalo Agent CLI tốc độ cao)
  * 2. Fanpage Facebook (Meta Graph API)
  * 3. Zalo OA (Open API v3)
  * Tuân thủ Điều 3 (normalizePhone) & Điều 4 (Anti-Ban Rule: kiểm soát hạn mức, giãn cách).
@@ -18,7 +23,16 @@ import path from "path";
 export async function POST(request) {
   try {
     const body = await request.json();
-    let { recipient, recipientId, pageId, type = "DIRECT", message, homeDir, channel = "ZALO_PERSONAL" } = body;
+    let {
+      recipient,
+      recipientId,
+      pageId,
+      type = "DIRECT",
+      message,
+      homeDir,
+      accountId = "",
+      channel = "ZALO_PERSONAL",
+    } = body;
 
     if (!recipient || !String(recipient).trim()) {
       return NextResponse.json(
@@ -69,12 +83,17 @@ export async function POST(request) {
       });
     }
 
-    // Mặc định: Gửi qua Zalo Cá Nhân (hỗ trợ cả chat 1-1 và nhóm Zalo với -t 1)
+    // Mặc định: Gửi qua đúng tài khoản Zalo Cá Nhân sở hữu hội thoại
+    const resolvedAcc = resolveZaloHomeForThread(recipient, homeDir, accountId);
+    const activeHome = resolvedAcc.homeDir;
+    const activeOwnId = resolvedAcc.ownId || getOwnIdForHome(activeHome);
+    const activeSenderName = resolvedAcc.displayName || getActiveZaloAccountName(activeHome);
+
     const startTime = Date.now();
     const isGroup = String(type).toUpperCase() === "GROUP";
     const sendArgs = ["msg", "send", recipient, message, ...(isGroup ? ["-t", "1"] : ["-t", "0"]), "--json"];
     const result = await runZaloCommand(sendArgs, {
-      homeDir,
+      homeDir: activeHome,
       timeout: 15000,
     });
 
@@ -92,9 +111,8 @@ export async function POST(request) {
       );
     }
 
-    // Tự động ghi ngay tin nhắn vừa gửi vào history.jsonl để hiện thị tức thì trong lịch sử
+    // Tự động ghi ngay tin nhắn vừa gửi vào history.jsonl của đúng tài khoản Zalo đó để hiển thị tức thì trong lịch sử
     try {
-      const activeHome = homeDir || getActiveZaloHome();
       const histDir = path.join(activeHome, ".zalo-agent-cli");
       if (!fs.existsSync(histDir)) fs.mkdirSync(histDir, { recursive: true });
       const histFile = path.join(histDir, "history.jsonl");
@@ -103,8 +121,8 @@ export async function POST(request) {
           msgId: String(result.data?.message?.msgId || `sent_${Date.now()}`),
           threadId: String(recipient),
           threadType: isGroup ? "group" : "dm",
-          senderId: "1781287338457243967",
-          senderName: "Sơn Tùng",
+          senderId: String(activeOwnId || "1781287338457243967"),
+          senderName: activeSenderName || "Chuyên viên Tư vấn ADDP",
           isSelf: true,
           text: message,
           timestamp: Date.now(),
@@ -117,8 +135,10 @@ export async function POST(request) {
 
     return NextResponse.json({
       ok: true,
-      message: `Đã gửi tin nhắn Zalo thành công tới ${recipient}!`,
+      message: `Đã gửi tin nhắn Zalo (${activeSenderName}) thành công tới ${recipient}!`,
       recipient,
+      accountId: resolvedAcc.accountId,
+      accountName: resolvedAcc.accountName,
       channel: "ZALO_PERSONAL",
       sentAt: new Date().toISOString(),
       elapsedMs,

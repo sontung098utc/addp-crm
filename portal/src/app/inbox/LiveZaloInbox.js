@@ -138,6 +138,7 @@ function extractChatPhoneNumbers(messagesList = []) {
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [connectedPages, setConnectedPages] = useState([]);
+  const [connectedZaloAccounts, setConnectedZaloAccounts] = useState([]);
   const [loadingConv, setLoadingConv] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeConv, setActiveConv] = useState(null);
@@ -145,6 +146,7 @@ export default function LiveZaloInbox() {
   const [activeTab, setActiveTab] = useState("all"); // 'all' | 'need_human' | 'ai_handling' | 'unread'
   const [channelFilter, setChannelFilter] = useState("ALL"); // 'ALL' | 'ZALO_PERSONAL' | 'ZALO_OA' | 'FACEBOOK'
   const [selectedPageId, setSelectedPageId] = useState("ALL"); // 'ALL' | pageId cụ thể của từng Fanpage
+  const [selectedZaloAccountId, setSelectedZaloAccountId] = useState("ALL"); // 'ALL' | accountId cụ thể của từng nick Zalo QR
 
   // WBS-25: Hồ Sơ Khách Hàng 360 liên kết với hội thoại
   const [matchedCustomer, setMatchedCustomer] = useState(null);
@@ -265,6 +267,9 @@ export default function LiveZaloInbox() {
       if (Array.isArray(dataConv.connectedPages) && dataConv.connectedPages.length > 0) {
         setConnectedPages(dataConv.connectedPages);
       }
+      if (Array.isArray(dataConv.connectedZaloAccounts) && dataConv.connectedZaloAccounts.length > 0) {
+        setConnectedZaloAccounts(dataConv.connectedZaloAccounts);
+      }
 
       let list = [];
       if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
@@ -275,8 +280,11 @@ export default function LiveZaloInbox() {
         // Tạo chữ ký kiểm tra thay đổi để tránh render thừa gây giật/nhảy danh sách khi poll ngầm
         const activeTopSignature = list
           .filter((c) => !c.isContactOnly)
-          .slice(0, 60)
-          .map((c) => `${c.channel}:${c.id}:${c.timestamp}:${c.lastMessage}:${c.unreadCount || 0}`)
+          .slice(0, 80)
+          .map(
+            (c) =>
+              `${c.channel}:${c.accountId || ""}:${c.id}:${c.timestamp}:${c.lastMessage}:${c.unreadCount || 0}`
+          )
           .join("|");
 
         const hasChanged = forceRefresh || showLoading || activeTopSignature !== convSignatureRef.current;
@@ -290,9 +298,13 @@ export default function LiveZaloInbox() {
           // Chỉ cập nhật nhẹ nhãn thời gian (lastActive) mà không đổi thứ tự mảng
           setConversations((prev) => {
             if (prev.length !== list.length) return list;
-            const byKey = new Map(list.map((item) => [`${item.channel}_${item.id}`, item]));
+            const byKey = new Map(
+              list.map((item) => [`${item.channel}_${item.accountId || ""}_${item.id}`, item])
+            );
             return prev.map((oldItem) => {
-              const updated = byKey.get(`${oldItem.channel}_${oldItem.id}`);
+              const updated = byKey.get(
+                `${oldItem.channel}_${oldItem.accountId || ""}_${oldItem.id}`
+              );
               return updated ? { ...oldItem, lastActive: updated.lastActive } : oldItem;
             });
           });
@@ -301,7 +313,10 @@ export default function LiveZaloInbox() {
         setActiveConv((prev) => {
           if (prev) {
             const matched = list.find(
-              (c) => String(c.id) === String(prev.id) && c.channel === prev.channel
+              (c) =>
+                String(c.id) === String(prev.id) &&
+                c.channel === prev.channel &&
+                String(c.accountId || "") === String(prev.accountId || "")
             );
             if (matched) return matched;
           }
@@ -342,12 +357,17 @@ export default function LiveZaloInbox() {
     return () => clearInterval(pollTimer);
   }, []);
 
-  // Tự động chọn hội thoại đầu tiên phù hợp khi người dùng bấm lọc Kênh hoặc lọc Fanpage
+  // Tự động chọn hội thoại đầu tiên phù hợp khi người dùng bấm lọc Kênh, lọc Zalo QR hoặc lọc Fanpage
   useEffect(() => {
     if (conversations.length === 0) return;
 
     const matchesCurrentFilter = (c) => {
       if (channelFilter !== "ALL" && c.channel !== channelFilter) return false;
+      if (selectedZaloAccountId !== "ALL") {
+        if (c.channel !== "ZALO_PERSONAL" || String(c.accountId) !== String(selectedZaloAccountId)) {
+          return false;
+        }
+      }
       if (selectedPageId !== "ALL") {
         if (c.channel !== "FACEBOOK" || String(c.pageId) !== String(selectedPageId)) return false;
       }
@@ -360,7 +380,7 @@ export default function LiveZaloInbox() {
         conversations.find((c) => matchesCurrentFilter(c));
       if (firstMatch) setActiveConv(firstMatch);
     }
-  }, [channelFilter, selectedPageId, conversations]);
+  }, [channelFilter, selectedPageId, selectedZaloAccountId, conversations]);
 
   // 2. Tải lịch sử tin nhắn khi đổi người chat & tự động làm mới ngầm cho hội thoại đang mở
   useEffect(() => {
@@ -378,6 +398,8 @@ export default function LiveZaloInbox() {
             activeConv.type || "DIRECT"
           )}&channel=${encodeURIComponent(activeConv.channel || "ZALO_PERSONAL")}&pageId=${encodeURIComponent(
             activeConv.pageId || ""
+          )}&accountId=${encodeURIComponent(activeConv.accountId || "")}&homeDir=${encodeURIComponent(
+            activeConv.zaloHome || ""
           )}`
         );
         const data = await res.json();
@@ -415,7 +437,7 @@ export default function LiveZaloInbox() {
       isCancelled = true;
       clearInterval(msgPoll);
     };
-  }, [activeConv?.id, activeConv?.channel, activeConv?.pageId]);
+  }, [activeConv?.id, activeConv?.channel, activeConv?.pageId, activeConv?.accountId]);
 
   // WBS-25: Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat hoặc khi bắt được SĐT trong tin nhắn
   useEffect(() => {
@@ -572,7 +594,7 @@ export default function LiveZaloInbox() {
       id: tempId,
       text: messageText,
       isMe: true,
-      senderName: activeConv.accountName || "Sơn Tùng",
+      senderName: activeConv.accountDisplayName || activeConv.accountName || "Chuyên viên ADDP",
       time: nowTime,
       date: "Hôm nay",
       status: "sending",
@@ -590,6 +612,8 @@ export default function LiveZaloInbox() {
           recipient: activeConv.id,
           recipientId: activeConv.recipientId || activeConv.id,
           pageId: activeConv.pageId || "",
+          accountId: activeConv.accountId || "",
+          homeDir: activeConv.zaloHome || "",
           type: activeConv.type || "DIRECT",
           message: messageText,
           channel: activeConv.channel || "ZALO_PERSONAL",
@@ -604,7 +628,10 @@ export default function LiveZaloInbox() {
         // Cập nhật lastMessage và đưa hội thoại đang chat lên đầu danh sách
         setConversations((prev) => {
           const idx = prev.findIndex(
-            (c) => String(c.id) === String(activeConv.id) && c.channel === activeConv.channel
+            (c) =>
+              String(c.id) === String(activeConv.id) &&
+              c.channel === activeConv.channel &&
+              String(c.accountId || "") === String(activeConv.accountId || "")
           );
           if (idx === -1) return prev;
           const updatedConv = {
@@ -699,6 +726,35 @@ export default function LiveZaloInbox() {
     return Array.from(map.values());
   })();
 
+  // Danh sách các tài khoản Zalo Cá Nhân đang kết nối (ví dụ: Sơn Tùng, Lê Quyên...)
+  const effectiveZaloAccounts = (() => {
+    if (connectedZaloAccounts.length > 0) return connectedZaloAccounts;
+    const map = new Map();
+    for (const c of conversations) {
+      if (c.channel === "ZALO_PERSONAL") {
+        const accId = String(c.accountId || c.accountDisplayName || "default");
+        const disp =
+          c.accountDisplayName ||
+          (c.accountName ? c.accountName.replace(/^Zalo:\s*/i, "") : "Sơn Tùng");
+        if (!map.has(accId)) {
+          map.set(accId, {
+            accountId: accId,
+            name: disp,
+            displayName: `Zalo ${disp}`,
+            label: `Zalo: ${disp}`,
+            activeCount: 0,
+            totalCount: 0,
+            colorIndex: map.size,
+          });
+        }
+        const entry = map.get(accId);
+        entry.totalCount += 1;
+        if (!c.isContactOnly) entry.activeCount += 1;
+      }
+    }
+    return Array.from(map.values());
+  })();
+
   const fbTotalCount = conversations.filter((c) => c.channel === "FACEBOOK").length;
   const zaloActiveCount = conversations.filter(
     (c) => c.channel === "ZALO_PERSONAL" && !c.isContactOnly
@@ -712,6 +768,7 @@ export default function LiveZaloInbox() {
       (c.lastMessage && c.lastMessage.toLowerCase().includes(q)) ||
       (c.phone && c.phone.includes(q)) ||
       (c.accountName && c.accountName.toLowerCase().includes(q)) ||
+      (c.accountDisplayName && c.accountDisplayName.toLowerCase().includes(q)) ||
       (c.id && String(c.id).includes(q));
 
     if (!matchSearch) return false;
@@ -721,6 +778,16 @@ export default function LiveZaloInbox() {
       if (channelFilter === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
       if (channelFilter === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
       if (channelFilter === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
+    }
+
+    // Lọc theo từng tài khoản Zalo QR cụ thể (Sơn Tùng / Lê Quyên...)
+    if (selectedZaloAccountId !== "ALL") {
+      if (
+        c.channel !== "ZALO_PERSONAL" ||
+        String(c.accountId) !== String(selectedZaloAccountId)
+      ) {
+        return false;
+      }
     }
 
     // Lọc theo từng Fanpage cụ thể
@@ -753,14 +820,18 @@ export default function LiveZaloInbox() {
 
   const activeChannelName = activeConv
     ? activeConv.accountName || activeConv.channelLabel || getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).label
-    : "Zalo Cá Nhân (Sơn Tùng)";
+    : effectiveZaloAccounts[0]?.channelLabel || "Zalo Cá Nhân";
 
   const renderConversationRow = (conv) => {
-    const isSelected = activeConv?.id === conv.id && activeConv?.channel === conv.channel;
+    const isSelected =
+      activeConv?.id === conv.id &&
+      activeConv?.channel === conv.channel &&
+      String(activeConv?.accountId || "") === String(conv.accountId || "");
     const convMeta = getChannelMeta(conv.channel, conv.pageId, effectivePages);
     const pagePal = conv.channel === "FACEBOOK" ? getFanpagePalette(conv.pageId, effectivePages) : null;
+    const isSecondZalo = conv.channel === "ZALO_PERSONAL" && Number(conv.colorIndex || 0) > 0;
 
-    // Nhãn nguồn (Fanpage cụ thể hoặc Zalo cá nhân) hiển thị ngay trên từng dòng hội thoại
+    // Nhãn nguồn (Fanpage cụ thể hoặc từng tài khoản Zalo cá nhân: Zalo • Sơn Tùng / Zalo • Lê Quyên)
     const sourceBadgeText =
       conv.channel === "FACEBOOK"
         ? conv.pageDisplay ||
@@ -769,11 +840,20 @@ export default function LiveZaloInbox() {
             : conv.pageName || "Fanpage FB")
         : conv.channel === "ZALO_OA"
         ? "Zalo OA Official"
-        : "Zalo • Sơn Tùng";
+        : conv.accountDisplayName
+        ? `Zalo • ${conv.accountDisplayName}`
+        : conv.accountName
+        ? conv.accountName.replace(/^Zalo:\s*/i, "Zalo • ")
+        : "Zalo Cá Nhân";
+
+    const pillColorClass = isSecondZalo
+      ? "bg-teal-500/15 text-teal-600 dark:text-teal-300 border border-teal-500/30"
+      : convMeta.pillClass;
+    const dotColorClass = isSecondZalo ? "bg-teal-400" : convMeta.dotColor;
 
     return (
       <button
-        key={`${conv.channel}_${conv.id}`}
+        key={`${conv.channel}_${conv.accountId || ""}_${conv.id}`}
         type="button"
         onClick={() => setActiveConv(conv)}
         className={`w-full text-left px-3 py-2.5 transition-colors flex items-start gap-2.5 cursor-pointer ${
@@ -798,6 +878,8 @@ export default function LiveZaloInbox() {
                   ? pagePal?.avatarBadge || "bg-blue-600"
                   : conv.type === "GROUP"
                   ? "bg-indigo-600"
+                  : isSecondZalo
+                  ? "bg-teal-600"
                   : "bg-cyan-600"
               } border border-slate-300 dark:border-slate-700 flex items-center justify-center text-xs font-bold text-white badge-solid-white`}
             >
@@ -805,7 +887,9 @@ export default function LiveZaloInbox() {
             </div>
           )}
           <span
-            className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${convMeta.badgeBg} border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black badge-solid-white`}
+            className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${
+              isSecondZalo ? "bg-teal-600" : convMeta.badgeBg
+            } border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black badge-solid-white`}
             title={sourceBadgeText}
           >
             {convMeta.avatarLetter}
@@ -840,10 +924,10 @@ export default function LiveZaloInbox() {
           {/* Nhãn phân biệt Fanpage / Tài khoản Zalo rõ ràng trên từng hội thoại */}
           <div className="flex items-center gap-1.5 mb-1">
             <span
-              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[9px] font-semibold truncate max-w-full ${convMeta.pillClass}`}
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[9px] font-semibold truncate max-w-full ${pillColorClass}`}
               title={`Nguồn hội thoại: ${sourceBadgeText}${conv.pageId ? ` (ID: ${conv.pageId})` : ""}`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${convMeta.dotColor}`} />
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColorClass}`} />
               <span className="truncate">{sourceBadgeText}</span>
             </span>
             {(conv.unreadCount > 0 || conv.unread > 0) && (
@@ -904,7 +988,12 @@ export default function LiveZaloInbox() {
                   <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1 truncate">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 inline-block animate-pulse shrink-0" />
                     <span className="truncate">
-                      Zalo Sơn Tùng ({zaloActiveCount}) &amp; {effectivePages.length || 3} Fanpage ({fbTotalCount})
+                      {effectiveZaloAccounts.length > 0
+                        ? effectiveZaloAccounts
+                            .map((acc) => `Zalo ${acc.name} (${acc.activeCount ?? 0})`)
+                            .join(" • ")
+                        : `Zalo QR (${zaloActiveCount})`}
+                      {effectivePages.length > 0 ? ` & ${effectivePages.length} Fanpage (${fbTotalCount})` : ""}
                     </span>
                   </p>
                 </div>
@@ -915,7 +1004,7 @@ export default function LiveZaloInbox() {
                   type="button"
                   onClick={() => loadConversations(false, true)}
                   aria-label="Làm mới danh sách hội thoại"
-                  title="Đồng bộ mới nhất từ Zalo & 3 Fanpage FB"
+                  title="Đồng bộ mới nhất từ tất cả tài khoản Zalo QR & Fanpage FB"
                   className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-400" : ""}`} />
@@ -1009,9 +1098,10 @@ export default function LiveZaloInbox() {
                 onClick={() => {
                   setChannelFilter("ALL");
                   setSelectedPageId("ALL");
+                  setSelectedZaloAccountId("ALL");
                 }}
                 className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
-                  channelFilter === "ALL" && selectedPageId === "ALL"
+                  channelFilter === "ALL" && selectedPageId === "ALL" && selectedZaloAccountId === "ALL"
                     ? "bg-blue-600 text-white font-semibold badge-solid-white"
                     : "bg-slate-800 hover:text-white"
                 }`}
@@ -1023,6 +1113,7 @@ export default function LiveZaloInbox() {
                 onClick={() => {
                   setChannelFilter("ZALO_PERSONAL");
                   setSelectedPageId("ALL");
+                  setSelectedZaloAccountId("ALL");
                 }}
                 className={`px-2 py-0.5 rounded-md inline-flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "ZALO_PERSONAL"
@@ -1042,6 +1133,7 @@ export default function LiveZaloInbox() {
                 onClick={() => {
                   setChannelFilter("ZALO_OA");
                   setSelectedPageId("ALL");
+                  setSelectedZaloAccountId("ALL");
                 }}
                 className={`px-2 py-0.5 rounded-md whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "ZALO_OA"
@@ -1056,6 +1148,7 @@ export default function LiveZaloInbox() {
                 onClick={() => {
                   setChannelFilter("FACEBOOK");
                   setSelectedPageId("ALL");
+                  setSelectedZaloAccountId("ALL");
                 }}
                 className={`px-2 py-0.5 rounded-md inline-flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer ${
                   channelFilter === "FACEBOOK"
@@ -1071,6 +1164,93 @@ export default function LiveZaloInbox() {
                 )}
               </button>
             </div>
+
+            {/* Bộ chọn phân biệt từng tài khoản Zalo QR (Hiện khi có >= 1 tài khoản Zalo QR ở tab Tất cả hoặc Zalo QR) */}
+            {(channelFilter === "ZALO_PERSONAL" || channelFilter === "ALL") &&
+              effectiveZaloAccounts.length > 0 && (
+                <div className="pt-1 border-t border-slate-800/70 space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="font-semibold text-slate-400">
+                      Tài khoản Zalo ({effectiveZaloAccounts.length} nick):
+                    </span>
+                    {selectedZaloAccountId !== "ALL" && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedZaloAccountId("ALL")}
+                        className="text-[10px] text-cyan-400 hover:underline cursor-pointer"
+                      >
+                        Xem tất cả Zalo
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {effectiveZaloAccounts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setChannelFilter("ZALO_PERSONAL");
+                          setSelectedZaloAccountId("ALL");
+                          setSelectedPageId("ALL");
+                        }}
+                        className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer border ${
+                          channelFilter === "ZALO_PERSONAL" && selectedZaloAccountId === "ALL"
+                            ? "bg-cyan-600 text-white border-cyan-500 badge-solid-white"
+                            : "bg-slate-950/80 text-slate-300 border-slate-800 hover:border-slate-700"
+                        }`}
+                      >
+                        Tất cả Zalo ({zaloActiveCount})
+                      </button>
+                    )}
+                    {effectiveZaloAccounts.map((acc, idx) => {
+                      const count = conversations.filter(
+                        (c) =>
+                          c.channel === "ZALO_PERSONAL" &&
+                          !c.isContactOnly &&
+                          String(c.accountId) === String(acc.accountId)
+                      ).length;
+                      const isAccActive = String(selectedZaloAccountId) === String(acc.accountId);
+                      const isSecond = idx > 0;
+                      return (
+                        <button
+                          key={acc.accountId}
+                          type="button"
+                          onClick={() => {
+                            setChannelFilter("ZALO_PERSONAL");
+                            setSelectedZaloAccountId(String(acc.accountId));
+                            setSelectedPageId("ALL");
+                          }}
+                          title={`Zalo Cá Nhân: ${acc.name} (ID: ${acc.accountId})`}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                            isAccActive
+                              ? isSecond
+                                ? "bg-teal-600 text-white border-teal-500 badge-solid-white"
+                                : "bg-cyan-600 text-white border-cyan-500 badge-solid-white"
+                              : "bg-slate-950/80 text-slate-300 border-slate-800 hover:border-slate-700"
+                          }`}
+                        >
+                          <span
+                            className={`h-2 w-2 rounded-full shrink-0 ${
+                              isAccActive
+                                ? "bg-white"
+                                : isSecond
+                                ? "bg-teal-400"
+                                : "bg-cyan-400"
+                            }`}
+                          />
+                          <span className="truncate max-w-[130px]">Zalo {acc.name}</span>
+                          <span
+                            className={`rounded-full px-1.5 text-[9px] font-bold tabular-nums ${
+                              isAccActive ? "bg-black/25 text-white" : "bg-slate-800 text-slate-300"
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
             {/* Bộ chọn phân biệt từng Fanpage (Hiện khi ở tab Tất cả hoặc Fanpage FB) */}
             {(channelFilter === "FACEBOOK" || channelFilter === "ALL") && effectivePages.length > 0 && (

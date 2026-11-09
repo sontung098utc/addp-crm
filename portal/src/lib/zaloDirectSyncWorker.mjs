@@ -45,17 +45,54 @@ async function main() {
   }
   const prevGroupVersions = prevCache?.groupVersions || {};
 
-  // 1. Tải song song Friends, Groups, Pinned Conversations qua HTTP REST
-  const [friendsRes, groupsRes, pinRes] = await Promise.allSettled([
+  // 0. Đọc tên tài khoản Zalo từ accounts.json hoặc prevCache
+  let ownAccountName = prevCache?.accountName || "";
+  const accountsPath = path.join(cliDir, "accounts.json");
+  if (fs.existsSync(accountsPath)) {
+    try {
+      const accList = JSON.parse(fs.readFileSync(accountsPath, "utf8"));
+      if (Array.isArray(accList) && accList.length > 0) {
+        const active = accList.find((a) => a.active) || accList[0];
+        if (active?.name || active?.displayName) {
+          ownAccountName = String(active.name || active.displayName);
+        }
+      }
+    } catch {}
+  }
+
+  // 1. Tải song song Friends, Groups, Pinned Conversations, Account Info qua HTTP REST
+  const [friendsRes, groupsRes, pinRes, selfInfoRes] = await Promise.allSettled([
     api.getAllFriends(),
     api.getAllGroups(),
     typeof api.getPinConversations === "function" ? api.getPinConversations() : Promise.resolve([]),
+    typeof api.fetchAccountInfo === "function"
+      ? api.fetchAccountInfo()
+      : ownId && typeof api.getUserInfo === "function"
+      ? api.getUserInfo(ownId)
+      : Promise.resolve(null),
   ]);
+
+  if (selfInfoRes.status === "fulfilled" && selfInfoRes.value) {
+    const val = selfInfoRes.value;
+    const profile =
+      val?.profile ||
+      (ownId && val?.changed_profiles?.[ownId]) ||
+      Object.values(val?.changed_profiles || {})[0] ||
+      val;
+    const fetchedName = profile?.displayName || profile?.zaloName || profile?.name || "";
+    if (fetchedName && (!ownAccountName || /^addp zalo/i.test(ownAccountName))) {
+      ownAccountName = String(fetchedName);
+    }
+  }
+
+  if (!ownAccountName) {
+    ownAccountName = ownId === "1781287338457243967" ? "Sơn Tùng" : "Chuyên viên Zalo";
+  }
 
   const friends = [];
   const userNamesMap = new Map();
   if (ownId) {
-    userNamesMap.set(ownId, "Sơn Tùng");
+    userNamesMap.set(ownId, ownAccountName);
   }
 
   if (friendsRes.status === "fulfilled" && friendsRes.value) {
@@ -187,7 +224,7 @@ async function main() {
               hm.senderName ||
               rawMsg?.data?.dName ||
               userNamesMap.get(senderId) ||
-              (isSelf ? "Sơn Tùng" : "Thành viên");
+              (isSelf ? ownAccountName : "Thành viên");
 
             newGroupMessages.push({
               ...hm,
@@ -219,6 +256,7 @@ async function main() {
   // Lưu cache metadata hoàn chỉnh
   const metaPayload = {
     ownId,
+    accountName: ownAccountName,
     friends,
     groups,
     pinnedIds,

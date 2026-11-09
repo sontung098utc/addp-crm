@@ -335,6 +335,14 @@ export async function GET(request) {
         if (res.ok) {
           const data = await res.json();
           if (data && data.state) {
+            if (data.state === "done") {
+              registerZaloConnection({
+                id: String(sid).slice(-12),
+                label: data.name || data.displayName || data.label || "Zalo Cá Nhân",
+                homeDir: data.home_dir || data.homeDir || "",
+                ownId: data.ownId || data.own_id || "",
+              });
+            }
             return NextResponse.json(data);
           }
         }

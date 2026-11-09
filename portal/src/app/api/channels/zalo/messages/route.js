@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   runZaloCommand,
-  getActiveZaloHome,
   getOwnIdForHome,
   getActiveZaloAccountName,
+  resolveZaloHomeForThread,
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
   processIncomingZaloMessageWithBot,
@@ -41,7 +41,7 @@ function formatMessageTime(timestamp) {
   };
 }
 
-function getThreadMessagesFromAllHistories(zaloHome, threadId, ownId = "1781287338457243967") {
+function getThreadMessagesFromAllHistories(zaloHome, threadId, ownId = "1781287338457243967", selfSenderName = "Sơn Tùng") {
   const historyFiles = getAllZaloHistoryFiles(zaloHome);
   const messages = [];
   const seenIds = new Set();
@@ -70,7 +70,7 @@ function getThreadMessagesFromAllHistories(zaloHome, threadId, ownId = "17812873
             id,
             text: msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]"),
             senderId: String(msg.senderId || ""),
-            senderName: msg.senderName || (isMe ? "Sơn Tùng" : "Khách"),
+            senderName: msg.senderName || (isMe ? selfSenderName : "Khách"),
             isMe,
             timestamp: ts,
             time,
@@ -95,6 +95,8 @@ export async function GET(request) {
     const threadId = searchParams.get("threadId");
     const channel = searchParams.get("channel") || "";
     const pageId = searchParams.get("pageId") || "";
+    const accountId = searchParams.get("accountId") || "";
+    const homeDirParam = searchParams.get("homeDir") || "";
 
     if (!threadId) {
       return NextResponse.json({ error: "Thiếu tham số threadId." }, { status: 400 });
@@ -129,12 +131,14 @@ export async function GET(request) {
       });
     }
 
-    const targetHome = getActiveZaloHome();
-    const ownId = getOwnIdForHome(targetHome);
+    const resolvedAcc = resolveZaloHomeForThread(threadId, homeDirParam, accountId);
+    const targetHome = resolvedAcc.homeDir;
+    const ownId = resolvedAcc.ownId || getOwnIdForHome(targetHome);
+    const selfName = resolvedAcc.displayName || getActiveZaloAccountName(targetHome);
     ensureZaloMcpDaemon(targetHome);
 
-    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ tất cả các file history JSONL (siêu tốc <5ms)
-    const localMessages = getThreadMessagesFromAllHistories(targetHome, threadId, ownId);
+    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ các file history JSONL của đúng tài khoản Zalo này
+    const localMessages = getThreadMessagesFromAllHistories(targetHome, threadId, ownId, selfName);
 
     // 3. Kèm theo tin nhắn vừa gửi từ CRM trong phiên làm việc (Unified Message Router)
     const omniMsgs = await getThreadMessages(threadId, channel, pageId);
@@ -175,7 +179,7 @@ export async function GET(request) {
           timestamp: lastMsg.timestamp,
           threadId,
           senderName: lastMsg.senderName && lastMsg.senderName !== "Khách" ? lastMsg.senderName : "",
-          accountName: getActiveZaloAccountName(targetHome),
+          accountName: selfName,
           text: lastMsg.text,
           isMe: false,
           type: "DIRECT",
@@ -211,7 +215,7 @@ export async function GET(request) {
             id: String(m.msgId || m.cliMsgId || ts),
             text: typeof m.content === "string" ? m.content : "[Tệp đính kèm]",
             senderId: String(m.fromUid || ""),
-            senderName: isMe ? "Sơn Tùng" : `Thành viên (${String(m.fromUid || "").slice(-4)})`,
+            senderName: isMe ? selfName : `Thành viên (${String(m.fromUid || "").slice(-4)})`,
             isMe,
             timestamp: ts,
             time,

@@ -130,28 +130,36 @@ export function ensureZaloMcpDaemon(homeDir) {
     // 0. Luôn kích hoạt trình theo dõi history.jsonl thời gian thực (Realtime AI Watcher)
     startZaloRealtimeAiWatcher(targetHome);
 
-    // Dọn dẹp các tiến trình mcp daemon cũ của những thư mục connector-home không còn active
-    // để giải phóng cổng 3099 và tránh xung đột WebSocket (CLOSE_DUPLICATE 3000)
+    const targetOwnId = getOwnIdForHome(targetHome);
+
+    // Chỉ dọn dẹp tiến trình mcp daemon cũ nếu trùng CÙNG 1 ownId (cùng 1 tài khoản Zalo quét lại QR ở thư mục mới),
+    // TUYỆT ĐỐI KHÔNG tắt daemon của các tài khoản Zalo khác (ví dụ: Sơn Tùng và Lê Quyên chạy song song)!
     try {
       for (const [otherHome, info] of globalThis.__zaloMcpDaemons.entries()) {
         if (otherHome !== targetHome && info?.pid) {
-          try {
-            process.kill(info.pid);
-          } catch {}
-          globalThis.__zaloMcpDaemons.delete(otherHome);
+          const otherOwnId = getOwnIdForHome(otherHome);
+          if (targetOwnId && otherOwnId && targetOwnId === otherOwnId) {
+            try {
+              process.kill(info.pid);
+            } catch {}
+            globalThis.__zaloMcpDaemons.delete(otherHome);
+          }
         }
       }
       for (const otherDir of getAllZaloHomes()) {
         if (path.resolve(otherDir) !== path.resolve(targetHome)) {
-          const oldPidFile = path.join(otherDir, ".zalo-agent-cli", "mcp.pid");
-          if (fs.existsSync(oldPidFile)) {
-            try {
-              const oldPid = Number(fs.readFileSync(oldPidFile, "utf8").trim());
-              if (oldPid && isPidAlive(oldPid)) {
-                process.kill(oldPid);
-              }
-              fs.unlinkSync(oldPidFile);
-            } catch {}
+          const otherOwnId = getOwnIdForHome(otherDir);
+          if (targetOwnId && otherOwnId && targetOwnId === otherOwnId) {
+            const oldPidFile = path.join(otherDir, ".zalo-agent-cli", "mcp.pid");
+            if (fs.existsSync(oldPidFile)) {
+              try {
+                const oldPid = Number(fs.readFileSync(oldPidFile, "utf8").trim());
+                if (oldPid && isPidAlive(oldPid)) {
+                  process.kill(oldPid);
+                }
+                fs.unlinkSync(oldPidFile);
+              } catch {}
+            }
           }
         }
       }
@@ -176,7 +184,24 @@ export function ensureZaloMcpDaemon(homeDir) {
       } catch {}
     }
 
-    // 3. Khởi chạy daemon `mcp start --http 3099` ngầm cho targetHome (không phụ thuộc stdio nên không bao giờ tự ngắt)
+    // 3. Cấp cổng HTTP riêng cho từng tài khoản Zalo (3099, 3100, 3101...) để chạy đa tài khoản song song không đụng cổng
+    let portNum = 3099;
+    try {
+      const activeHomes = getAllActiveZaloHomes();
+      const idx = activeHomes.findIndex(
+        (h) => path.resolve(h.homeDir) === path.resolve(targetHome) || (targetOwnId && h.ownId === targetOwnId)
+      );
+      if (idx >= 0) {
+        portNum = 3099 + idx;
+      } else {
+        const hash = String(targetOwnId || targetHome)
+          .split("")
+          .reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 50, 0);
+        portNum = 3105 + Math.abs(hash);
+      }
+    } catch {}
+    const portStr = String(portNum);
+
     const javisRoot = findJavisZaloRoot(targetHome);
     const localEntry = javisRoot ? path.join(javisRoot, "src", "index.js") : null;
 
@@ -200,7 +225,7 @@ export function ensureZaloMcpDaemon(homeDir) {
 
     let child = null;
     if (localEntry) {
-      child = spawn(process.execPath, [localEntry, "mcp", "start", "--http", "3099"], {
+      child = spawn(process.execPath, [localEntry, "mcp", "start", "--http", portStr], {
         env,
         detached: process.platform !== "win32",
         stdio: ["ignore", logFd, logFd],
@@ -209,7 +234,7 @@ export function ensureZaloMcpDaemon(homeDir) {
       const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
       child = spawn(
         npxCmd,
-        ["-y", "--prefer-offline", REMOTE_TARBALL, "mcp", "start", "--http", "3099"],
+        ["-y", "--prefer-offline", REMOTE_TARBALL, "mcp", "start", "--http", portStr],
         {
           env,
           shell: process.platform === "win32",
@@ -223,6 +248,8 @@ export function ensureZaloMcpDaemon(homeDir) {
       fs.writeFileSync(pidFile, String(child.pid), "utf8");
       globalThis.__zaloMcpDaemons.set(targetHome, {
         pid: child.pid,
+        port: portNum,
+        ownId: targetOwnId,
         startedAt: Date.now(),
       });
       child.on("exit", () => {
@@ -244,8 +271,22 @@ export function ensureZaloMcpDaemon(homeDir) {
 }
 
 /**
+ * Khởi chạy đồng thời tiến trình MCP daemon cho TẤT CẢ tài khoản Zalo đang kết nối
+ */
+export function ensureAllZaloMcpDaemons() {
+  try {
+    const accounts = getAllActiveZaloHomes();
+    for (const acc of accounts) {
+      if (acc.homeDir && acc.hasCredentials) {
+        ensureZaloMcpDaemon(acc.homeDir);
+      }
+    }
+  } catch {}
+}
+
+/**
  * Tìm tất cả thư mục phiên Zalo trong connector-home và sắp xếp theo thời gian sửa đổi (mtime)
- * mới nhất của file `.zalo-agent-cli/history.jsonl`.
+ * mới nhất của file `.zalo-agent-cli/history.jsonl` hoặc `credentials`.
  */
 export function getAllZaloHomes() {
   const envConnectorHome = process.env.ZALO_CONNECTOR_HOME
@@ -272,8 +313,12 @@ export function getAllZaloHomes() {
     seenDirs.add(resolvedDir);
 
     const cliDir = path.join(resolvedDir, ".zalo-agent-cli");
+    if (!fs.existsSync(cliDir)) return;
+
     const histPath = path.join(cliDir, "history.jsonl");
     const credDir = path.join(cliDir, "credentials");
+    const accPath = path.join(cliDir, "accounts.json");
+    const metaPath = path.join(cliDir, "crm-meta-cache.json");
 
     if (fs.existsSync(histPath)) {
       try {
@@ -288,18 +333,21 @@ export function getAllZaloHomes() {
       } catch {}
     }
 
-    if (fs.existsSync(credDir)) {
+    if (fs.existsSync(credDir) || fs.existsSync(accPath) || fs.existsSync(metaPath)) {
       let credMtime = 0;
-      try {
-        const stat = fs.statSync(credDir);
-        credMtime = stat.mtimeMs || 0;
-        if (stat.isDirectory()) {
-          for (const f of fs.readdirSync(credDir)) {
-            const fStat = fs.statSync(path.join(credDir, f));
-            if (fStat.mtimeMs > credMtime) credMtime = fStat.mtimeMs;
+      for (const p of [credDir, accPath, metaPath]) {
+        if (!fs.existsSync(p)) continue;
+        try {
+          const stat = fs.statSync(p);
+          if (stat.mtimeMs > credMtime) credMtime = stat.mtimeMs;
+          if (stat.isDirectory()) {
+            for (const f of fs.readdirSync(p)) {
+              const fStat = fs.statSync(path.join(p, f));
+              if (fStat.mtimeMs > credMtime) credMtime = fStat.mtimeMs;
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
       credOnlyMatches.push({
         dir: resolvedDir,
         mtime: credMtime,
@@ -310,7 +358,6 @@ export function getAllZaloHomes() {
   for (const base of baseHomeCandidates) {
     if (!fs.existsSync(base)) continue;
     try {
-      // Nếu ZALO_CONNECTOR_HOME trỏ thẳng vào thư mục phiên có sẵn .zalo-agent-cli
       if (fs.existsSync(path.join(base, ".zalo-agent-cli"))) {
         inspectSessionDir(base);
       }
@@ -323,7 +370,6 @@ export function getAllZaloHomes() {
     } catch {}
   }
 
-  // Sắp xếp ưu tiên tuyệt đối theo thời gian sửa đổi gần nhất (mtime mới nhất) của history.jsonl
   historyMatches.sort((a, b) => b.mtime - a.mtime || b.size - a.size);
   credOnlyMatches.sort((a, b) => b.mtime - a.mtime);
 
@@ -333,25 +379,215 @@ export function getAllZaloHomes() {
   ];
 }
 
+function cleanDisplayAccountName(rawName, fallbackOwnId = "", folderSlug = "") {
+  let s = String(rawName || "")
+    .replace(/^Zalo Cá Nhân\s*\((.+)\)$/i, "$1")
+    .replace(/^Zalo:\s*/i, "")
+    .replace(/\s*\(ADDP\)\s*$/i, "")
+    .trim();
+
+  if (
+    !s ||
+    /^addp zalo/i.test(s) ||
+    /^zalo cá nhân$/i.test(s) ||
+    /^chuyên viên/i.test(s) ||
+    /^dược sĩ/i.test(s)
+  ) {
+    if (String(fallbackOwnId) === "1781287338457243967") {
+      return "Sơn Tùng";
+    }
+    if (folderSlug) {
+      const cleanedSlug = folderSlug
+        .replace(/^zalo-/i, "")
+        .replace(/-[a-z0-9_]{5,8}$/i, "")
+        .replace(/^addp-zalo-ca-nhan/i, "")
+        .replace(/-/g, " ")
+        .trim();
+      if (cleanedSlug) {
+        return cleanedSlug.replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+    }
+    return fallbackOwnId ? `Zalo #${String(fallbackOwnId).slice(-4)}` : "Zalo Cá Nhân";
+  }
+  return s;
+}
+
+/**
+ * Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang hoạt động trong `server/connector-home/<slug>/`
+ * Gom các thư mục trùng `ownId` (do quét lại QR nhiều lần) về 1 tài khoản duy nhất,
+ * đồng thời giữ độc lập hoàn toàn giữa các nick Zalo khác nhau (ví dụ: Sơn Tùng & Lê Quyên).
+ */
+export function getAllActiveZaloHomes() {
+  const rawDirs = getAllZaloHomes();
+  const byAccountKey = new Map();
+
+  for (const dir of rawDirs) {
+    const cliDir = path.join(dir, ".zalo-agent-cli");
+    const credPath = path.join(cliDir, "credentials");
+    const histPath = path.join(cliDir, "history.jsonl");
+    const accPath = path.join(cliDir, "accounts.json");
+    const metaPath = path.join(cliDir, "crm-meta-cache.json");
+
+    const hasCredentials = fs.existsSync(credPath);
+    const hasHistory = fs.existsSync(histPath);
+    const hasAccounts = fs.existsSync(accPath);
+    const hasMeta = fs.existsSync(metaPath);
+
+    if (!hasCredentials && !hasHistory && !hasAccounts && !hasMeta) continue;
+
+    let ownId = "";
+    let rawName = "";
+    let mtime = 0;
+
+    for (const p of [histPath, metaPath, accPath, credPath]) {
+      if (fs.existsSync(p)) {
+        try {
+          const st = fs.statSync(p);
+          if (st.mtimeMs > mtime) mtime = st.mtimeMs;
+        } catch {}
+      }
+    }
+
+    if (hasAccounts) {
+      try {
+        const list = JSON.parse(fs.readFileSync(accPath, "utf8"));
+        if (Array.isArray(list) && list.length > 0) {
+          const active = list.find((a) => a.active) || list[0];
+          if (active?.ownId) ownId = String(active.ownId);
+          if (active?.name || active?.displayName || active?.zaloName) {
+            rawName = String(active.name || active.displayName || active.zaloName);
+          }
+        }
+      } catch {}
+    }
+
+    if (hasMeta) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        if (!ownId && meta?.ownId) ownId = String(meta.ownId);
+        if (!rawName && (meta?.accountName || meta?.displayName || meta?.ownName)) {
+          rawName = String(meta.accountName || meta.displayName || meta.ownName);
+        }
+      } catch {}
+    }
+
+    if ((!ownId || !rawName) && hasHistory) {
+      try {
+        const lines = fs.readFileSync(histPath, "utf8").split("\n");
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const msg = JSON.parse(line);
+          if (msg?.isSelf) {
+            if (!ownId && msg.senderId && /^\d{8,}$/.test(String(msg.senderId))) {
+              ownId = String(msg.senderId);
+            }
+            if (
+              !rawName &&
+              msg.senderName &&
+              !/ADDP|Dược sĩ|Chuyên viên|Khách/i.test(String(msg.senderName))
+            ) {
+              rawName = String(msg.senderName);
+            }
+            if (ownId && rawName) break;
+          }
+        }
+      } catch {}
+    }
+
+    const folderSlug = path.basename(dir);
+    if (!ownId && folderSlug.includes("son-tung")) {
+      ownId = "1781287338457243967";
+    }
+    const displayName = cleanDisplayAccountName(rawName, ownId, folderSlug);
+    const accountKey = ownId || folderSlug;
+
+    if (!byAccountKey.has(accountKey)) {
+      byAccountKey.set(accountKey, {
+        accountId: accountKey,
+        ownId: ownId || "",
+        slug: folderSlug,
+        name: displayName,
+        displayName,
+        accountName: `Zalo: ${displayName}`,
+        channelLabel: `Zalo Cá Nhân (${displayName})`,
+        homeDir: dir,
+        allHomeDirs: [dir],
+        hasCredentials,
+        mtime,
+      });
+    } else {
+      const existing = byAccountKey.get(accountKey);
+      if (!existing.allHomeDirs.includes(dir)) {
+        existing.allHomeDirs.push(dir);
+      }
+      // Ưu tiên chọn thư mục có credentials hợp lệ và mtime mới hơn làm homeDir chính
+      if ((hasCredentials && !existing.hasCredentials) || (hasCredentials === existing.hasCredentials && mtime > existing.mtime)) {
+        existing.homeDir = dir;
+        existing.slug = folderSlug;
+        existing.hasCredentials = hasCredentials;
+        existing.mtime = mtime;
+      }
+      if (
+        existing.displayName.startsWith("Zalo #") &&
+        !displayName.startsWith("Zalo #")
+      ) {
+        existing.name = displayName;
+        existing.displayName = displayName;
+        existing.accountName = `Zalo: ${displayName}`;
+        existing.channelLabel = `Zalo Cá Nhân (${displayName})`;
+      }
+    }
+  }
+
+  const accounts = Array.from(byAccountKey.values()).sort((a, b) => b.mtime - a.mtime);
+
+  // Sắp xếp allHomeDirs của từng tài khoản từ cũ -> mới để thư mục mới nhất nằm cuối
+  for (const acc of accounts) {
+    acc.allHomeDirs = [...acc.allHomeDirs].reverse();
+  }
+
+  const sig = accounts.map((a) => `${a.displayName}:${a.ownId}:${a.homeDir}`).join(" | ");
+  const now = Date.now();
+  if (
+    accounts.length > 0 &&
+    (globalThis.__lastLoggedMultiZaloSig !== sig ||
+      !globalThis.__lastLoggedMultiZaloAt ||
+      now - globalThis.__lastLoggedMultiZaloAt > 60000)
+  ) {
+    globalThis.__lastLoggedMultiZaloSig = sig;
+    globalThis.__lastLoggedMultiZaloAt = now;
+    console.log(
+      `[Zalo Runner] Đã tự động kết nối ${accounts.length} tài khoản Zalo active: ${accounts
+        .map((a) => `${a.displayName} (${a.homeDir})`)
+        .join(", ")}`
+    );
+  }
+
+  return accounts;
+}
+
 /**
  * Tự động tìm thư mục Zalo đang hoạt động (Active Zalo Home):
- * 1. Quét `../server/connector-home/`, `server/connector-home/` (hoặc `ZALO_CONNECTOR_HOME`).
- * 2. Tìm tất cả các file `.zalo-agent-cli/history.jsonl` và chọn thư mục có `mtime` mới nhất.
- * 3. Nếu không tìm thấy trong `connector-home`, mới fallback về `.zalo-agent-cli` trong thư mục hiện tại.
+ * Giữ tương thích ngược cho các hàm truyền thống nhưng ưu tiên lấy từ getAllActiveZaloHomes().
  */
 export function getActiveZaloHome() {
   let activePath = "";
 
   try {
-    const allHomes = getAllZaloHomes();
-    if (allHomes.length > 0) {
-      activePath = allHomes[0];
+    const activeAccounts = getAllActiveZaloHomes();
+    if (activeAccounts.length > 0) {
+      activePath = activeAccounts[0].homeDir;
+    } else {
+      const allHomes = getAllZaloHomes();
+      if (allHomes.length > 0) {
+        activePath = allHomes[0];
+      }
     }
   } catch (err) {
     console.error("[GET_ACTIVE_ZALO_HOME_ERROR]", err);
   }
 
-  // Fallback về thư mục hiện tại (chứa .zalo-agent-cli) nếu không tìm thấy trong connector-home
   if (!activePath) {
     const cwd = path.resolve(process.cwd());
     const cwdCli = path.join(cwd, ".zalo-agent-cli");
@@ -376,19 +612,107 @@ export function getActiveZaloHome() {
 }
 
 /**
+ * Xác định chính xác tài khoản Zalo (`homeDir`, `ownId`, `displayName`) sở hữu một hội thoại `threadId`
+ */
+export function resolveZaloHomeForThread(threadId = "", preferredHomeDir = "", preferredAccountId = "") {
+  const accounts = getAllActiveZaloHomes();
+  if (accounts.length === 0) {
+    const fallbackHome = preferredHomeDir || getActiveZaloHome();
+    const ownId = getOwnIdForHome(fallbackHome);
+    const displayName = cleanDisplayAccountName(getActiveZaloAccountName(fallbackHome), ownId);
+    return {
+      accountId: ownId,
+      ownId,
+      name: displayName,
+      displayName,
+      accountName: `Zalo: ${displayName}`,
+      channelLabel: `Zalo Cá Nhân (${displayName})`,
+      homeDir: fallbackHome,
+      allHomeDirs: [fallbackHome],
+    };
+  }
+
+  // 1. Khớp theo preferredHomeDir
+  if (preferredHomeDir) {
+    const resolvedPref = path.resolve(preferredHomeDir);
+    const matchedByHome = accounts.find(
+      (a) =>
+        path.resolve(a.homeDir) === resolvedPref ||
+        a.allHomeDirs.some((d) => path.resolve(d) === resolvedPref)
+    );
+    if (matchedByHome) return matchedByHome;
+  }
+
+  // 2. Khớp theo preferredAccountId (ownId hoặc slug)
+  if (preferredAccountId && preferredAccountId !== "ALL") {
+    const matchedById = accounts.find(
+      (a) =>
+        String(a.accountId) === String(preferredAccountId) ||
+        String(a.ownId) === String(preferredAccountId) ||
+        String(a.slug) === String(preferredAccountId)
+    );
+    if (matchedById) return matchedById;
+  }
+
+  // 3. Tự động dò trong history.jsonl và crm-meta-cache.json của từng tài khoản Zalo
+  const tid = String(threadId || "").trim();
+  if (tid) {
+    let bestMatch = null;
+    let bestTimestamp = -1;
+
+    for (const acc of accounts) {
+      const files = getAllZaloHistoryFiles(acc.homeDir);
+      for (const fp of files) {
+        if (!fs.existsSync(fp)) continue;
+        try {
+          const raw = fs.readFileSync(fp, "utf8");
+          if (!raw.includes(`"${tid}"`)) continue;
+          const lines = raw.split("\n");
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const l = lines[i].trim();
+            if (!l || !l.includes(`"${tid}"`)) continue;
+            try {
+              const parsed = JSON.parse(l);
+              if (String(parsed.threadId) === tid) {
+                const ts = Number(parsed.timestamp) || 1;
+                if (ts > bestTimestamp) {
+                  bestTimestamp = ts;
+                  bestMatch = acc;
+                }
+                break;
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+
+      if (!bestMatch) {
+        const metaPath = path.join(acc.homeDir, ".zalo-agent-cli", "crm-meta-cache.json");
+        if (fs.existsSync(metaPath)) {
+          try {
+            const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+            const inFriends = (meta?.friends || []).some((f) => String(f?.userId) === tid);
+            const inGroups = (meta?.groups || []).some((g) => String(g?.threadId) === tid);
+            if (inFriends || inGroups) {
+              bestMatch = acc;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    if (bestMatch) return bestMatch;
+  }
+
+  return accounts[0];
+}
+
+/**
  * Lấy ownId thực tế của tài khoản Zalo đang kết nối từ crm-meta-cache.json hoặc accounts.json
  */
 export function getOwnIdForHome(homeDir) {
   const targetHome = homeDir || getActiveZaloHome();
   const cliDir = path.join(targetHome, ".zalo-agent-cli");
-
-  const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
-  if (fs.existsSync(metaCachePath)) {
-    try {
-      const cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
-      if (cached?.ownId) return String(cached.ownId);
-    } catch {}
-  }
 
   const accountsPath = path.join(cliDir, "accounts.json");
   if (fs.existsSync(accountsPath)) {
@@ -401,25 +725,24 @@ export function getOwnIdForHome(homeDir) {
     } catch {}
   }
 
-  return "1781287338457243967";
-}
-
-/**
- * Lấy tên tài khoản Zalo đang trực thực tế (ví dụ: "Sơn Tùng", "Thuỷ Tiên") từ crm-meta-cache.json hoặc accounts.json
- */
-export function getActiveZaloAccountName(homeDir) {
-  const targetHome = homeDir || getActiveZaloHome();
-  const cliDir = path.join(targetHome, ".zalo-agent-cli");
-
   const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
   if (fs.existsSync(metaCachePath)) {
     try {
       const cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
-      if (cached?.accountName || cached?.displayName || cached?.ownName) {
-        return String(cached.accountName || cached.displayName || cached.ownName);
-      }
+      if (cached?.ownId) return String(cached.ownId);
     } catch {}
   }
+
+  return "1781287338457243967";
+}
+
+/**
+ * Lấy tên tài khoản Zalo đang trực thực tế (ví dụ: "Sơn Tùng", "Lê Quyên") từ accounts.json hoặc crm-meta-cache.json
+ */
+export function getActiveZaloAccountName(homeDir) {
+  const targetHome = homeDir || getActiveZaloHome();
+  const cliDir = path.join(targetHome, ".zalo-agent-cli");
+  const ownId = getOwnIdForHome(targetHome);
 
   const accountsPath = path.join(cliDir, "accounts.json");
   if (fs.existsSync(accountsPath)) {
@@ -428,19 +751,35 @@ export function getActiveZaloAccountName(homeDir) {
       if (Array.isArray(accounts)) {
         const activeAcc = accounts.find((a) => a.active) || accounts[0];
         const name = activeAcc?.displayName || activeAcc?.name || activeAcc?.zaloName;
-        if (name) return String(name);
+        if (name) return cleanDisplayAccountName(name, ownId, path.basename(targetHome));
       }
     } catch {}
   }
 
-  return "Zalo Cá Nhân (Sơn Tùng)";
+  const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
+  if (fs.existsSync(metaCachePath)) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
+      if (cached?.accountName || cached?.displayName || cached?.ownName) {
+        return cleanDisplayAccountName(
+          cached.accountName || cached.displayName || cached.ownName,
+          ownId,
+          path.basename(targetHome)
+        );
+      }
+    } catch {}
+  }
+
+  return cleanDisplayAccountName("", ownId, path.basename(targetHome));
 }
 
 /**
- * Lấy danh sách toàn bộ các file history JSONL (bao gồm cả history thực tế đã lưu, group history và live history)
+ * Lấy danh sách các file history JSONL thuộc về ĐÚNG tài khoản Zalo `primaryHome` (cô lập theo `ownId`).
+ * TUYỆT ĐỐI KHÔNG trộn lịch sử của nick Lê Quyên sang nick Sơn Tùng hoặc ngược lại.
  */
 export function getAllZaloHistoryFiles(primaryHome) {
   const targetHome = primaryHome || getActiveZaloHome();
+  const targetOwnId = getOwnIdForHome(targetHome);
   const files = [];
   const seen = new Set();
 
@@ -453,22 +792,26 @@ export function getAllZaloHistoryFiles(primaryHome) {
     }
   };
 
-  // 1. File lịch sử gốc của tài khoản Sơn Tùng (nếu có trong data/)
-  addIfExist(path.resolve(process.cwd(), "data", "zalo_history_1781287338457243967.jsonl"));
-  addIfExist(path.resolve(process.cwd(), "portal", "data", "zalo_history_1781287338457243967.jsonl"));
-
-  // 2. Các thư mục connector-home khác (đảo ngược để thư mục có mtime mới nhất nằm sau cùng, ghi đè trạng thái mới nhất)
-  const allHomesOldestFirst = [...getAllZaloHomes()].reverse();
-  for (const h of allHomesOldestFirst) {
-    addIfExist(path.join(h, ".zalo-agent-cli", "crm-group-history.jsonl"));
-    addIfExist(path.join(h, ".zalo-agent-cli", "history.jsonl"));
+  // 1. Chỉ nạp file lịch sử gốc zalo_history_1781287338457243967.jsonl nếu đây đúng là tài khoản Sơn Tùng (ownId === 1781287338457243967)
+  if (String(targetOwnId) === "1781287338457243967") {
+    addIfExist(path.resolve(process.cwd(), "data", "zalo_history_1781287338457243967.jsonl"));
+    addIfExist(path.resolve(process.cwd(), "portal", "data", "zalo_history_1781287338457243967.jsonl"));
   }
 
-  // 3. Fallback .zalo-agent-cli trong thư mục hiện tại (nếu có)
-  addIfExist(path.resolve(process.cwd(), ".zalo-agent-cli", "crm-group-history.jsonl"));
-  addIfExist(path.resolve(process.cwd(), ".zalo-agent-cli", "history.jsonl"));
+  // 2. Chỉ gộp các thư mục connector-home có CÙNG ownId với targetHome
+  const allHomesOldestFirst = [...getAllZaloHomes()].reverse();
+  for (const h of allHomesOldestFirst) {
+    const hOwnId = getOwnIdForHome(h);
+    if (
+      path.resolve(h) === path.resolve(targetHome) ||
+      (targetOwnId && hOwnId && String(targetOwnId) === String(hOwnId))
+    ) {
+      addIfExist(path.join(h, ".zalo-agent-cli", "crm-group-history.jsonl"));
+      addIfExist(path.join(h, ".zalo-agent-cli", "history.jsonl"));
+    }
+  }
 
-  // 4. Thư mục chính hiện tại (đặt cuối để ghi đè trạng thái mới nhất nếu trùng)
+  // 3. Thư mục chính hiện tại (đặt cuối để ghi đè trạng thái mới nhất nếu trùng)
   if (targetHome) {
     addIfExist(path.join(targetHome, ".zalo-agent-cli", "crm-group-history.jsonl"));
     addIfExist(path.join(targetHome, ".zalo-agent-cli", "history.jsonl"));
@@ -915,6 +1258,10 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
     const activeAccountName = getActiveZaloAccountName(targetHome);
     const cliDir = path.join(targetHome, ".zalo-agent-cli");
 
+    if (!globalThis.__zaloBotInitialSeedHomes) {
+      globalThis.__zaloBotInitialSeedHomes = new Set();
+    }
+
     // Đọc danh sách nhóm (để loại trừ chat nhóm) và danh sách bạn bè (để lấy đúng tên & avatar khách hàng)
     const groupIds = new Set();
     const friendMap = new Map();
@@ -935,7 +1282,8 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
     const threadsHistory = new Map();
     const seenMsgIds = new Set();
     const now = Date.now();
-    const isInitialSeed = !globalThis.__zaloBotInitialSeedDone;
+    const homeSeedKey = path.resolve(targetHome);
+    const isInitialSeed = !globalThis.__zaloBotInitialSeedHomes.has(homeSeedKey);
 
     for (const filePath of historyFiles) {
       if (!fs.existsSync(filePath)) continue;
@@ -981,7 +1329,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
               id: msgId,
               threadId: tid,
               senderId: String(msg.senderId || ""),
-              senderName: msg.senderName || (isMe ? "Sơn Tùng" : "Khách Zalo"),
+              senderName: msg.senderName || (isMe ? activeAccountName : "Khách Zalo"),
               isMe,
               text,
               type: msg.type || "text",
@@ -993,7 +1341,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
       } catch {}
     }
 
-    globalThis.__zaloBotInitialSeedDone = true;
+    globalThis.__zaloBotInitialSeedHomes.add(homeSeedKey);
 
     // Kiểm tra tin nhắn cuối cùng của từng hội thoại DM
     for (const [tid, msgs] of threadsHistory.entries()) {
@@ -1049,15 +1397,25 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
 }
 
 /**
- * Khởi động vòng lặp theo dõi ngầm history.jsonl mỗi 3 giây để phản hồi khách hàng 24/7 theo thời gian thực
+ * Khởi động vòng lặp theo dõi ngầm history.jsonl mỗi 3 giây trên TẤT CẢ các tài khoản Zalo đang kết nối
+ * để phản hồi khách hàng 24/7 theo thời gian thực (khách nhắn vào nick nào -> nick đó trả lời & xưng tên nick đó)
  */
-export function startZaloRealtimeAiWatcher(homeDir) {
+export function startZaloRealtimeAiWatcher() {
   if (globalThis.__zaloAiWatcherTimer) {
     return;
   }
   globalThis.__zaloAiWatcherTimer = setInterval(() => {
-    const activeHome = homeDir || getActiveZaloHome();
-    scanAndAutoReplyZaloHistories(activeHome).catch(() => {});
+    try {
+      const accounts = getAllActiveZaloHomes();
+      if (accounts.length > 0) {
+        for (const acc of accounts) {
+          scanAndAutoReplyZaloHistories(acc.homeDir, acc.ownId).catch(() => {});
+        }
+      } else {
+        const fallbackHome = getActiveZaloHome();
+        scanAndAutoReplyZaloHistories(fallbackHome).catch(() => {});
+      }
+    } catch {}
   }, 3000);
 
   if (typeof globalThis.__zaloAiWatcherTimer.unref === "function") {
@@ -1069,38 +1427,42 @@ export function startZaloRealtimeAiWatcher(homeDir) {
 startZaloRealtimeAiWatcher();
 
 /**
- * Kiểm tra khách hàng đã từng có kết nối / tin nhắn Zalo từ trước hay chưa
+ * Kiểm tra khách hàng đã từng có kết nối / tin nhắn Zalo từ trước hay chưa trên bất kỳ tài khoản Zalo nào
  * (Tuân thủ Module 3: Tuyệt đối không gửi Broadcast cho người lạ chưa có thread)
  */
 export function hasExistingZaloConnection(targetZaloId = "", customerPhone = "") {
   const tid = String(targetZaloId || "").trim();
   const phone = String(customerPhone || "").trim();
-  const targetHome = getActiveZaloHome();
+  const accounts = getAllActiveZaloHomes();
+  const homesToCheck =
+    accounts.length > 0 ? accounts.map((a) => a.homeDir) : [getActiveZaloHome()];
 
-  // 1. Kiểm tra trong crm-meta-cache.json (danh sách bạn bè / hội thoại)
-  const metaCachePath = path.join(targetHome, ".zalo-agent-cli", "crm-meta-cache.json");
-  if (fs.existsSync(metaCachePath)) {
-    try {
-      const meta = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
-      if (Array.isArray(meta?.friends)) {
-        const matchedFriend = meta.friends.some(
-          (f) =>
-            (tid && String(f.userId) === tid) ||
-            (phone && String(f.phoneNumber || "").includes(phone.slice(-9)))
-        );
-        if (matchedFriend) return true;
-      }
-    } catch {}
-  }
+  for (const targetHome of homesToCheck) {
+    // 1. Kiểm tra trong crm-meta-cache.json (danh sách bạn bè / hội thoại)
+    const metaCachePath = path.join(targetHome, ".zalo-agent-cli", "crm-meta-cache.json");
+    if (fs.existsSync(metaCachePath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
+        if (Array.isArray(meta?.friends)) {
+          const matchedFriend = meta.friends.some(
+            (f) =>
+              (tid && String(f.userId) === tid) ||
+              (phone && String(f.phoneNumber || "").includes(phone.slice(-9)))
+          );
+          if (matchedFriend) return true;
+        }
+      } catch {}
+    }
 
-  // 2. Kiểm tra trong các file history.jsonl
-  const historyFiles = getAllZaloHistoryFiles(targetHome);
-  for (const hp of historyFiles) {
-    try {
-      const raw = fs.readFileSync(hp, "utf8");
-      if (tid && raw.includes(`"${tid}"`)) return true;
-      if (phone && raw.includes(phone)) return true;
-    } catch {}
+    // 2. Kiểm tra trong các file history.jsonl
+    const historyFiles = getAllZaloHistoryFiles(targetHome);
+    for (const hp of historyFiles) {
+      try {
+        const raw = fs.readFileSync(hp, "utf8");
+        if (tid && raw.includes(`"${tid}"`)) return true;
+        if (phone && raw.includes(phone)) return true;
+      } catch {}
+    }
   }
 
   // 3. Nếu hồ sơ khách hàng đã lưu sẵn zaloUid hoặc zaloThreadId

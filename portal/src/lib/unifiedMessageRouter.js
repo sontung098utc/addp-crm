@@ -499,6 +499,8 @@ export async function getOmnichannelConversations(forceRefresh = false) {
   for (const m of storedMessages) {
     // Không gom lại Zalo cá nhân vì Zalo cá nhân đọc từ history.jsonl trực tiếp
     if (m.channel === "ZALO_PERSONAL") continue;
+    // Loại bỏ dữ liệu mẫu test cũ (nếu còn sót)
+    if (String(m.threadId) === "zalo_oa_user_8899") continue;
 
     const key = `${m.channel}_${m.threadId}`;
     const existing = convMap.get(key);
