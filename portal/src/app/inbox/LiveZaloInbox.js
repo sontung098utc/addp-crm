@@ -865,33 +865,41 @@ export default function LiveZaloInbox() {
     return Array.from(map.values());
   }, [connectedPages, conversations]);
 
-  // Danh sách tài khoản Zalo cá nhân
+  // Danh sách tài khoản Zalo cá nhân (tự động loại bỏ tài khoản đã xóa hoặc 0 hội thoại)
   const effectiveZaloAccounts = useMemo(() => {
-    if (connectedZaloAccounts.length > 0) return connectedZaloAccounts;
-    const map = new Map();
-    for (const c of conversations || []) {
-      if (c.channel === "ZALO_PERSONAL") {
-        const accId = String(c.accountId || c.accountDisplayName || "default");
-        const disp =
-          c.accountDisplayName ||
-          (c.accountName ? c.accountName.replace(/^Zalo:\s*/i, "") : "Sơn Tùng");
-        if (!map.has(accId)) {
-          map.set(accId, {
-            accountId: accId,
-            name: disp,
-            displayName: `Zalo ${disp}`,
-            label: `Zalo: ${disp}`,
-            activeCount: 0,
-            totalCount: 0,
-            colorIndex: map.size,
-          });
-        }
-        const entry = map.get(accId);
-        entry.totalCount += 1;
-        if (!c.isContactOnly) entry.activeCount += 1;
-      }
+    let list = [];
+    if (connectedZaloAccounts && connectedZaloAccounts.length > 0) {
+      list = connectedZaloAccounts.filter(
+        (a) => (a.totalCount || 0) > 0 || (a.activeCount || 0) > 0
+      );
     }
-    return Array.from(map.values());
+    if (list.length === 0) {
+      const map = new Map();
+      for (const c of conversations || []) {
+        if (c.channel === "ZALO_PERSONAL") {
+          const accId = String(c.accountId || c.accountDisplayName || "default");
+          const disp =
+            c.accountDisplayName ||
+            (c.accountName ? c.accountName.replace(/^Zalo:\s*/i, "") : "Sơn Tùng");
+          if (!map.has(accId)) {
+            map.set(accId, {
+              accountId: accId,
+              name: disp,
+              displayName: `Zalo ${disp}`,
+              label: `Zalo: ${disp}`,
+              activeCount: 0,
+              totalCount: 0,
+              colorIndex: map.size,
+            });
+          }
+          const entry = map.get(accId);
+          entry.totalCount += 1;
+          if (!c.isContactOnly) entry.activeCount += 1;
+        }
+      }
+      list = Array.from(map.values()).filter((a) => a.totalCount > 0);
+    }
+    return list.filter((a) => (a.totalCount || 0) > 0 || (a.activeCount || 0) > 0);
   }, [connectedZaloAccounts, conversations]);
 
   // Xử lý khi đổi lựa chọn trong Dropdown Gom Kênh ở Cột 1
@@ -1024,6 +1032,52 @@ export default function LiveZaloInbox() {
     } finally {
       setIsSyncingHistory(false);
     }
+  };
+
+  // Kích hoạt cuộc gọi thoại (tel: protocol & copy SĐT)
+  const handleVoiceCall = () => {
+    const rawPhone = activeConv?.phone || matchedCustomer?.phone || detectedChatPhone || "";
+    const cleanPhone = normalizePhone(rawPhone);
+    if (cleanPhone && isValidVietnamPhone(cleanPhone)) {
+      try {
+        if (typeof navigator !== "undefined" && navigator.clipboard) {
+          navigator.clipboard.writeText(cleanPhone);
+        }
+      } catch {}
+      setToast({
+        type: "success",
+        text: `Đang kết nối cuộc gọi tới ${cleanPhone} (Đã sao chép SĐT)...`,
+      });
+      setTimeout(() => setToast(null), 4000);
+      window.location.href = `tel:${cleanPhone}`;
+    } else {
+      setToast({
+        type: "error",
+        text: "Khách hàng chưa để lại SĐT. Hãy xin số điện thoại trước khi gọi!",
+      });
+      setTimeout(() => setToast(null), 3500);
+    }
+  };
+
+  // Kích hoạt cuộc gọi Video (Tạo link phòng họp tư vấn trực tuyến Jitsi)
+  const handleVideoCall = () => {
+    const roomName = `ADDP_TuVan_${String(activeConv?.id || "khach").replace(/[^a-zA-Z0-9]/g, "")}`;
+    const meetUrl = `https://meet.jit.si/${roomName}`;
+
+    if (typeof window !== "undefined") {
+      window.open(meetUrl, "_blank", "width=900,height=600");
+    }
+
+    setInputMessage((prev) => {
+      const inviteText = `Dạ em gửi đường link phòng gọi video tư vấn trực tiếp cùng Dược sĩ ADDP: ${meetUrl} . Anh/Chị bấm vào link để tham gia nhé ạ!`;
+      return prev ? `${prev}\n${inviteText}` : inviteText;
+    });
+
+    setToast({
+      type: "success",
+      text: "Đã mở phòng gọi Video & gửi lời mời tư vấn vào ô soạn tin!",
+    });
+    setTimeout(() => setToast(null), 4000);
   };
 
   // Helper đảm bảo Avatar luôn đi qua proxy trung gian (không bao giờ vỡ ảnh)
@@ -1825,23 +1879,24 @@ export default function LiveZaloInbox() {
         <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 min-w-0 min-h-0">
           {activeConv ? (
             <>
-              {/* Header khung chat thực chiến */}
-              <div className="h-15 px-5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/60 backdrop-blur flex items-center justify-between gap-3 flex-shrink-0">
-                {/* Thông tin khách hàng & SĐT */}
-                <div className="flex items-center gap-3 min-w-0">
+              {/* Header khung chat thực chiến chuẩn Responsive */}
+              <div className="min-h-[64px] px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex items-center justify-between gap-3 flex-shrink-0">
+                {/* Cụm Trái: Thông tin khách hàng & SĐT */}
+                <div className="flex-1 min-w-0 pr-2 flex items-center gap-3">
                   <div className="relative flex-shrink-0">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={getSafeAvatarUrl(activeConv)}
                       alt={activeConv.name}
                       onError={(e) => handleAvatarImgError(e, activeConv.name)}
-                      className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800"
+                      className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
                     />
                     <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
                   </div>
 
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="min-w-0 flex flex-col justify-center space-y-0.5">
+                    {/* Dòng 1: Tên khách + Badge SĐT */}
+                    <div className="flex items-center gap-2 min-w-0">
                       <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
                         {activeConv.name}
                       </h3>
@@ -1849,38 +1904,38 @@ export default function LiveZaloInbox() {
                       {/* Badge SĐT nổi bật */}
                       {(activeConv.phone || detectedChatPhone) && (
                         <span
-                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.2 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60"
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.2 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 shrink-0"
                           title="Số điện thoại khách hàng"
                         >
                           📞 {activeConv.phone || detectedChatPhone}
                         </span>
                       )}
+                    </div>
 
-                      {/* Nhãn tài khoản tiếp nhận */}
+                    {/* Dòng 2: Nhãn kênh tiếp nhận dạng badge nhỏ */}
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
                       <span
-                        className={`rounded-md text-[10px] font-semibold px-2 py-0.2 whitespace-nowrap flex-shrink-0 ${
+                        className={`rounded px-1.5 py-0.2 text-[9px] font-bold whitespace-nowrap shrink-0 ${
                           getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
                         }`}
                       >
                         {activeChannelName}
                       </span>
+                      <span className="truncate">
+                        {activeConv.type === "GROUP" && activeConv.memberCount > 0
+                          ? `Nhóm ${activeConv.memberCount} thành viên`
+                          : activeConv.channel === "FACEBOOK" && activeConv.pageName
+                          ? `Page: ${activeConv.pageName}`
+                          : activeConv.accountDisplayName
+                          ? `Tài khoản: ${activeConv.accountDisplayName}`
+                          : `ID: ${activeConv.id}`}
+                      </span>
                     </div>
-
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                      {activeConv.type === "GROUP" && activeConv.memberCount > 0
-                        ? `Nhóm ${activeConv.memberCount} thành viên • `
-                        : activeConv.phone
-                        ? `SĐT: ${activeConv.phone} • `
-                        : `ID: ${activeConv.id} • `}
-                      {activeConv.channel === "FACEBOOK" && activeConv.pageId
-                        ? `Page ID: ${activeConv.pageId} (${activeConv.pageName})`
-                        : `Tài khoản: ${activeConv.accountName || (activeConv.accountDisplayName ? `Zalo: ${activeConv.accountDisplayName}` : "Zalo Cá Nhân")}`}
-                    </p>
                   </div>
                 </div>
 
-                {/* Cụm điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Gọi + Hồ Sơ */}
-                <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Cụm Phải: Điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Gọi + Hồ Sơ */}
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                   {(() => {
                     const isAccountHuman =
                       isConversationAccountHuman(activeConv) ||
@@ -1892,7 +1947,7 @@ export default function LiveZaloInbox() {
                     return (
                       <>
                         {/* Công tắc Toggle Switch Bật/Tắt AI cho từng khách */}
-                        <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-900/90 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs">
                           <button
                             type="button"
                             role="switch"
@@ -1901,27 +1956,27 @@ export default function LiveZaloInbox() {
                             disabled={togglingBot}
                             title={
                               !isThreadHuman
-                                ? "AI Đang Trực — Bấm để chuyển sang Nhân viên trực"
-                                : "Sale Tiếp Quản — Bấm để bật lại AI Đang Trực"
+                                ? "AI Đang Trực — Bấm để chuyển sang Sale trực"
+                                : "Sale Trực — Bấm để bật lại AI Trực"
                             }
-                            className="inline-flex items-center gap-2 cursor-pointer focus:outline-none"
+                            className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none"
                           >
                             <span className="text-xs font-bold whitespace-nowrap">
                               {!isThreadHuman ? (
                                 <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
                                   <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse shrink-0" />
-                                  🤖 AI Đang Trực
+                                  🤖 AI Trực
                                 </span>
                               ) : (
                                 <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
                                   <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
-                                  👤 Sale Tiếp Quản
+                                  👤 Sale Trực
                                 </span>
                               )}
                             </span>
                             {/* Switch Pill */}
                             <span
-                              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
+                              className={`relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
                                 !isThreadHuman
                                   ? "bg-purple-600"
                                   : "bg-slate-300 dark:bg-slate-700"
@@ -1929,7 +1984,7 @@ export default function LiveZaloInbox() {
                             >
                               <span
                                 className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
-                                  !isThreadHuman ? "translate-x-4.5" : "translate-x-1"
+                                  !isThreadHuman ? "translate-x-4" : "translate-x-0.5"
                                 }`}
                               />
                             </span>
@@ -1941,7 +1996,7 @@ export default function LiveZaloInbox() {
                           type="button"
                           onClick={() => setIsOrderModalOpen(true)}
                           title="Tạo đơn hàng nhanh cho khách"
-                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer badge-solid-white"
+                          className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer badge-solid-white shrink-0"
                         >
                           <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                           <span>Lên Đơn</span>
@@ -1950,40 +2005,47 @@ export default function LiveZaloInbox() {
                     );
                   })()}
 
+                  {/* Nút Gọi Thoại */}
                   <button
                     type="button"
-                    aria-label="Gọi thoại"
-                    title="Gọi thoại"
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
+                    onClick={handleVoiceCall}
+                    aria-label="Gọi thoại cho khách"
+                    title="Gọi thoại trực tiếp (tel: / MicroSIP)"
+                    className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer shadow-xs"
                   >
-                    <Phone className="w-4 h-4" />
+                    <Phone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   </button>
+
+                  {/* Nút Gọi Video */}
                   <button
                     type="button"
-                    aria-label="Gọi video"
-                    title="Gọi video"
-                    className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer"
+                    onClick={handleVideoCall}
+                    aria-label="Gọi video tư vấn"
+                    title="Gọi Video tư vấn trực tuyến"
+                    className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer shadow-xs"
                   >
-                    <Video className="w-4 h-4" />
+                    <Video className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   </button>
+
+                  {/* Nút Hồ Sơ 360 */}
                   <button
                     type="button"
                     onClick={() => setShowSidePanel(!showSidePanel)}
                     title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                    className={`px-2.5 py-2 rounded-xl text-xs font-semibold transition-colors border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                    className={`px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-colors border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shrink-0 ${
                       showSidePanel
                         ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
                         : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
                     }`}
                   >
                     <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span>Hồ Sơ 360</span>
+                    <span className="hidden sm:inline">Hồ Sơ 360</span>
                   </button>
                 </div>
               </div>
 
-              {/* Message Thread Stream (Bong bóng chat 2 chiều) */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-4 chat-stream-bg min-h-0">
+              {/* Message Thread Stream (Bong bóng chat 2 chiều - triệt tiêu cuộn ngang) */}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 chat-stream-bg min-h-0">
                 {/* Dấu mốc ngày tháng */}
                 <div className="flex justify-center">
                   <span className="rounded-full bg-slate-200/90 dark:bg-slate-800/80 px-3 py-1 text-[11px] text-slate-600 dark:text-slate-400 font-medium border border-slate-300 dark:border-slate-700/60 shadow-xs">

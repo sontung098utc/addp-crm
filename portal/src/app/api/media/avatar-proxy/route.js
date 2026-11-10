@@ -33,10 +33,36 @@ function getInitials(name = "Khách Hàng") {
 }
 
 /**
- * Sinh ảnh avatar SVG chất lượng cao dự phòng có 2 chữ cái viết tắt
+ * Sinh ảnh avatar SVG chất lượng cao dự phòng có 2 chữ cái viết tắt hoặc icon nhóm
  */
 function generateFallbackSvg(name = "Khách Hàng", gender = "UNKNOWN", type = "zalo") {
   const safeName = String(name || "Khách Hàng").trim();
+  const isGroup = type === "group" || /nhóm/i.test(safeName);
+
+  // Nếu là Nhóm chat Zalo mà không có avatar riêng: tự động sinh avatar nhóm người nhận diện thương hiệu ADDP
+  if (isGroup) {
+    return `
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="gradGroup" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="100%" stop-color="#312e81" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="64" fill="url(#gradGroup)" />
+  <circle cx="64" cy="64" r="56" fill="#ffffff" fill-opacity="0.08" />
+  <!-- Người giữa -->
+  <circle cx="64" cy="46" r="15" fill="#ffffff" fill-opacity="0.95" />
+  <path d="M 40 88 C 40 73, 50 67, 64 67 C 78 67, 88 73, 88 88 Z" fill="#ffffff" fill-opacity="0.95" />
+  <!-- Người trái -->
+  <circle cx="40" cy="52" r="11" fill="#ffffff" fill-opacity="0.65" />
+  <path d="M 22 86 C 22 75, 30 71, 40 71 C 43 71, 46 72, 49 73 C 45 77, 43 83, 43 87 Z" fill="#ffffff" fill-opacity="0.65" />
+  <!-- Người phải -->
+  <circle cx="88" cy="52" r="11" fill="#ffffff" fill-opacity="0.65" />
+  <path d="M 106 86 C 106 75, 98 71, 88 71 C 85 71, 82 72, 79 73 C 83 77, 85 83, 85 87 Z" fill="#ffffff" fill-opacity="0.65" />
+</svg>`.trim();
+  }
+
   const initials = getInitials(safeName);
   
   // Màu sắc gradient theo kênh và tên

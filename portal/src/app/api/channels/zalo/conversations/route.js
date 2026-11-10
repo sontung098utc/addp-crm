@@ -12,6 +12,7 @@ import {
   getOmnichannelConversations,
   getConnectedFacebookPages,
 } from "@/lib/unifiedMessageRouter.js";
+import { listAllChannels } from "@/lib/connectionHub.js";
 import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import fs from "fs";
@@ -176,23 +177,44 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get("refresh") === "1";
 
-    // Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang kết nối (Sơn Tùng, Lê Quyên...)
+    // Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang kết nối (đã lọc bỏ tài khoản đã xóa khỏi Channels)
+    const activeChannels = listAllChannels().filter(
+      (c) => c.platform === "ZALO_PERSONAL" && c.status !== "DISCONNECTED"
+    );
+    const activeZaloOwnIds = new Set(
+      activeChannels.map((c) => String(c.config?.ownId || c.externalId || "")).filter(Boolean)
+    );
+    const activeZaloNames = new Set(
+      activeChannels.map((c) => String(c.config?.accountName || c.config?.label || c.name || "").toLowerCase())
+    );
+
     const discoveredAccounts = getAllActiveZaloHomes();
-    const zaloAccountsToSync =
-      discoveredAccounts.length > 0
-        ? discoveredAccounts
-        : [
-            {
-              accountId: "1781287338457243967",
-              ownId: "1781287338457243967",
-              slug: "default",
-              name: "Sơn Tùng",
-              displayName: "Sơn Tùng",
-              accountName: "Zalo: Sơn Tùng",
-              channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
-              homeDir: getActiveZaloHome(),
-            },
-          ];
+    let zaloAccountsToSync = discoveredAccounts.filter((acc) => {
+      if (activeChannels.length === 0) return true;
+      const own = String(acc.ownId || acc.accountId || "");
+      const name = String(acc.displayName || acc.name || "").toLowerCase();
+      // Loại bỏ hoàn toàn nick đã xóa (ví dụ "Lê Quyên")
+      if (activeZaloOwnIds.size > 0 && activeZaloOwnIds.has(own)) return true;
+      for (const an of activeZaloNames) {
+        if (an && (name.includes(an) || an.includes(name))) return true;
+      }
+      return false;
+    });
+
+    if (zaloAccountsToSync.length === 0) {
+      zaloAccountsToSync = [
+        {
+          accountId: "1781287338457243967",
+          ownId: "1781287338457243967",
+          slug: "default",
+          name: "Sơn Tùng",
+          displayName: "Sơn Tùng",
+          accountName: "Zalo: Sơn Tùng",
+          channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
+          homeDir: getActiveZaloHome(),
+        },
+      ];
+    }
 
     // 1. Đảm bảo daemon `mcp start --http` luôn chạy ngầm 24/7 cho mọi tài khoản Zalo đang kết nối
     for (const acc of zaloAccountsToSync) {
@@ -256,7 +278,7 @@ export async function GET(request) {
         if (isGroup) {
           const g = groupMap.get(thread.threadId);
           name = g?.name || `Nhóm Zalo (${thread.threadId.slice(-4)})`;
-          avatar = g?.avatar || g?.avt || g?.fullAvt || "";
+          avatar = g?.avatar || g?.avt || g?.fullAvt || g?.groupTopic?.avatar || "";
           memberCount = g?.memberCount || 0;
         } else {
           const f = friendMap.get(thread.threadId);
@@ -392,20 +414,23 @@ export async function GET(request) {
         }
       }
 
-      connectedZaloAccounts.push({
-        accountId,
-        ownId,
-        name: displayName,
-        displayName: `Zalo ${displayName}`,
-        label: accountName,
-        channelLabel,
-        botMode: channelBotMode,
-        homeDir: acc.homeDir,
-        activeCount: accActiveCount,
-        contactCount: accContactCount,
-        totalCount: accActiveCount + accContactCount,
-        colorIndex: accIdx,
-      });
+      // Chỉ đưa vào danh sách nếu tài khoản Zalo này có hoạt động (không hiển thị nick 0 tin nhắn đã ngắt kết nối)
+      if (accActiveCount + accContactCount > 0) {
+        connectedZaloAccounts.push({
+          accountId,
+          ownId,
+          name: displayName,
+          displayName: `Zalo ${displayName}`,
+          label: accountName,
+          channelLabel,
+          botMode: channelBotMode,
+          homeDir: acc.homeDir,
+          activeCount: accActiveCount,
+          contactCount: accContactCount,
+          totalCount: accActiveCount + accContactCount,
+          colorIndex: accIdx,
+        });
+      }
     }
 
     contactOnlyConversations.sort((a, b) => {
