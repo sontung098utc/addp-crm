@@ -22,6 +22,15 @@ import fs from "fs";
  * Đảm bảo thứ tự hội thoại ổn định tuyệt đối theo đúng thời gian tin nhắn thực tế (không nhảy danh sách).
  */
 
+function buildSafeAvatarUrl(rawAvatar, type, id, name) {
+  const safeName = encodeURIComponent(String(name || "").trim() || "Khách Hàng");
+  const safeId = encodeURIComponent(String(id || ""));
+  if (rawAvatar && typeof rawAvatar === "string" && rawAvatar.trim()) {
+    return `/api/media/avatar-proxy?url=${encodeURIComponent(rawAvatar.trim())}&type=${type}&id=${safeId}&name=${safeName}`;
+  }
+  return `/api/media/avatar-proxy?type=${type}&id=${safeId}&name=${safeName}`;
+}
+
 function cleanMessageSnippet(rawText, msgType) {
   const str = String(rawText || "").trim();
   if (!str) {
@@ -279,11 +288,17 @@ export async function GET(request) {
 
         const botStatus = isBotActiveForThread(thread.threadId, accountId || ownId || displayName);
         accActiveCount++;
+        const safeAvatar = buildSafeAvatarUrl(
+          avatar,
+          isGroup ? "group" : "zalo",
+          thread.threadId,
+          name
+        );
         activeZaloConversations.push({
           id: thread.threadId,
           name,
           type: isGroup ? "GROUP" : "DIRECT",
-          avatar,
+          avatar: safeAvatar,
           phone,
           memberCount,
           isPinned,
@@ -310,11 +325,12 @@ export async function GET(request) {
           const isPinned = pinnedSet.has(gid) || g.name === "Nhóm Học Tập";
           const gBotStatus = isBotActiveForThread(gid, accountId || ownId || displayName);
           accContactCount++;
+          const safeAvatar = buildSafeAvatarUrl(g.avatar || "", "group", gid, g.name || "Nhóm Zalo");
           contactOnlyConversations.push({
             id: gid,
             name: g.name || "Nhóm Zalo",
             type: "GROUP",
-            avatar: g.avatar || "",
+            avatar: safeAvatar,
             memberCount: g.memberCount || 0,
             isPinned,
             isContactOnly: true,
@@ -341,11 +357,13 @@ export async function GET(request) {
           processedIds.add(uid);
           const fBotStatus = isBotActiveForThread(uid, accountId || ownId || displayName);
           accContactCount++;
+          const friendName = f.displayName || f.zaloName || "Bạn bè";
+          const safeAvatar = buildSafeAvatarUrl(f.avatar || "", "zalo", uid, friendName);
           contactOnlyConversations.push({
             id: uid,
-            name: f.displayName || f.zaloName || "Bạn bè",
+            name: friendName,
             type: "DIRECT",
-            avatar: f.avatar || "",
+            avatar: safeAvatar,
             phone: f.phoneNumber || "",
             isPinned: pinnedSet.has(uid),
             isContactOnly: true,

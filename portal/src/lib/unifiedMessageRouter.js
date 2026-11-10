@@ -379,7 +379,9 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
               channelIcon: "📘",
               name: custName,
               type: "DIRECT",
-              avatar: "",
+              avatar: psid
+                ? `/api/media/avatar-proxy?type=fb&id=${encodeURIComponent(psid)}&pageId=${encodeURIComponent(pageId)}&name=${encodeURIComponent(custName)}`
+                : `/api/media/avatar-proxy?name=${encodeURIComponent(custName)}&type=fb`,
               phone: "",
               lastMessage: conv.snippet || "[Tin nhắn Messenger]",
               timestamp: updatedTs,
