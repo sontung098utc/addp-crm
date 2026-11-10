@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import QuickOrderModal from "../components/QuickOrderModal";
+import BulkMessageModal from "../components/BulkMessageModal";
 import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 import {
   RefreshCw,
@@ -33,6 +34,7 @@ import {
   Globe,
   Check,
   DownloadCloud,
+  Tag,
 } from "lucide-react";
 
 /**
@@ -200,6 +202,17 @@ export default function LiveZaloInbox() {
   // Lên đơn hàng nhanh trong chat (QuickOrderModal)
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
 
+  // Quản lý Thẻ Tag Khách Hàng (Customer Tags Management)
+  const [availableTags, setAvailableTags] = useState([]);
+  const [isTagPopoverOpen, setIsTagPopoverOpen] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("blue");
+  const [selectedTagFilter, setSelectedTagFilter] = useState("ALL");
+  const tagPopoverRef = useRef(null);
+
+  // Modal Gửi Tin Nhắn Hàng Loạt (BulkMessageModal)
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+
   // Kiểm tra xem một cuộc hội thoại có thuộc tài khoản đang cấu hình Nhân Viên Trực (HUMAN) hay không
   const isConversationAccountHuman = useCallback(
     (conv) => {
@@ -256,6 +269,94 @@ export default function LiveZaloInbox() {
       document.removeEventListener("touchstart", handleClickOutside);
     };
   }, [channelPopoverOpen]);
+
+  // Tải danh sách thẻ tags từ backend
+  const loadTags = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tags");
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.tags)) {
+        setAvailableTags(data.tags);
+      }
+    } catch (err) {
+      console.error("Lỗi tải tags:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTags();
+  }, [loadTags]);
+
+  // Click outside hook để tự động đóng Dropdown Popover thẻ tag
+  useEffect(() => {
+    function handleClickOutsideTag(event) {
+      if (tagPopoverRef.current && !tagPopoverRef.current.contains(event.target)) {
+        setIsTagPopoverOpen(false);
+      }
+    }
+    if (isTagPopoverOpen) {
+      document.addEventListener("mousedown", handleClickOutsideTag);
+      document.addEventListener("touchstart", handleClickOutsideTag);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutsideTag);
+      document.removeEventListener("touchstart", handleClickOutsideTag);
+    };
+  }, [isTagPopoverOpen]);
+
+  // Bật/tắt thẻ tag cho active conversation
+  const handleToggleTagOnActiveConv = async (tagName) => {
+    if (!activeConv?.id) return;
+    const currentTags = Array.isArray(activeConv.tags) ? [...activeConv.tags] : [];
+    const exists = currentTags.includes(tagName);
+    const updatedTags = exists
+      ? currentTags.filter((t) => t !== tagName)
+      : [...currentTags, tagName];
+
+    // Cập nhật giao diện tức thì
+    setActiveConv((prev) => (prev ? { ...prev, tags: updatedTags } : prev));
+    setConversations((prev) =>
+      (prev || []).map((c) =>
+        c.id === activeConv.id && c.channel === activeConv.channel
+          ? { ...c, tags: updatedTags }
+          : c
+      )
+    );
+
+    try {
+      await fetch("/api/conversations/update-tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          thread_id: activeConv.id,
+          tags: updatedTags,
+        }),
+      });
+    } catch (err) {
+      console.error("Lỗi cập nhật tag:", err);
+    }
+  };
+
+  // Tạo tag mới và gắn ngay vào active conversation
+  const handleCreateAndAttachTag = async () => {
+    if (!newTagName.trim() || !activeConv?.id) return;
+    const clean = newTagName.trim();
+    try {
+      const res = await fetch("/api/tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean, color: newTagColor }),
+      });
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.tags)) {
+        setAvailableTags(data.tags);
+      }
+      setNewTagName("");
+      await handleToggleTagOnActiveConv(clean);
+    } catch (err) {
+      console.error("Lỗi tạo tag mới:", err);
+    }
+  };
 
   // Kết nối SSE Realtime Stream để nhận tin nhắn tức thì từ mọi kênh
   useEffect(() => {
@@ -1208,6 +1309,12 @@ export default function LiveZaloInbox() {
         return (c.unreadCount || c.unread || 0) > 0;
       }
 
+      // Lọc theo Thẻ Tag Khách Hàng
+      if (selectedTagFilter !== "ALL") {
+        const convTags = Array.isArray(c.tags) ? c.tags : [];
+        if (!convTags.includes(selectedTagFilter)) return false;
+      }
+
       return true;
     });
   }, [
@@ -1217,6 +1324,7 @@ export default function LiveZaloInbox() {
     selectedZaloAccountId,
     selectedPageId,
     activeTab,
+    selectedTagFilter,
     isConversationAccountHuman,
   ]);
 
@@ -1377,6 +1485,17 @@ export default function LiveZaloInbox() {
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColorClass}`} />
               <span className="truncate">{sourceBadgeText}</span>
             </span>
+            {/* Hiển thị 1-2 Thẻ Tags Nhận Diện Nhanh */}
+            {Array.isArray(conv.tags) &&
+              conv.tags.slice(0, 2).map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 truncate max-w-[80px]"
+                  title={`Thẻ tag: ${t}`}
+                >
+                  🏷️ {t}
+                </span>
+              ))}
             {(conv.unreadCount > 0 || conv.unread > 0) && (
               <span className="rounded-full bg-rose-500 px-1.5 py-0.2 text-[9px] font-bold text-white badge-solid-white tabular-nums ml-auto">
                 {conv.unreadCount || conv.unread}
@@ -1434,6 +1553,17 @@ export default function LiveZaloInbox() {
 
               {/* Cụm nút công cụ tác nghiệp */}
               <div className="flex items-center gap-1.5 shrink-0">
+                {/* Nút Gửi Tin Nhắn Hàng Loạt */}
+                <button
+                  type="button"
+                  onClick={() => setIsBulkModalOpen(true)}
+                  title="Gửi tin nhắn hàng loạt (Broadcast) có Anti-Ban"
+                  className="rounded-lg border border-blue-500/40 bg-blue-600/20 px-2 py-1 text-blue-300 hover:text-white hover:bg-blue-600 transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
+                >
+                  <Send className="w-3 h-3" />
+                  <span className="hidden sm:inline">Gửi Loạt</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleSyncFullHistory}
@@ -1820,6 +1950,26 @@ export default function LiveZaloInbox() {
                   {pillCounts.unread}
                 </span>
               </button>
+
+              {/* [🏷️ Lọc theo Thẻ Tag] */}
+              <div className="relative inline-flex items-center">
+                <select
+                  value={selectedTagFilter}
+                  onChange={(e) => setSelectedTagFilter(e.target.value)}
+                  className={`px-2 py-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer focus:outline-none ${
+                    selectedTagFilter !== "ALL"
+                      ? "bg-amber-600 text-white border-amber-500 font-bold shadow-2xs"
+                      : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200"
+                  }`}
+                >
+                  <option value="ALL">🏷️ Thẻ (Tất cả)</option>
+                  {availableTags.map((t) => (
+                    <option key={t.id || t.name} value={t.name}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1912,8 +2062,8 @@ export default function LiveZaloInbox() {
                       )}
                     </div>
 
-                    {/* Dòng 2: Nhãn kênh tiếp nhận dạng badge nhỏ */}
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                    {/* Dòng 2: Nhãn kênh tiếp nhận + Thẻ Tags */}
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate flex-wrap">
                       <span
                         className={`rounded px-1.5 py-0.2 text-[9px] font-bold whitespace-nowrap shrink-0 ${
                           getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
@@ -1930,6 +2080,114 @@ export default function LiveZaloInbox() {
                           ? `Tài khoản: ${activeConv.accountDisplayName}`
                           : `ID: ${activeConv.id}`}
                       </span>
+
+                      {/* Thẻ tags đã gắn cho khách */}
+                      {(activeConv.tags || []).map((tagStr) => {
+                        const tagMeta = availableTags.find((t) => t.name === tagStr) || {
+                          name: tagStr,
+                          bg: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30",
+                        };
+                        return (
+                          <span
+                            key={tagStr}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold border transition-colors ${tagMeta.bg}`}
+                          >
+                            <span>🏷️ {tagStr}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleTagOnActiveConv(tagStr);
+                              }}
+                              className="hover:opacity-75 cursor-pointer ml-0.5 text-xs leading-none"
+                              title="Gỡ thẻ tag"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+
+                      {/* Nút + Gắn Thẻ Popover */}
+                      <div className="relative inline-block" ref={tagPopoverRef}>
+                        <button
+                          type="button"
+                          onClick={() => setIsTagPopoverOpen(!isTagPopoverOpen)}
+                          className="px-1.5 py-0.2 rounded text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 transition-colors inline-flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <Tag className="w-2.5 h-2.5" />
+                          <span>+ Gắn Thẻ</span>
+                        </button>
+
+                        {isTagPopoverOpen && (
+                          <div className="absolute left-0 top-full mt-1.5 z-50 w-72 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl space-y-2.5 text-xs text-slate-800 dark:text-slate-200">
+                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                              <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300">
+                                Gắn thẻ cho khách hàng
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setIsTagPopoverOpen(false)}
+                                className="text-slate-400 hover:text-white"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* Danh sách thẻ có sẵn */}
+                            <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto pr-1">
+                              {availableTags.map((t) => {
+                                const isAttached = (activeConv.tags || []).includes(t.name);
+                                return (
+                                  <button
+                                    key={t.id || t.name}
+                                    type="button"
+                                    onClick={() => handleToggleTagOnActiveConv(t.name)}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all inline-flex items-center gap-1 cursor-pointer ${
+                                      isAttached
+                                        ? "bg-blue-600 text-white border-blue-500 font-bold"
+                                        : `${t.bg} hover:brightness-110`
+                                    }`}
+                                  >
+                                    {isAttached && <Check className="w-3 h-3" />}
+                                    <span>{t.name}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Tạo thẻ tag mới */}
+                            <div className="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
+                              <span className="text-[10px] text-slate-400 block font-medium">
+                                Tạo thẻ tag mới:
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  placeholder="Tên thẻ mới..."
+                                  value={newTagName}
+                                  onChange={(e) => setNewTagName(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      handleCreateAndAttachTag();
+                                    }
+                                  }}
+                                  className="flex-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:outline-none focus:border-blue-500"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleCreateAndAttachTag}
+                                  disabled={!newTagName.trim()}
+                                  className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold disabled:opacity-40 transition-colors cursor-pointer"
+                                >
+                                  + Thêm
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2004,28 +2262,6 @@ export default function LiveZaloInbox() {
                       </>
                     );
                   })()}
-
-                  {/* Nút Gọi Thoại */}
-                  <button
-                    type="button"
-                    onClick={handleVoiceCall}
-                    aria-label="Gọi thoại cho khách"
-                    title="Gọi thoại trực tiếp (tel: / MicroSIP)"
-                    className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Phone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                  </button>
-
-                  {/* Nút Gọi Video */}
-                  <button
-                    type="button"
-                    onClick={handleVideoCall}
-                    aria-label="Gọi video tư vấn"
-                    title="Gọi Video tư vấn trực tuyến"
-                    className="p-1.5 sm:p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Video className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  </button>
 
                   {/* Nút Hồ Sơ 360 */}
                   <button
@@ -2275,18 +2511,37 @@ export default function LiveZaloInbox() {
                     ? `SĐT: ${activeConv.phone || detectedChatPhone}`
                     : `ID: ${activeConv.id}`}
                 </p>
-                {detectedAiTags.length > 0 && (
-                  <div className="flex flex-wrap justify-center gap-1 pt-0.5">
-                    {detectedAiTags.map((tag, idx) => (
-                      <span
-                        key={idx}
-                        className="rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.2 text-[9px] font-semibold text-indigo-300"
-                      >
-                        ✨ {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  const allDisplayTags = Array.from(
+                    new Set([...(activeConv.tags || []), ...detectedAiTags])
+                  );
+                  if (allDisplayTags.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap justify-center gap-1 pt-0.5">
+                      {allDisplayTags.map((tag, idx) => {
+                        const isAttached = (activeConv.tags || []).includes(tag);
+                        return (
+                          <span
+                            key={idx}
+                            className="rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.2 text-[9px] font-semibold text-indigo-300 inline-flex items-center gap-1"
+                          >
+                            <span>🏷️ {tag}</span>
+                            {isAttached && (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleTagOnActiveConv(tag)}
+                                className="hover:text-rose-400 cursor-pointer text-[10px] leading-none"
+                                title="Gỡ thẻ tag"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Action buttons nhỏ */}
@@ -2505,6 +2760,23 @@ export default function LiveZaloInbox() {
         onSuccess={(order) => {
           setToast({ type: "success", text: `Đã tạo đơn hàng ${order.orderCode} thành công!` });
           setTimeout(() => setToast(null), 3000);
+        }}
+      />
+
+      {/* Modal Gửi tin nhắn hàng loạt (BulkMessageModal) */}
+      <BulkMessageModal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        zaloAccounts={effectiveZaloAccounts}
+        facebookPages={effectivePages}
+        availableTags={availableTags}
+        conversations={conversations}
+        onCampaignCreated={(camp) => {
+          setToast({
+            type: "success",
+            text: `Đã khởi tạo chiến dịch "${camp.name}" thành công!`,
+          });
+          setTimeout(() => setToast(null), 4000);
         }}
       />
     </div>

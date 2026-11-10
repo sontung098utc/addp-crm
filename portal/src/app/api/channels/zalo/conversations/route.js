@@ -14,6 +14,7 @@ import {
 } from "@/lib/unifiedMessageRouter.js";
 import { listAllChannels } from "@/lib/connectionHub.js";
 import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
+import { getAllConversationTags } from "@/lib/tagStore.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import fs from "fs";
 
@@ -447,13 +448,20 @@ export async function GET(request) {
     const combined = [...allActive, ...contactOnlyConversations];
     const connectedPages = getConnectedFacebookPages();
 
+    // Gắn thẻ tag đã lưu vào từng hội thoại
+    const allThreadTags = getAllConversationTags();
+    const combinedWithTags = combined.map((conv) => ({
+      ...conv,
+      tags: allThreadTags[conv.id] || (Array.isArray(conv.tags) ? conv.tags : []),
+    }));
+
     return NextResponse.json({
       ok: true,
-      total: combined.length,
+      total: combinedWithTags.length,
       activeCount: allActive.length,
       connectedZaloAccounts,
       connectedPages,
-      conversations: combined,
+      conversations: combinedWithTags,
     });
   } catch (error) {
     console.error("[ZALO_CONV_EXCEPTION]", error);
