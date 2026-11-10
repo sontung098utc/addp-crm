@@ -22,13 +22,14 @@ import fs from "fs";
  * Đảm bảo thứ tự hội thoại ổn định tuyệt đối theo đúng thời gian tin nhắn thực tế (không nhảy danh sách).
  */
 
-function buildSafeAvatarUrl(rawAvatar, type, id, name) {
+function buildSafeAvatarUrl(rawAvatar, type, id, name, pageId = "") {
   const safeName = encodeURIComponent(String(name || "").trim() || "Khách Hàng");
   const safeId = encodeURIComponent(String(id || ""));
-  if (rawAvatar && typeof rawAvatar === "string" && rawAvatar.trim()) {
-    return `/api/media/avatar-proxy?url=${encodeURIComponent(rawAvatar.trim())}&type=${type}&id=${safeId}&name=${safeName}`;
+  const safePageId = pageId ? `&pageId=${encodeURIComponent(pageId)}` : "";
+  if (rawAvatar && typeof rawAvatar === "string" && rawAvatar.trim() && (rawAvatar.startsWith("http://") || rawAvatar.startsWith("https://") || rawAvatar.startsWith("//"))) {
+    return `/api/media/avatar-proxy?url=${encodeURIComponent(rawAvatar.trim())}&type=${type}&id=${safeId}${safePageId}&name=${safeName}`;
   }
-  return `/api/media/avatar-proxy?type=${type}&id=${safeId}&name=${safeName}`;
+  return `/api/media/avatar-proxy?type=${type}&id=${safeId}${safePageId}&name=${safeName}`;
 }
 
 function cleanMessageSnippet(rawText, msgType) {
@@ -255,7 +256,7 @@ export async function GET(request) {
         if (isGroup) {
           const g = groupMap.get(thread.threadId);
           name = g?.name || `Nhóm Zalo (${thread.threadId.slice(-4)})`;
-          avatar = g?.avatar || "";
+          avatar = g?.avatar || g?.avt || g?.fullAvt || "";
           memberCount = g?.memberCount || 0;
         } else {
           const f = friendMap.get(thread.threadId);
@@ -263,7 +264,7 @@ export async function GET(request) {
             name = `My Documents (${displayName})`;
           } else if (f) {
             name = f.displayName || f.zaloName || thread.peerName || "Khách Zalo";
-            avatar = f.avatar || "";
+            avatar = f.avatar || f.avatar_url || f.thumb || f.picture || f.avt || f.fullAvt || "";
             phone = f.phoneNumber || "";
           } else if (thread.peerName) {
             name = thread.peerName;
@@ -325,7 +326,12 @@ export async function GET(request) {
           const isPinned = pinnedSet.has(gid) || g.name === "Nhóm Học Tập";
           const gBotStatus = isBotActiveForThread(gid, accountId || ownId || displayName);
           accContactCount++;
-          const safeAvatar = buildSafeAvatarUrl(g.avatar || "", "group", gid, g.name || "Nhóm Zalo");
+          const safeAvatar = buildSafeAvatarUrl(
+            g.avatar || g.avt || g.fullAvt || "",
+            "group",
+            gid,
+            g.name || "Nhóm Zalo"
+          );
           contactOnlyConversations.push({
             id: gid,
             name: g.name || "Nhóm Zalo",
@@ -358,7 +364,8 @@ export async function GET(request) {
           const fBotStatus = isBotActiveForThread(uid, accountId || ownId || displayName);
           accContactCount++;
           const friendName = f.displayName || f.zaloName || "Bạn bè";
-          const safeAvatar = buildSafeAvatarUrl(f.avatar || "", "zalo", uid, friendName);
+          const rawFriendAvatar = f.avatar || f.avatar_url || f.thumb || f.picture || f.avt || f.fullAvt || "";
+          const safeAvatar = buildSafeAvatarUrl(rawFriendAvatar, "zalo", uid, friendName);
           contactOnlyConversations.push({
             id: uid,
             name: friendName,

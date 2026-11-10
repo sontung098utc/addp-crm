@@ -163,6 +163,7 @@ export default function LiveZaloInbox() {
   const [selectedZaloAccountId, setSelectedZaloAccountId] = useState("ALL");
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
+  const [refreshMsgCount, setRefreshMsgCount] = useState(0);
   const channelPopoverRef = useRef(null);
 
   // Hồ Sơ Khách Hàng 360 liên kết với hội thoại
@@ -504,7 +505,7 @@ export default function LiveZaloInbox() {
       isCancelled = true;
       clearInterval(msgPoll);
     };
-  }, [activeConv?.id, activeConv?.channel, activeConv?.pageId, activeConv?.accountId, activeConv?.type, activeConv?.zaloHome]);
+  }, [activeConv?.id, activeConv?.channel, activeConv?.pageId, activeConv?.accountId, activeConv?.type, activeConv?.zaloHome, refreshMsgCount]);
 
   // Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat
   useEffect(() => {
@@ -986,30 +987,35 @@ export default function LiveZaloInbox() {
     };
   };
 
-  // Đồng bộ toàn bộ lịch sử tin nhắn 30 ngày từ Fanpage & Zalo
+  // Đồng bộ toàn bộ lịch sử tin nhắn cũ từ Zalo Cá Nhân & Fanpage Facebook
   const handleSyncFullHistory = async () => {
     try {
       setIsSyncingHistory(true);
       setToast({
         type: "info",
-        text: "Đang đồng bộ toàn bộ lịch sử tin nhắn 30 ngày từ Fanpage Facebook & Zalo...",
+        text: "Đang đồng bộ lịch sử tin nhắn Zalo & Facebook...",
       });
-      const [fbRes] = await Promise.all([
+      const [fbRes, zaloRes] = await Promise.all([
         fetch("/api/facebook/sync-history", { method: "POST" }).catch(() => null),
+        fetch("/api/zalo/sync-history", { method: "POST" }).catch(() => null),
         loadConversations(false, true),
       ]);
       const fbData = fbRes ? await fbRes.json().catch(() => null) : null;
-      if (fbData && fbData.ok) {
-        setToast({
-          type: "success",
-          text: `Đồng bộ hoàn tất! Đã nạp ${fbData.syncedMessages || 0} tin nhắn mới nhất.`,
-        });
-      } else {
-        setToast({
-          type: "success",
-          text: "Đã hoàn tất đồng bộ dữ liệu tin nhắn đa kênh!",
-        });
-      }
+      const zaloData = zaloRes ? await zaloRes.json().catch(() => null) : null;
+      const fbCount = fbData?.syncedMessages || 0;
+      const zaloCount = zaloData?.totalMessagesSynced || 0;
+      const totalNew = fbCount + zaloCount;
+
+      setToast({
+        type: "success",
+        text:
+          totalNew > 0
+            ? `Đồng bộ thành công! Đã nạp ${totalNew} tin nhắn (Zalo: ${zaloCount}, FB: ${fbCount}).`
+            : "Đã hoàn tất đồng bộ toàn bộ lịch sử tin nhắn Zalo & Facebook!",
+      });
+
+      // Tự động làm mới khung chat hội thoại đang chọn
+      setRefreshMsgCount((c) => c + 1);
       setTimeout(() => setToast(null), 4000);
     } catch (err) {
       console.error("Lỗi sync history:", err);
@@ -1361,10 +1367,10 @@ export default function LiveZaloInbox() {
         <div className="w-84 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
           {/* Header gọn gàng & Tìm kiếm */}
           <div className="p-3 border-b border-slate-800 space-y-2.5 shrink-0">
-            {/* Hàng 1: Tiêu đề + Dropdown Gom Kênh Duy Nhất + Actions */}
-            <div className="flex items-center justify-between gap-1.5">
+            {/* Hàng 1: Tiêu đề Hộp Thư Đa Kênh + Cụm nút công cụ */}
+            <div className="flex items-center justify-between gap-2 pb-0.5">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs shrink-0 badge-solid-white">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs shrink-0 badge-solid-white shadow-xs">
                   Z
                 </span>
                 <h2 className="text-sm font-bold text-white tracking-tight truncate">
@@ -1372,207 +1378,14 @@ export default function LiveZaloInbox() {
                 </h2>
               </div>
 
-              {/* Dropdown Popover Gom Kênh & Tài Khoản Tinh Gọn */}
+              {/* Cụm nút công cụ tác nghiệp */}
               <div className="flex items-center gap-1.5 shrink-0">
-                <div className="relative" ref={channelPopoverRef}>
-                  <button
-                    type="button"
-                    onClick={() => setChannelPopoverOpen(!channelPopoverOpen)}
-                    aria-label="Lọc theo kênh hoặc tài khoản"
-                    title="Nhấn để chọn kênh và tài khoản lọc tin nhắn"
-                    className="h-7 px-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700/80 text-slate-200 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors max-w-[170px]"
-                  >
-                    <span className="text-xs shrink-0">{getSelectedFilterInfo().icon}</span>
-                    <span className="truncate">{getSelectedFilterInfo().label}</span>
-                    <span className="text-[10px] text-slate-400 tabular-nums shrink-0">
-                      ({getSelectedFilterInfo().count})
-                    </span>
-                    <ChevronDown
-                      className={`w-3 h-3 text-slate-400 shrink-0 transition-transform ${
-                        channelPopoverOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </button>
-
-                  {/* Popover Menu Thả Xuống Tự Đóng Khi Chọn */}
-                  {channelPopoverOpen && (
-                    <div className="absolute top-full right-0 mt-1.5 w-72 max-h-[390px] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl p-2 z-50 space-y-2 text-xs backdrop-blur-md">
-                      {/* Nhóm 1: Tất cả kênh hợp nhất */}
-                      <div>
-                        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                          Kênh Hợp Nhất
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleAccountDropdownChange("ALL");
-                            setChannelPopoverOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
-                            selectedAccountFilter === "ALL"
-                              ? "bg-blue-600 text-white font-bold"
-                              : "text-slate-200 hover:bg-slate-800"
-                          }`}
-                        >
-                          <span className="flex items-center gap-2 truncate">
-                            <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                            <span className="truncate">Tất cả kênh (Hợp nhất)</span>
-                          </span>
-                          <span className="text-[11px] tabular-nums font-semibold px-1.5 py-0.2 rounded-full bg-slate-800/80 text-slate-300">
-                            {conversations.length}
-                          </span>
-                        </button>
-                      </div>
-
-                      {/* Nhóm 2: Zalo Cá Nhân Multi-QR */}
-                      <div className="border-t border-slate-800/80 pt-1.5">
-                        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
-                          <span>Zalo Cá Nhân (Multi-QR)</span>
-                          <span className="text-[10px] text-slate-500 font-normal">
-                            {effectiveZaloAccounts.length} nick
-                          </span>
-                        </div>
-                        <div className="space-y-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleAccountDropdownChange("ZALO_ALL");
-                              setChannelPopoverOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
-                              selectedAccountFilter === "ZALO_ALL"
-                                ? "bg-cyan-600 text-white font-bold"
-                                : "text-slate-200 hover:bg-slate-800"
-                            }`}
-                          >
-                            <span className="flex items-center gap-2 truncate">
-                              <MessageSquare className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                              <span className="truncate">Tất cả Zalo ({pillCounts.all})</span>
-                            </span>
-                            {selectedAccountFilter === "ZALO_ALL" && <Check className="w-3.5 h-3.5 shrink-0" />}
-                          </button>
-
-                          {effectiveZaloAccounts.map((acc) => (
-                            <button
-                              key={acc.accountId}
-                              type="button"
-                              onClick={() => {
-                                handleAccountDropdownChange(`ZALO_ACCOUNT:${acc.accountId}`);
-                                setChannelPopoverOpen(false);
-                              }}
-                              className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
-                                selectedAccountFilter === `ZALO_ACCOUNT:${acc.accountId}`
-                                  ? "bg-teal-600 text-white font-bold"
-                                  : "text-slate-300 hover:bg-slate-800"
-                              }`}
-                            >
-                              <span className="flex items-center gap-2 truncate">
-                                <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0" />
-                                <span className="truncate">Zalo: {acc.name}</span>
-                              </span>
-                              <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800/80 text-slate-300">
-                                {acc.totalCount || 0}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Nhóm 3: Fanpage Facebook */}
-                      <div className="border-t border-slate-800/80 pt-1.5">
-                        <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center justify-between">
-                          <span>Fanpage Facebook</span>
-                          <span className="text-[10px] text-slate-500 font-normal">
-                            {effectivePages.length} trang
-                          </span>
-                        </div>
-                        <div className="space-y-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleAccountDropdownChange("FB_ALL");
-                              setChannelPopoverOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
-                              selectedAccountFilter === "FB_ALL"
-                                ? "bg-blue-600 text-white font-bold"
-                                : "text-slate-200 hover:bg-slate-800"
-                            }`}
-                          >
-                            <span className="flex items-center gap-2 truncate">
-                              <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 text-[9px] font-bold text-white shrink-0">
-                                f
-                              </span>
-                              <span className="truncate">Tất cả Fanpage</span>
-                            </span>
-                            {selectedAccountFilter === "FB_ALL" && <Check className="w-3.5 h-3.5 shrink-0" />}
-                          </button>
-
-                          {effectivePages.map((pg) => {
-                            const pageConvCount = (conversations || []).filter(
-                              (c) => c.channel === "FACEBOOK" && String(c.pageId) === String(pg.pageId)
-                            ).length;
-                            return (
-                              <button
-                                key={pg.pageId}
-                                type="button"
-                                onClick={() => {
-                                  handleAccountDropdownChange(`PAGE:${pg.pageId}`);
-                                  setChannelPopoverOpen(false);
-                                }}
-                                className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
-                                  selectedAccountFilter === `PAGE:${pg.pageId}`
-                                    ? "bg-blue-600 text-white font-bold"
-                                    : "text-slate-300 hover:bg-slate-800"
-                                }`}
-                              >
-                                <span className="flex items-center gap-2 truncate">
-                                  <span className="h-2 w-2 rounded-full bg-blue-400 shrink-0" />
-                                  <span className="truncate">{pg.displayName || pg.name}</span>
-                                </span>
-                                <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800/80 text-slate-300">
-                                  {pageConvCount}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Nhóm 4: Zalo OA */}
-                      <div className="border-t border-slate-800/80 pt-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleAccountDropdownChange("ZALO_OA");
-                            setChannelPopoverOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
-                            selectedAccountFilter === "ZALO_OA"
-                              ? "bg-sky-600 text-white font-bold"
-                              : "text-slate-200 hover:bg-slate-800"
-                          }`}
-                        >
-                          <span className="flex items-center gap-2 truncate">
-                            <ShieldAlert className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                            <span className="truncate">Zalo OA Official</span>
-                          </span>
-                          <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800/80 text-slate-300">
-                            {(conversations || []).filter((c) => c.channel === "ZALO_OA").length}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Nút Đồng bộ lịch sử tin nhắn toàn kênh */}
                 <button
                   type="button"
                   onClick={handleSyncFullHistory}
                   disabled={isSyncingHistory}
                   aria-label="Đồng bộ lịch sử tin nhắn"
-                  title="Đồng bộ toàn bộ lịch sử tin nhắn 30 ngày từ Fanpage & Zalo"
+                  title="Đồng bộ toàn bộ lịch sử tin nhắn cũ từ Zalo & Facebook"
                   className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <DownloadCloud
@@ -1584,11 +1397,12 @@ export default function LiveZaloInbox() {
                   type="button"
                   onClick={() => loadConversations(false, true)}
                   aria-label="Làm mới danh sách hội thoại"
-                  title="Đồng bộ mới nhất từ tất cả tài khoản"
+                  title="Làm mới danh sách hội thoại"
                   className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-400" : ""}`} />
                 </button>
+
                 <Link
                   href="/channels"
                   aria-label="Quản lý kênh kết nối"
@@ -1598,6 +1412,201 @@ export default function LiveZaloInbox() {
                   <Settings className="w-3.5 h-3.5" />
                 </Link>
               </div>
+            </div>
+
+            {/* Hàng 2: Nút chọn kênh chuẩn chỉnh Full-Width (w-full) */}
+            <div className="relative w-full" ref={channelPopoverRef}>
+              <button
+                type="button"
+                onClick={() => setChannelPopoverOpen(!channelPopoverOpen)}
+                aria-label="Lọc theo kênh hoặc tài khoản"
+                title="Nhấn để chọn kênh và tài khoản lọc tin nhắn"
+                className="w-full flex items-center justify-between px-3 py-2 bg-slate-800/90 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 shadow-sm transition-all cursor-pointer"
+              >
+                <span className="flex items-center gap-2 truncate">
+                  <span className="text-sm shrink-0">{getSelectedFilterInfo().icon}</span>
+                  <span className="truncate">{getSelectedFilterInfo().label}</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-slate-300 font-bold tabular-nums shrink-0">
+                    {getSelectedFilterInfo().count}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${
+                    channelPopoverOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {/* Popover Menu Thả Xuống Full-Width Tự Đóng Khi Chọn */}
+              {channelPopoverOpen && (
+                <div className="absolute left-0 right-0 top-full mt-2 w-full rounded-xl shadow-2xl border border-slate-700 bg-slate-900/98 backdrop-blur-md p-2 z-50 max-h-96 overflow-y-auto space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100">
+                  {/* Nhóm 1: Tất cả kênh hợp nhất */}
+                  <div>
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Kênh Hợp Nhất
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleAccountDropdownChange("ALL");
+                        setChannelPopoverOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                        selectedAccountFilter === "ALL"
+                          ? "bg-blue-600 text-white font-bold"
+                          : "text-slate-200 hover:bg-slate-800"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <span className="truncate">Tất cả kênh (Hợp nhất)</span>
+                      </span>
+                      <span className="text-[11px] tabular-nums font-semibold px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
+                        {conversations.length}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Nhóm 2: Zalo Cá Nhân Multi-QR */}
+                  <div className="border-t border-slate-800 pt-1.5">
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
+                      <span>Zalo Cá Nhân (Multi-QR)</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {effectiveZaloAccounts.length} nick
+                      </span>
+                    </div>
+                    <div className="space-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleAccountDropdownChange("ZALO_ALL");
+                          setChannelPopoverOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                          selectedAccountFilter === "ZALO_ALL"
+                            ? "bg-cyan-600 text-white font-bold"
+                            : "text-slate-200 hover:bg-slate-800"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <MessageSquare className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                          <span className="truncate">Tất cả Zalo ({pillCounts.all})</span>
+                        </span>
+                        {selectedAccountFilter === "ZALO_ALL" && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      </button>
+
+                      {effectiveZaloAccounts.map((acc) => (
+                        <button
+                          key={acc.accountId}
+                          type="button"
+                          onClick={() => {
+                            handleAccountDropdownChange(`ZALO_ACCOUNT:${acc.accountId}`);
+                            setChannelPopoverOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
+                            selectedAccountFilter === `ZALO_ACCOUNT:${acc.accountId}`
+                              ? "bg-teal-600 text-white font-bold"
+                              : "text-slate-300 hover:bg-slate-800"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0" />
+                            <span className="truncate">Zalo: {acc.name}</span>
+                          </span>
+                          <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                            {acc.totalCount || 0}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Nhóm 3: Fanpage Facebook */}
+                  <div className="border-t border-slate-800 pt-1.5">
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-400 flex items-center justify-between">
+                      <span>Fanpage Facebook</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {effectivePages.length} trang
+                      </span>
+                    </div>
+                    <div className="space-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleAccountDropdownChange("FB_ALL");
+                          setChannelPopoverOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                          selectedAccountFilter === "FB_ALL"
+                            ? "bg-blue-600 text-white font-bold"
+                            : "text-slate-200 hover:bg-slate-800"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 truncate">
+                          <span className="flex h-3.5 w-3.5 items-center justify-center rounded bg-blue-600 text-[9px] font-bold text-white shrink-0">
+                            f
+                          </span>
+                          <span className="truncate">Tất cả Fanpage</span>
+                        </span>
+                        {selectedAccountFilter === "FB_ALL" && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      </button>
+
+                      {effectivePages.map((pg) => {
+                        const pageConvCount = (conversations || []).filter(
+                          (c) => c.channel === "FACEBOOK" && String(c.pageId) === String(pg.pageId)
+                        ).length;
+                        return (
+                          <button
+                            key={pg.pageId}
+                            type="button"
+                            onClick={() => {
+                              handleAccountDropdownChange(`PAGE:${pg.pageId}`);
+                              setChannelPopoverOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
+                              selectedAccountFilter === `PAGE:${pg.pageId}`
+                                ? "bg-blue-600 text-white font-bold"
+                                : "text-slate-300 hover:bg-slate-800"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2 truncate">
+                              <span className="h-2 w-2 rounded-full bg-blue-400 shrink-0" />
+                              <span className="truncate">{pg.displayName || pg.name}</span>
+                            </span>
+                            <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                              {pageConvCount}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Nhóm 4: Zalo OA */}
+                  <div className="border-t border-slate-800 pt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleAccountDropdownChange("ZALO_OA");
+                        setChannelPopoverOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                        selectedAccountFilter === "ZALO_OA"
+                          ? "bg-sky-600 text-white font-bold"
+                          : "text-slate-200 hover:bg-slate-800"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <ShieldAlert className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <span className="truncate">Zalo OA Official</span>
+                      </span>
+                      <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                        {(conversations || []).filter((c) => c.channel === "ZALO_OA").length}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Ô tìm kiếm nhanh */}

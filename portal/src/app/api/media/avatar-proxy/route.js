@@ -19,20 +19,34 @@ function getCacheKey(url, type, id, pageId) {
 }
 
 /**
- * Sinh ảnh avatar SVG chất lượng cao dự phòng khi không tải được ảnh thật
+ * Trích xuất 2 chữ cái viết tắt từ tên khách hàng (VD: "Lê Quyên" -> "LQ", "Sơn Tùng" -> "ST")
+ */
+function getInitials(name = "Khách Hàng") {
+  const safe = String(name || "Khách Hàng").trim();
+  const words = safe.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    const first = words[0].slice(0, 1);
+    const last = words[words.length - 1].slice(0, 1);
+    return `${first}${last}`.toUpperCase();
+  }
+  return safe.slice(0, 2).toUpperCase() || "KH";
+}
+
+/**
+ * Sinh ảnh avatar SVG chất lượng cao dự phòng có 2 chữ cái viết tắt
  */
 function generateFallbackSvg(name = "Khách Hàng", gender = "UNKNOWN", type = "zalo") {
   const safeName = String(name || "Khách Hàng").trim();
-  const initial = safeName.slice(0, 1).toUpperCase() || "K";
+  const initials = getInitials(safeName);
   
   // Màu sắc gradient theo kênh và tên
   const gradients = [
-    { from: "#3b82f6", to: "#1d4ed8" }, // Blue
-    { from: "#8b5cf6", to: "#6d28d9" }, // Purple
-    { from: "#06b6d4", to: "#0e7490" }, // Cyan
-    { from: "#10b981", to: "#047857" }, // Emerald
-    { from: "#f59e0b", to: "#d97706" }, // Amber
-    { from: "#ec4899", to: "#be185d" }, // Pink
+    { from: "#2563eb", to: "#1d4ed8" }, // Blue
+    { from: "#7c3aed", to: "#6d28d9" }, // Purple
+    { from: "#0891b2", to: "#0e7490" }, // Cyan
+    { from: "#059669", to: "#047857" }, // Emerald
+    { from: "#d97706", to: "#b45309" }, // Amber
+    { from: "#db2777", to: "#be185d" }, // Pink
   ];
   
   let charCodeSum = 0;
@@ -41,7 +55,6 @@ function generateFallbackSvg(name = "Khách Hàng", gender = "UNKNOWN", type = "
   }
   const grad = gradients[charCodeSum % gradients.length];
   
-  // Icon silhouette người nhẹ nhàng
   return `
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <defs>
@@ -51,9 +64,8 @@ function generateFallbackSvg(name = "Khách Hàng", gender = "UNKNOWN", type = "
     </linearGradient>
   </defs>
   <rect width="128" height="128" rx="64" fill="url(#grad)" />
-  <circle cx="64" cy="50" r="22" fill="#ffffff" fill-opacity="0.9" />
-  <path d="M 28 110 C 28 85, 45 76, 64 76 C 83 76, 100 85, 100 110 Z" fill="#ffffff" fill-opacity="0.9" />
-  <text x="64" y="58" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="20" font-weight="bold" fill="${grad.to}" text-anchor="middle">${initial}</text>
+  <circle cx="64" cy="64" r="54" fill="#ffffff" fill-opacity="0.12" />
+  <text x="64" y="74" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="42" font-weight="800" fill="#ffffff" text-anchor="middle" letter-spacing="1">${initials}</text>
 </svg>`.trim();
 }
 

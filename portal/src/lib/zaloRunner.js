@@ -827,7 +827,7 @@ export function getAllZaloHistoryFiles(primaryHome) {
 /**
  * Thực thi worker đồng bộ trực tiếp Danh bạ + Nhóm (kèm Avatar) + Ghim + Lịch sử tin nhắn Nhóm qua HTTP REST
  */
-function triggerDirectSyncWorker(targetHome, forceFull = false) {
+export function triggerDirectSyncWorker(targetHome, forceFull = false) {
   if (globalThis.__zaloSyncInFlight.has(targetHome)) {
     return globalThis.__zaloSyncInFlight.get(targetHome);
   }
