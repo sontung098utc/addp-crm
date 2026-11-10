@@ -79,7 +79,7 @@ export async function POST(request) {
     console.error("[POST /api/broadcast/campaigns ERROR]", error);
     return NextResponse.json(
       { ok: false, error: error.message || "Lỗi khi tạo chiến dịch Broadcast." },
-      { status: 500 }
+      { status: 400 }
     );
   }
 }

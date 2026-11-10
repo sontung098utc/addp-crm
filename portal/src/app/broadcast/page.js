@@ -14,24 +14,12 @@ const TAG_BADGE_STYLES = {
   "Zalo Cá Nhân": "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
   "Fanpage FB": "bg-blue-500/15 text-blue-300 border-blue-500/30",
   "Zalo OA": "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  "Bạn Bè Zalo": "bg-blue-600/20 text-blue-300 border-blue-500/40",
+  "Đã Từng Nhắn Tin Zalo": "bg-cyan-600/20 text-cyan-300 border-cyan-500/40",
   "Đã Hủy Đơn": "bg-red-500/20 text-red-300 border-red-500/40",
   "Khiếu Nại": "bg-red-600/20 text-red-300 border-red-500/40",
   "Dừng Chăm Sóc": "bg-slate-600/30 text-slate-300 border-slate-500/40",
 };
-
-const DEFAULT_INCLUDE_OPTIONS = [
-  "Tiểu Đường Tuýp 2",
-  "Tiền Tiểu Đường",
-  "Men Gan Cao",
-  "Gan Nhiễm Mỡ",
-  "VIP",
-  "Đã Mua Glucare Plus",
-  "Đã Mua Dovital",
-  "Zalo Cá Nhân",
-  "Fanpage FB",
-  "Zalo OA",
-  "Khách Mới",
-];
 
 const DEFAULT_EXCLUDE_OPTIONS = [
   "Đã Hủy Đơn",
@@ -41,10 +29,10 @@ const DEFAULT_EXCLUDE_OPTIONS = [
 
 function renderSpinPreviewClient(template = "", sample = {}) {
   let text = String(template || "");
-  const fullName = sample.fullName || "Nguyễn Thị Lan";
+  const fullName = sample.fullName || "Trần Minh Tuấn";
   const parts = fullName.trim().split(/\s+/);
-  const firstName = parts[parts.length - 1] || "Lan";
-  const phone = sample.phone || "0912345678";
+  const firstName = parts[parts.length - 1] || "Tuấn";
+  const phone = sample.phone || sample.maskedPhone || "0912345678";
   const assignedStaff = sample.assignedStaff || "Dược sĩ Thảo";
 
   text = text
@@ -75,11 +63,15 @@ export default function BroadcastPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
   const [toast, setToast] = useState(null);
 
+  // State Nguồn Tệp Người Nhận (3 Chế Độ Thực Chiến)
+  const [audienceSource, setAudienceSource] = useState("ZALO_FRIENDS"); // "ZALO_FRIENDS" | "ALL_INBOX" | "BY_TAG"
+  const [availableTags, setAvailableTags] = useState([]);
+
   // State cho Form Tạo Chiến Dịch 4 Bước
   const [campaignName, setCampaignName] = useState("");
   const [channel, setChannel] = useState("ZALO_PERSONAL");
-  const [accountName, setAccountName] = useState("Zalo Cá Nhân Sơn Tùng");
-  const [includeTags, setIncludeTags] = useState(["Tiểu Đường Tuýp 2"]);
+  const [accountName, setAccountName] = useState("Zalo Cá Nhân (Sơn Tùng)");
+  const [includeTags, setIncludeTags] = useState([]);
   const [excludeTags, setExcludeTags] = useState([
     "Đã Hủy Đơn",
     "Khiếu Nại",
@@ -99,7 +91,7 @@ export default function BroadcastPage() {
   const [spinningAi, setSpinningAi] = useState(false);
   const [previewSeed, setPreviewSeed] = useState(0);
 
-  // State cho Bộ lọc & Đếm trước Tệp Khách Nhận (Module 1)
+  // State cho Bộ lọc & Đếm trước Tệp Khách Nhận Thực Tế
   const [audienceCount, setAudienceCount] = useState(0);
   const [audiencePreview, setAudiencePreview] = useState([]);
   const [channelBreakdown, setChannelBreakdown] = useState({
@@ -110,9 +102,16 @@ export default function BroadcastPage() {
   const [showPreviewDrawer, setShowPreviewDrawer] = useState(false);
   const [loadingAudience, setLoadingAudience] = useState(false);
 
+  // State Modal Gửi Thử 1 Tin
+  const [showTestModal, setShowTestModal] = useState(false);
+  const [testTarget, setTestTarget] = useState("");
+  const [testName, setTestName] = useState("Sơn Tùng (Admin)");
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
   const showNotice = (text, type = "success") => {
     setToast({ text, type });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 4000);
   };
 
   // Tải danh sách chiến dịch & tiến độ realtime
@@ -154,7 +153,7 @@ export default function BroadcastPage() {
     return () => clearInterval(interval);
   }, [campaigns]);
 
-  // Tự động đếm tệp khách nhận mỗi khi thay đổi Thẻ hoặc Kênh (Module 1)
+  // Tự động đếm tệp khách nhận mỗi khi thay đổi Nguồn tệp, Thẻ hoặc Kênh
   useEffect(() => {
     let cancelled = false;
     async function countAudience() {
@@ -164,6 +163,7 @@ export default function BroadcastPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            audienceSource,
             includeTags,
             excludeTags,
             channel,
@@ -177,6 +177,9 @@ export default function BroadcastPage() {
           if (data.channelBreakdown) {
             setChannelBreakdown(data.channelBreakdown);
           }
+          if (Array.isArray(data.availableTags)) {
+            setAvailableTags(data.availableTags);
+          }
         }
       } catch (err) {
         console.error("Lỗi đếm tệp khách nhận:", err);
@@ -188,7 +191,7 @@ export default function BroadcastPage() {
     return () => {
       cancelled = true;
     };
-  }, [includeTags, excludeTags, channel, tagOperator]);
+  }, [audienceSource, includeTags, excludeTags, channel, tagOperator]);
 
   const toggleIncludeTag = (tag) => {
     setIncludeTags((prev) =>
@@ -215,7 +218,7 @@ export default function BroadcastPage() {
         body: JSON.stringify({
           action: "GENERATE_SPIN_TEXT",
           templateText,
-          sampleName: audiencePreview[0]?.fullName || "Nguyễn Thị Lan",
+          sampleName: audiencePreview[0]?.fullName || "Trần Minh Tuấn",
         }),
       });
       const data = await res.json();
@@ -233,6 +236,12 @@ export default function BroadcastPage() {
 
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
+
+    if (audienceCount === 0) {
+      showNotice("⚠️ Tệp khách hàng nhận tin đang rỗng (0 người)! Vui lòng kiểm tra lại bộ lọc.", "error");
+      return;
+    }
+
     if (!campaignName.trim()) {
       showNotice("Vui lòng nhập tên chiến dịch Broadcast.", "error");
       return;
@@ -249,6 +258,7 @@ export default function BroadcastPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: campaignName.trim(),
+          audienceSource,
           channel,
           channelId: channel,
           accountName,
@@ -268,7 +278,7 @@ export default function BroadcastPage() {
       if (data.ok && data.campaign) {
         setSelectedCampaignId(data.campaign.id);
         setCampaignName("");
-        showNotice("🚀 Đã khởi tạo chiến dịch và đưa vào Hàng đợi Smart Broadcast!");
+        showNotice("🚀 Đã khởi tạo chiến dịch thành công và đưa vào Hàng đợi Smart Broadcast!");
         fetchCampaigns(false);
       } else {
         showNotice(data.error || "Không thể tạo chiến dịch.", "error");
@@ -277,6 +287,43 @@ export default function BroadcastPage() {
       showNotice("Lỗi kết nối máy chủ khi tạo chiến dịch.", "error");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Hàm Gửi Thử 1 Tin Nhắn
+  const handleSendTestMessage = async (e) => {
+    e.preventDefault();
+    if (!testTarget.trim()) {
+      showNotice("Vui lòng nhập SĐT hoặc Zalo ID / FB PSID người nhận thử.", "error");
+      return;
+    }
+
+    try {
+      setTestLoading(true);
+      setTestResult(null);
+      const res = await fetch("/api/broadcast/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          target: testTarget.trim(),
+          testName: testName.trim(),
+          message: templateText.trim(),
+          accountName,
+        }),
+      });
+      const data = await res.json();
+      setTestResult(data);
+      if (data.ok) {
+        showNotice(data.message || "✓ Đã gửi thử 1 tin thành công!", "success");
+      } else {
+        showNotice(data.error || "Không thể gửi thử tin nhắn.", "error");
+      }
+    } catch (err) {
+      setTestResult({ ok: false, error: err.message });
+      showNotice("Lỗi kết nối máy chủ khi gửi thử.", "error");
+    } finally {
+      setTestLoading(false);
     }
   };
 
@@ -313,7 +360,7 @@ export default function BroadcastPage() {
 
   const phonePreviewText = useMemo(() => {
     const sampleCustomer = audiencePreview[0] || {
-      fullName: "Nguyễn Thị Lan",
+      fullName: "Trần Minh Tuấn",
       phone: "0912345678",
       assignedStaff: "Dược sĩ Thảo",
     };
@@ -343,7 +390,7 @@ export default function BroadcastPage() {
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              Smart BroadcastTheo Thẻ Khách Hàng & Anti-Ban Queue
+              Gửi Tin Nhắn Hàng Loạt (Smart Broadcast) & Anti-Ban Queue
             </h1>
             <span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-semibold text-blue-400 border border-blue-500/30">
               WBS-35 & WBS-36
@@ -353,7 +400,7 @@ export default function BroadcastPage() {
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Lọc chính xác tệp khách theo Thẻ bệnh lý (Include / Exclude Tags), AI Spin Text biến hóa câu chữ chống lọc spam và tự động kiểm tra quy tắc Zalo / Meta 24h.
+            Gửi tin nhắn hàng loạt theo Danh bạ bạn bè Zalo, Khách inbox đa kênh hoặc Thẻ tag thực tế. AI Spin Text tự động đổi câu chữ chống trùng lặp và tuân thủ tuyệt đối luật Zalo & Meta 24h.
           </p>
         </div>
 
@@ -375,7 +422,7 @@ export default function BroadcastPage() {
         </div>
       </div>
 
-      {/* Khối chính: Cột trái Form 4 Bước Tạo Chiến Dịch + Cột phải Màn hình Điện thoại Xem trước */}
+      {/* Khối chính: Cột trái Form Tạo Chiến Dịch + Cột phải Màn hình Điện thoại Xem trước */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <form
           onSubmit={handleCreateCampaign}
@@ -384,19 +431,19 @@ export default function BroadcastPage() {
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
             <div>
               <h2 className="text-base font-bold text-white">
-                Thiết Lập Chiến Dịch Gửi Tin Hàng Loạt Mới
+                Thiết Lập Chiến Dịch Gửi Tin Nhắn Mới
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Hoàn thành 4 bước dưới đây để đưa chiến dịch vào hàng đợi thông minh SmartBroadcastQueue
+                Chọn nguồn tệp khách thực tế, kênh gửi và soạn mẫu tin kèm biến thể Spin Text
               </p>
             </div>
-            <div className="w-64">
+            <div className="w-56">
               <input
                 type="text"
                 required
-                placeholder="Nhập tên chiến dịch... *"
                 value={campaignName}
                 onChange={(e) => setCampaignName(e.target.value)}
+                placeholder="Nhập tên chiến dịch..."
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
               />
             </div>
@@ -417,21 +464,21 @@ export default function BroadcastPage() {
               {[
                 {
                   id: "ZALO_PERSONAL",
-                  label: "Zalo Cá Nhân Sơn Tùng",
-                  sub: "Chỉ gửi khách đã có hội thoại (zca-js)",
+                  label: "Zalo Cá Nhân (Sơn Tùng)",
+                  sub: "Kết nối danh bạ & lịch sử thật (zca-js)",
                   icon: "💬",
-                },
-                {
-                  id: "ZALO_OA",
-                  label: "Zalo OA Dược Phẩm ADDP",
-                  sub: "Tin Tư vấn 48h hoặc ZNS Template",
-                  icon: "🏢",
                 },
                 {
                   id: "FACEBOOK",
                   label: "Fanpage FB Dược Phẩm ADDP",
                   sub: "Luật Meta 24h & Message Tag",
                   icon: "📘",
+                },
+                {
+                  id: "ZALO_OA",
+                  label: "Zalo OA Dược Phẩm ADDP",
+                  sub: "Tin Tư vấn 48h hoặc ZNS Template",
+                  icon: "🏢",
                 },
               ].map((chItem) => {
                 const active = channel === chItem.id;
@@ -464,7 +511,7 @@ export default function BroadcastPage() {
               })}
             </div>
 
-            {/* Tùy chọn bảo vệ kênh nâng cao (Facebook 24h / Zalo OA ZNS) */}
+            {/* Tùy chọn bảo vệ kênh Facebook 24h */}
             {channel === "FACEBOOK" && (
               <div className="rounded-xl border border-blue-500/30 bg-blue-950/20 p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
@@ -490,108 +537,146 @@ export default function BroadcastPage() {
                 )}
               </div>
             )}
-
-            {channel === "ZALO_OA" && (
-              <div className="rounded-xl border border-sky-500/30 bg-sky-950/20 p-3 flex items-center justify-between text-xs">
-                <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={useZnsTemplate}
-                    onChange={(e) => setUseZnsTemplate(e.target.checked)}
-                    className="rounded border-slate-700 bg-slate-900 text-sky-600"
-                  />
-                  <span>
-                    Gửi qua mẫu <strong>ZNS Template đã duyệt</strong> nếu khách quá hạn tương tác 48h trên Zalo OA
-                  </span>
-                </label>
-              </div>
-            )}
           </div>
 
-          {/* BƯỚC 2: Bộ Lọc Thẻ Khách Hàng (Multi-select Tags) */}
-          <div className="space-y-3 border-t border-slate-800/80 pt-5">
+          {/* BƯỚC 2: Chọn Nguồn Tệp Khách Nhận Thực Tế (3 Chế Độ) */}
+          <div className="space-y-4 border-t border-slate-800/80 pt-5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                   2
                 </span>
                 <h3 className="text-sm font-bold text-white">
-                  Bước 2: Bộ Lọc Thẻ Khách Hàng (Include & Exclude Tags)
+                  Bước 2: Chọn Nguồn Tệp Khách Hàng Nhận Tin (Audience Source)
                 </h3>
               </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-slate-400">Điều kiện khớp thẻ:</span>
-                <button
-                  type="button"
-                  onClick={() => setTagOperator("OR")}
-                  className={`px-2.5 py-1 rounded-lg font-semibold border cursor-pointer ${
-                    tagOperator === "OR"
-                      ? "bg-blue-600 text-white border-blue-500"
-                      : "bg-slate-950 text-slate-400 border-slate-800"
-                  }`}
-                >
-                  HOẶC (OR)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTagOperator("AND")}
-                  className={`px-2.5 py-1 rounded-lg font-semibold border cursor-pointer ${
-                    tagOperator === "AND"
-                      ? "bg-blue-600 text-white border-blue-500"
-                      : "bg-slate-950 text-slate-400 border-slate-800"
-                  }`}
-                >
-                  VÀ (AND)
-                </button>
-              </div>
             </div>
 
-            {/* Danh sách thẻ cần gửi (Include Tags) */}
-            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300">
-                  ✅ Chọn danh sách Thẻ Khách Hàng cần gửi (Include Tags):
-                </span>
-                {includeTags.length > 0 && (
+            {/* 3 Tab Nguồn Tệp Thực Tế */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                {
+                  id: "ZALO_FRIENDS",
+                  title: "👥 Tất cả Bạn Bè Nick Zalo",
+                  desc: "Quét từ Danh bạ & Lịch sử tin nhắn thật của Zalo Sơn Tùng",
+                  badge: "Khuyên dùng cho Zalo",
+                },
+                {
+                  id: "ALL_INBOX",
+                  title: "💬 Toàn Bộ Khách Đã Từng Inbox",
+                  desc: "Tất cả khách hàng đã từng nhắn tin tới Zalo, FB Fanpage, Zalo OA",
+                  badge: "Toàn bộ đa kênh",
+                },
+                {
+                  id: "BY_TAG",
+                  title: "🏷️ Lọc Theo Thẻ Tag Khách Hàng",
+                  desc: "Chỉ gửi cho những khách hàng đã được gắn thẻ tương ứng",
+                  badge: "Theo bệnh lý / VIP",
+                },
+              ].map((src) => {
+                const active = audienceSource === src.id;
+                return (
                   <button
+                    key={src.id}
                     type="button"
-                    onClick={() => setIncludeTags([])}
-                    className="text-[11px] text-blue-400 hover:underline cursor-pointer"
+                    onClick={() => setAudienceSource(src.id)}
+                    className={`rounded-xl border p-3.5 text-left transition cursor-pointer ${
+                      active
+                        ? "border-emerald-500 bg-emerald-600/15 shadow-md shadow-emerald-500/10"
+                        : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                    }`}
                   >
-                    Chọn tất cả (Xóa lọc thẻ)
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-white">{src.title}</span>
+                      {active && (
+                        <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">
+                          ✓ Đang lọc
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">{src.desc}</p>
+                    <span className="inline-block mt-2 text-[10px] text-emerald-400 font-semibold">
+                      {src.badge}
+                    </span>
                   </button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {DEFAULT_INCLUDE_OPTIONS.map((tag) => {
-                  const selected = includeTags.includes(tag);
-                  const badgeStyle =
-                    TAG_BADGE_STYLES[tag] ||
-                    "bg-slate-800 text-slate-300 border-slate-700";
-                  return (
+                );
+              })}
+            </div>
+
+            {/* Khu vực chọn Thẻ Tag (Chỉ mở khi chọn chế độ BY_TAG) */}
+            {audienceSource === "BY_TAG" && (
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-semibold text-slate-300">
+                    🏷️ Chọn Thẻ Khách Hàng Cần Gửi (Include Tags):
+                  </span>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-slate-400 text-[11px]">Toán tử khớp thẻ:</span>
                     <button
-                      key={tag}
                       type="button"
-                      onClick={() => toggleIncludeTag(tag)}
-                      className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
-                        selected
-                          ? `${badgeStyle} ring-2 ring-blue-500/60`
-                          : "border-slate-800 bg-slate-900/80 text-slate-400 opacity-65 hover:opacity-100"
+                      onClick={() => setTagOperator("OR")}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer ${
+                        tagOperator === "OR"
+                          ? "bg-blue-600 text-white border-blue-500"
+                          : "bg-slate-900 text-slate-400 border-slate-800"
                       }`}
                     >
-                      <span>{selected ? "✓" : "+"}</span>
-                      <span>{tag}</span>
+                      HOẶC (OR)
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => setTagOperator("AND")}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer ${
+                        tagOperator === "AND"
+                          ? "bg-blue-600 text-white border-blue-500"
+                          : "bg-slate-900 text-slate-400 border-slate-800"
+                      }`}
+                    >
+                      VÀ (AND)
+                    </button>
+                  </div>
+                </div>
+
+                {availableTags.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 bg-slate-900/50 rounded-lg border border-slate-800">
+                    Chưa có thẻ tag nào được tạo. Vào{" "}
+                    <a href="/settings/tags" className="text-blue-400 underline font-semibold">
+                      ⚙️ Quản lý Thẻ Tag
+                    </a>{" "}
+                    hoặc gắn thẻ trực tiếp cho khách trong Hộp Thư Đa Kênh.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {availableTags.map((tag) => {
+                      const selected = includeTags.includes(tag);
+                      const badgeStyle =
+                        TAG_BADGE_STYLES[tag] ||
+                        "bg-slate-800 text-slate-300 border-slate-700";
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleIncludeTag(tag)}
+                          className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                            selected
+                              ? `${badgeStyle} ring-2 ring-blue-500/60`
+                              : "border-slate-800 bg-slate-900 text-slate-400 opacity-70 hover:opacity-100"
+                          }`}
+                        >
+                          <span>{selected ? "✓" : "+"}</span>
+                          <span>{tag}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
 
             {/* Danh sách thẻ loại trừ (Exclude Tags) */}
             <div className="rounded-xl border border-rose-500/20 bg-rose-950/10 p-3.5 space-y-2">
               <span className="text-xs font-semibold text-rose-300 block">
-                🚫 Loại trừ khách hàng có các thẻ sau (Exclude Tags):
+                🚫 Tự động loại trừ khách mang các thẻ sau (Exclude Tags):
               </span>
               <div className="flex flex-wrap gap-2">
                 {DEFAULT_EXCLUDE_OPTIONS.map((tag) => {
@@ -615,72 +700,83 @@ export default function BroadcastPage() {
               </div>
             </div>
 
-            {/* Hộp Thống kê tệp nhận & Nút Xem danh sách xem trước */}
-            <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-emerald-300">
-                    📊 Thống kê tệp nhận:
-                  </span>
-                  <span className="text-sm font-extrabold text-white">
-                    Đã chọn: {loadingAudience ? "..." : audienceCount} khách hàng hợp lệ
-                  </span>
+            {/* Hộp Thống kê tệp nhận & Cảnh báo tệp rỗng */}
+            {audienceCount === 0 && !loadingAudience ? (
+              <div className="rounded-xl border border-rose-500/40 bg-rose-950/30 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
+                  <span>⚠️ CẢNH BÁO: Tệp người nhận hiện tại có 0 khách hàng!</span>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                  <span>💬 Có Zalo: <strong className="text-cyan-300">{channelBreakdown.zalo}</strong></span>
-                  <span>•</span>
-                  <span>📘 Có Messenger: <strong className="text-blue-300">{channelBreakdown.messenger}</strong></span>
-                  <span>•</span>
-                  <span>🏢 Có Zalo OA: <strong className="text-sky-300">{channelBreakdown.zaloOa}</strong></span>
-                </div>
+                <p className="text-[12px] text-rose-200 leading-relaxed">
+                  {audienceSource === "BY_TAG"
+                    ? "Thẻ bạn chọn hiện chưa có khách hàng nào được gắn. Vui lòng bấm chọn nguồn '👥 Tất cả Bạn Bè Nick Zalo' hoặc vào Hộp Thư Đa Kênh gắn thẻ cho khách trước khi gửi."
+                    : "Không tìm thấy khách hàng nào thỏa mãn điều kiện lọc. Vui lòng chọn nguồn tệp khác hoặc bỏ bớt thẻ loại trừ."}
+                </p>
               </div>
+            ) : (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-emerald-300">
+                      📊 Thống kê tệp khách nhận THỰC TẾ:
+                    </span>
+                    <span className="text-sm font-extrabold text-white">
+                      {loadingAudience ? "Đang quét..." : `${audienceCount} khách hàng hợp lệ`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                    <span>💬 Có Zalo: <strong className="text-cyan-300">{channelBreakdown.zalo}</strong></span>
+                    <span>•</span>
+                    <span>📘 Có Messenger: <strong className="text-blue-300">{channelBreakdown.messenger}</strong></span>
+                    <span>•</span>
+                    <span>🏢 Có Zalo OA: <strong className="text-sky-300">{channelBreakdown.zaloOa}</strong></span>
+                  </div>
+                </div>
 
-              <button
-                type="button"
-                onClick={() => setShowPreviewDrawer(!showPreviewDrawer)}
-                className="rounded-xl border border-emerald-500/40 bg-emerald-600/20 hover:bg-emerald-600/30 px-3.5 py-2 text-xs font-bold text-emerald-200 transition cursor-pointer shrink-0"
-              >
-                {showPreviewDrawer ? "Ẩn danh sách xem trước" : "👁️ Xem danh sách xem trước (Top 10)"}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPreviewDrawer(!showPreviewDrawer)}
+                  className="rounded-xl border border-emerald-500/40 bg-emerald-600/20 hover:bg-emerald-600/30 px-3.5 py-2 text-xs font-bold text-emerald-200 transition cursor-pointer shrink-0"
+                >
+                  {showPreviewDrawer ? "Ẩn danh sách xem trước" : "👁️ Xem danh sách khách nhận (Top 10)"}
+                </button>
+              </div>
+            )}
 
             {/* Bảng xem trước 10 khách đầu tiên */}
             {showPreviewDrawer && (
               <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 overflow-x-auto">
                 {audiencePreview.length === 0 ? (
-                  <p className="text-xs text-slate-400 text-center py-4">
-                    Chưa có khách hàng nào trong CSDL khớp với bộ lọc thẻ hiện tại.
+                  <p className="text-xs text-slate-500 text-center py-4">
+                    Không có khách hàng nào trong tệp này.
                   </p>
                 ) : (
-                  <table className="w-full text-left text-xs border-collapse">
+                  <table className="w-full text-left text-xs text-slate-300">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                        <th className="py-2 px-3">Họ tên khách hàng</th>
-                        <th className="py-2 px-3">SĐT (Che bảo mật)</th>
-                        <th className="py-2 px-3">Thẻ Tags</th>
-                        <th className="py-2 px-3">Nhân viên phụ trách</th>
+                      <tr className="border-b border-slate-800 text-slate-500 text-[11px]">
+                        <th className="pb-2">Họ và tên</th>
+                        <th className="pb-2">SĐT / UID</th>
+                        <th className="pb-2">Kênh</th>
+                        <th className="pb-2">Thẻ tag</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/60 text-slate-200">
+                    <tbody className="divide-y divide-slate-800/60">
                       {audiencePreview.map((cust) => (
-                        <tr key={cust.id}>
-                          <td className="py-2 px-3 font-semibold">{cust.fullName}</td>
-                          <td className="py-2 px-3 font-mono text-emerald-400">
-                            {cust.maskedPhone}
-                          </td>
-                          <td className="py-2 px-3">
+                        <tr key={cust.id} className="hover:bg-slate-900/50">
+                          <td className="py-2 font-medium text-white">{cust.fullName}</td>
+                          <td className="py-2 font-mono text-emerald-400">{cust.maskedPhone}</td>
+                          <td className="py-2 text-[11px] text-slate-400">{cust.channel}</td>
+                          <td className="py-2">
                             <div className="flex flex-wrap gap-1">
                               {(cust.tags || []).map((t) => (
                                 <span
                                   key={t}
-                                  className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-300"
+                                  className="rounded px-1.5 py-0.5 text-[9px] bg-slate-800 text-slate-300"
                                 >
                                   {t}
                                 </span>
                               ))}
                             </div>
                           </td>
-                          <td className="py-2 px-3 text-slate-400">{cust.assignedStaff}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -690,7 +786,7 @@ export default function BroadcastPage() {
             )}
           </div>
 
-          {/* BƯỚC 3: Soạn Nội Dung Tin Nhắn & Xem Trước Spin Text */}
+          {/* BƯỚC 3: Mẫu Tin Nhắn & AI Spin Text */}
           <div className="space-y-3 border-t border-slate-800/80 pt-5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
@@ -698,40 +794,39 @@ export default function BroadcastPage() {
                   3
                 </span>
                 <h3 className="text-sm font-bold text-white">
-                  Bước 3: Soạn Nội Dung Tin Nhắn & AI Spin Text
+                  Bước 3: Mẫu Tin Nhắn Cá Nhân Hóa & AI Spin Text
                 </h3>
               </div>
 
               <button
                 type="button"
-                onClick={handleAiGenerateSpin}
                 disabled={spinningAi}
-                className="rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md transition cursor-pointer disabled:opacity-50"
+                onClick={handleAiGenerateSpin}
+                className="rounded-xl border border-purple-500/40 bg-purple-600/20 hover:bg-purple-600/30 px-3 py-1.5 text-xs font-bold text-purple-200 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               >
-                {spinningAi ? "Đang biến hóa câu chữ..." : "✨ AI Sinh Biến Thể Spin Text"}
+                <span>✨</span>
+                <span>{spinningAi ? "AI Đang sinh Spin Text..." : "AI Tự Động Sinh Biến Thể Spin"}</span>
               </button>
             </div>
 
-            {/* Gợi ý chèn biến cá nhân hóa */}
-            <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
-              <span className="text-slate-400 mr-1">Chèn nhanh:</span>
+            {/* Các biến chèn nhanh */}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-[11px] text-slate-400 mr-1">Chèn biến nhanh:</span>
               {[
-                { label: "Họ tên {fullName}", token: "{fullName}" },
-                { label: "Tên gọi {firstName}", token: "{firstName}" },
-                { label: "SĐT {phone}", token: "{phone}" },
-                { label: "Dược sĩ {assignedStaff}", token: "{assignedStaff}" },
-                {
-                  label: "Spin chào hỏi {chào anh|em chào chị}",
-                  token: "{Dạ em Thảo chào|Em chào|Dạ kính chào}",
-                },
-              ].map((btn) => (
+                { label: "{fullName}", desc: "Họ và tên khách" },
+                { label: "{firstName}", desc: "Tên gọi" },
+                { label: "{phone}", desc: "SĐT" },
+                { label: "{assignedStaff}", desc: "Dược sĩ phụ trách" },
+                { label: "{productName}", desc: "Tên sản phẩm" },
+              ].map((b) => (
                 <button
-                  key={btn.token}
+                  key={b.label}
                   type="button"
-                  onClick={() => insertTokenToTemplate(btn.token)}
-                  className="rounded-lg border border-slate-700 bg-slate-950 hover:border-blue-500 px-2.5 py-1 text-slate-300 hover:text-white transition cursor-pointer"
+                  onClick={() => insertTokenToTemplate(b.label)}
+                  className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-0.5 text-[11px] font-mono text-blue-400 hover:border-blue-500 hover:text-white cursor-pointer"
+                  title={b.desc}
                 >
-                  + {btn.label}
+                  {b.label}
                 </button>
               ))}
             </div>
@@ -741,60 +836,56 @@ export default function BroadcastPage() {
               required
               value={templateText}
               onChange={(e) => setTemplateText(e.target.value)}
-              placeholder="Nhập mẫu tin nhắn, hỗ trợ cú pháp {biến_thể_1|biến_thể_2} và {fullName}..."
+              placeholder="Nhập nội dung tin nhắn có biến thể Spin dạng {a|b|c} và {fullName}..."
               className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-xs text-white leading-relaxed focus:border-blue-500 focus:outline-none"
             />
           </div>
 
-          {/* BƯỚC 4: Thiết Lập An Toàn (Anti-Ban Guard) */}
-          <div className="space-y-3 border-t border-slate-800/80 pt-5">
+          {/* BƯỚC 4: Tốc Độ Giãn Cách & Khởi Chạy */}
+          <div className="space-y-4 border-t border-slate-800/80 pt-5">
             <div className="flex items-center gap-2">
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                 4
               </span>
               <h3 className="text-sm font-bold text-white">
-                Bước 4: Thiết Lập An Toàn (Anti-Ban Guard)
+                Bước 4: Cấu Hình Hàng Đợi An Toàn & Khởi Chạy
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-4 text-xs">
-              <div>
-                <span className="text-slate-400 block mb-1">
-                  ⏱️ Giãn cách an toàn (45 - 120 giây/tin):
-                </span>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+                <div>
+                  <span className="font-semibold text-slate-200">
+                    ⏱️ Giãn cách ngẫu nhiên giữa 2 tin liên tiếp (Anti-Ban):
+                  </span>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Hệ thống sẽ random độ trễ trong khoảng này để mô phỏng hoàn toàn hành vi người thật
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
-                    min={45}
+                    min={30}
                     max={300}
                     value={speedMin}
-                    onChange={(e) => setSpeedMin(Math.max(45, Number(e.target.value) || 45))}
-                    className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center font-mono text-white"
+                    onChange={(e) => setSpeedMin(e.target.value)}
+                    className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center font-mono text-xs text-white"
                   />
-                  <span className="text-slate-500">đến</span>
+                  <span className="text-slate-400">đến</span>
                   <input
                     type="number"
                     min={45}
                     max={600}
                     value={speedMax}
-                    onChange={(e) => setSpeedMax(Math.max(45, Number(e.target.value) || 120))}
-                    className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center font-mono text-white"
+                    onChange={(e) => setSpeedMax(e.target.value)}
+                    className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center font-mono text-xs text-white"
                   />
-                  <span className="text-slate-400">giây</span>
+                  <span className="text-slate-400">giây / tin</span>
                 </div>
               </div>
 
-              <div>
-                <span className="text-slate-400 block mb-1">
-                  🛡️ Giới hạn tối đa / tài khoản:
-                </span>
-                <div className="font-mono font-bold text-emerald-400 py-1">
-                  150 tin / ngày (Hard Limit)
-                </div>
-              </div>
-
-              <div className="flex items-center">
-                <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+              <div className="flex items-center gap-2 text-xs pt-2 border-t border-slate-800">
+                <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={mockMode}
@@ -802,27 +893,52 @@ export default function BroadcastPage() {
                     className="rounded border-slate-700 bg-slate-900 text-blue-600"
                   />
                   <span>
-                    Chạy chế độ <strong>Mock Send (Kiểm thử luồng)</strong>
+                    Chạy chế độ <strong>Mock Send (Kiểm thử mô phỏng không gửi tin thật ra ngoài)</strong>
                   </span>
                 </label>
               </div>
             </div>
 
-            <div className="flex items-center justify-end pt-2">
+            {/* Các nút hành động chính */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+              {/* Nút Gửi Thử 1 Tin */}
+              <button
+                type="button"
+                onClick={() => {
+                  setTestResult(null);
+                  setShowTestModal(true);
+                }}
+                className="rounded-xl border border-purple-500/40 bg-purple-600/20 hover:bg-purple-600/30 px-4 py-2.5 text-xs font-bold text-purple-200 transition cursor-pointer flex items-center gap-2"
+              >
+                <span>🧪</span>
+                <span>Gửi Thử 1 Tin Đến Tôi / SĐT Chỉ Định</span>
+              </button>
+
+              {/* Nút Khởi Chạy Toàn Bộ Chiến Dịch */}
               <button
                 type="submit"
-                disabled={submitting}
-                className="rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/30 transition cursor-pointer disabled:opacity-50"
+                disabled={submitting || audienceCount === 0}
+                title={audienceCount === 0 ? "Tệp người nhận rỗng, không thể gửi" : ""}
+                className={`rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-lg transition cursor-pointer flex items-center gap-2 ${
+                  audienceCount === 0
+                    ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                    : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/30"
+                }`}
               >
-                {submitting
-                  ? "Đang khởi tạo hàng đợi..."
-                  : `🚀 Khởi Chạy Chiến Dịch (${audienceCount} khách)`}
+                <span>🚀</span>
+                <span>
+                  {submitting
+                    ? "Đang khởi tạo hàng đợi..."
+                    : audienceCount === 0
+                    ? "Tệp Rỗng (0 khách) - Không Thể Gửi"
+                    : `Khởi Chạy Chiến Dịch (${audienceCount} khách)`}
+                </span>
               </button>
             </div>
           </div>
         </form>
 
-        {/* Cột phải: Hộp Preview Tin Nhắn Giả Lập Trên Màn Hình Điện Thoại */}
+        {/* Cột phải: Hộp Preview Tin Nhắn Trên Màn Hình Điện Thoại */}
         <div className="xl:col-span-4 flex flex-col">
           <div className="rounded-3xl border-4 border-slate-800 bg-slate-950 p-4 shadow-2xl flex-1 flex flex-col justify-between max-w-sm w-full mx-auto">
             {/* Tai thỏ điện thoại */}
@@ -834,7 +950,7 @@ export default function BroadcastPage() {
                     AD
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white">{accountName}</p>
+                    <p className="text-xs font-bold text-white truncate max-w-[150px]">{accountName}</p>
                     <p className="text-[10px] text-emerald-400">● Đang hoạt động</p>
                   </div>
                 </div>
@@ -873,6 +989,12 @@ export default function BroadcastPage() {
                 <span>Giãn cách Anti-Ban:</span>
                 <span className="text-emerald-400 font-mono">
                   {speedMin}s – {speedMax}s / tin
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tệp người nhận:</span>
+                <span className="text-white font-semibold">
+                  {audienceCount} người ({audienceSource === "ZALO_FRIENDS" ? "Bạn bè Zalo" : audienceSource === "ALL_INBOX" ? "Đa kênh" : "Theo thẻ"})
                 </span>
               </div>
             </div>
@@ -917,7 +1039,7 @@ export default function BroadcastPage() {
           </div>
         ) : (
           <div className="space-y-5">
-            {/* Thanh Progress Bar & Các nút điều khiển ⏸️ Tạm Dừng, ▶️ Tiếp Tục, ⏹️ Hủy Bỏ */}
+            {/* Thanh Progress Bar & Các nút điều khiển */}
             <div className="rounded-2xl border border-slate-800 bg-slate-950/90 p-4 space-y-3">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
@@ -936,7 +1058,9 @@ export default function BroadcastPage() {
                           ? "bg-amber-500/20 text-amber-300"
                           : activeCampaign.status === "CANCELLED"
                           ? "bg-rose-500/20 text-rose-300"
-                          : "bg-blue-500/20 text-blue-300"
+                          : activeCampaign.status === "COMPLETED"
+                          ? "bg-blue-500/20 text-blue-300"
+                          : "bg-slate-500/20 text-slate-300"
                       }`}
                     >
                       {activeCampaign.status}
@@ -944,7 +1068,11 @@ export default function BroadcastPage() {
                   </div>
 
                   <p className="text-xs text-slate-300 mt-1 font-mono">
-                    Đã gửi {activeCampaign.sentCount}/{activeCampaign.totalRecipients} tin ({activeCampaign.progressPercent || 0}%)
+                    Đã gửi {activeCampaign.sentCount}/{activeCampaign.totalRecipients} tin (
+                    {activeCampaign.totalRecipients > 0
+                      ? Math.round((activeCampaign.sentCount / activeCampaign.totalRecipients) * 100)
+                      : 0}
+                    %)
                     {activeCampaign.status === "RUNNING" && activeCampaign.nextSendInSec
                       ? ` — ⏳ Đang chờ ${activeCampaign.nextSendInSec}s gửi tin tiếp theo`
                       : activeCampaign.pauseReason
@@ -992,19 +1120,25 @@ export default function BroadcastPage() {
               <div className="h-2.5 w-full rounded-full bg-slate-800 overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-500"
-                  style={{ width: `${activeCampaign.progressPercent || 0}%` }}
+                  style={{
+                    width: `${
+                      activeCampaign.totalRecipients > 0
+                        ? Math.round((activeCampaign.sentCount / activeCampaign.totalRecipients) * 100)
+                        : 0
+                    }%`,
+                  }}
                 />
               </div>
             </div>
 
-            {/* Bảng Log Chi Tiết Từng Tin */}
+            {/* Bảng Log Chi Tiết Từng Tin Nhắn Thực Tế */}
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 bg-slate-950 text-slate-400 text-[11px] uppercase">
-                    <th className="py-3 px-4">Thời gian gửi</th>
+                    <th className="py-3 px-4">Thời gian</th>
                     <th className="py-3 px-4">Tên khách hàng</th>
-                    <th className="py-3 px-4">SĐT</th>
+                    <th className="py-3 px-4">SĐT / UID</th>
                     <th className="py-3 px-4">Kênh</th>
                     <th className="py-3 px-4">Nội dung Spin đã gửi</th>
                     <th className="py-3 px-4">Trạng thái</th>
@@ -1029,10 +1163,10 @@ export default function BroadcastPage() {
                           {log.customerName}
                         </td>
                         <td className="py-2.5 px-4 font-mono text-emerald-400">
-                          {log.maskedPhone || log.phone || "Chưa có"}
+                          {log.maskedPhone || log.phone || (log.recipientId ? `UID: ${log.recipientId.slice(-4)}` : "Chưa có")}
                         </td>
-                        <td className="py-2.5 px-4">{log.channel}</td>
-                        <td className="py-2.5 px-4 max-w-md truncate text-slate-300">
+                        <td className="py-2.5 px-4 text-slate-300">{log.channel}</td>
+                        <td className="py-2.5 px-4 max-w-md truncate text-slate-300" title={log.renderedText}>
                           {log.renderedText || log.note}
                         </td>
                         <td className="py-2.5 px-4 whitespace-nowrap">
@@ -1045,8 +1179,8 @@ export default function BroadcastPage() {
                               ⚠️ {log.note || "Bỏ qua"}
                             </span>
                           ) : (
-                            <span className="rounded bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-300">
-                              ✕ Lỗi
+                            <span className="rounded bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-300" title={log.error}>
+                              ✕ Lỗi: {log.error || "Gửi thất bại"}
                             </span>
                           )}
                         </td>
@@ -1059,6 +1193,111 @@ export default function BroadcastPage() {
           </div>
         )}
       </div>
+
+      {/* MODAL POPUP: GỬI THỬ 1 TIN NHẮN (TEST SEND MODAL) */}
+      {showTestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🧪</span>
+                <h3 className="font-bold text-sm text-white">Gửi Thử 1 Tin Nhắn Broadcast</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTestModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSendTestMessage} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Kênh gửi thử:
+                </label>
+                <div className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white">
+                  {accountName} ({channel})
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Số điện thoại hoặc Zalo ID / FB PSID người nhận thử:
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={testTarget}
+                  onChange={(e) => setTestTarget(e.target.value)}
+                  placeholder="VD: 0912345678 hoặc Zalo UID 720430069894969208..."
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Tên xưng hô của người nhận (để thay biến {"{fullName}"}):
+                </label>
+                <input
+                  type="text"
+                  value={testName}
+                  onChange={(e) => setTestName(e.target.value)}
+                  placeholder="VD: Sơn Tùng, Anh Tuấn..."
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Hộp xem trước tin gửi thử */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block">
+                  Nội dung sẽ gửi thử (đã Spin):
+                </span>
+                <p className="text-xs text-slate-200 leading-relaxed italic">
+                  "{renderSpinPreviewClient(templateText, { fullName: testName, phone: testTarget })}"
+                </p>
+              </div>
+
+              {/* Hiển thị kết quả test */}
+              {testResult && (
+                <div
+                  className={`rounded-xl border p-3 text-xs leading-relaxed ${
+                    testResult.ok
+                      ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-300"
+                      : "border-rose-500/40 bg-rose-950/30 text-rose-300"
+                  }`}
+                >
+                  <p className="font-bold">{testResult.ok ? "✓ GỬI THÀNH CÔNG!" : "✕ GỬI THẤT BÀI:"}</p>
+                  <p className="mt-1">{testResult.message || testResult.error}</p>
+                  {testResult.renderedText && (
+                    <p className="mt-2 text-[11px] opacity-80 font-mono">
+                      Nội dung: "{testResult.renderedText}"
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowTestModal(false)}
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="submit"
+                  disabled={testLoading}
+                  className="rounded-xl bg-purple-600 hover:bg-purple-500 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-purple-600/30 transition cursor-pointer disabled:opacity-50"
+                >
+                  {testLoading ? "Đang gửi thử..." : "🚀 Bắn Tin Thử Ngay"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

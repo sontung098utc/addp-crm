@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { filterCustomersByTags, maskPhoneMiddle } from "./customerIdentityResolver.js";
+import { resolveBroadcastAudience } from "./broadcastAudienceResolver.js";
 import { sendTextMessage, hasExistingZaloConnection } from "./zaloRunner.js";
 import { listAllChannels } from "./connectionHub.js";
 
@@ -555,26 +556,32 @@ export function createBroadcastCampaign(input = {}) {
     : ["Đã Hủy Đơn", "Khiếu Nại", "Dừng Chăm Sóc"];
   const channel = String(input.channel || input.channelType || "ZALO_PERSONAL").toUpperCase();
   const operator = input.operator === "OR" ? "OR" : "AND";
+  const audienceSource =
+    input.audienceSource || (includeTags.length > 0 ? "BY_TAG" : "ZALO_FRIENDS");
 
   // Lấy danh sách người nhận từ bộ lọc thẻ hoặc từ customRecipients (khi chạy test)
   let recipientsList = [];
   if (Array.isArray(input.customRecipients) && input.customRecipients.length > 0) {
     recipientsList = input.customRecipients;
+  } else if (Array.isArray(input.recipients) && input.recipients.length > 0) {
+    recipientsList = input.recipients;
   } else {
-    const filtered = filterCustomersByTags({
+    const audienceResult = resolveBroadcastAudience({
+      audienceSource,
       includeTags,
       excludeTags,
       channel,
       operator,
+      targetAccount: input.channelId || input.accountName,
     });
-    recipientsList = filtered.customers;
+    recipientsList = audienceResult.allMatched || [];
   }
 
   const mappedRecipients = recipientsList.map((cust) => ({
     id: cust.id,
     fullName: cust.fullName || cust.name || "Khách hàng",
     phone: cust.phone || "",
-    maskedPhone: maskPhoneMiddle(cust.phone),
+    maskedPhone: cust.maskedPhone || maskPhoneMiddle(cust.phone),
     tags: Array.isArray(cust.tags) ? cust.tags : [],
     assignedStaff: cust.staffName || cust.assignedStaff || "Dược sĩ Thảo",
     zaloUid: cust.zaloUid || cust.zaloThreadId || null,
@@ -586,6 +593,12 @@ export function createBroadcastCampaign(input = {}) {
     renderedText: "",
     note: "Đang chờ trong hàng đợi",
   }));
+
+  if (mappedRecipients.length === 0) {
+    throw new Error(
+      "Tệp khách hàng nhận tin đang rỗng (0 khách hàng). Vui lòng chọn tệp 'Tất cả bạn bè Zalo' hoặc gắn thẻ cho khách hàng trước khi chạy chiến dịch."
+    );
+  }
 
   const speedRange =
     Array.isArray(input.speedRange) && input.speedRange.length === 2
@@ -616,12 +629,8 @@ export function createBroadcastCampaign(input = {}) {
       input.templateText ||
       input.template ||
       "{Dạ em Thảo chào|Em chào|Dạ kính chào} {fullName} ạ, Dược sĩ ADDP xin phép hỏi thăm chỉ số đường huyết và sức khỏe của mình tuần này thế nào rồi ạ?",
-    status:
-      mappedRecipients.length === 0
-        ? "COMPLETED"
-        : autoStart
-        ? "RUNNING"
-        : "DRAFT",
+    audienceSource,
+    status: autoStart ? "RUNNING" : "DRAFT",
     totalRecipients: mappedRecipients.length,
     sentCount: 0,
     failedCount: 0,
