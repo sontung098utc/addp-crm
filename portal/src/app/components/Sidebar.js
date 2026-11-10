@@ -20,12 +20,14 @@ import {
   ChevronRight,
   Shield,
   Circle,
+  Tag,
 } from "lucide-react";
 
 const MENU_ITEMS = [
   { key: "dashboard", name: "Tổng quan CRM", href: "/", icon: LayoutDashboard, badge: null },
   { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: MessageSquare, badge: "4" },
   { key: "customers", name: "Khách hàng 360", href: "/customers", icon: Users, badge: null },
+  { key: "tags", name: "Quản lý Thẻ Tag", href: "/settings/tags", icon: Tag, badge: null },
   { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: CalendarClock, badge: "7" },
   { key: "broadcast", name: "AI & Gửi Hàng loạt", href: "/broadcast", icon: Bot, badge: null },
   { key: "orders", name: "Đơn hàng Đa sàn", href: "/orders", icon: Receipt, badge: null },

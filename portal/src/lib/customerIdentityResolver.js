@@ -52,27 +52,6 @@ function ensureCustomerTagsArray(customer = {}) {
     }
   }
 
-  // Tự động bổ sung thẻ kênh và bệnh lý nếu có trong hồ sơ
-  const src = String(customer.source || "").toUpperCase();
-  if (src === "ZALO_PERSONAL" || customer.zaloUid) tagSet.add("Zalo Cá Nhân");
-  if (src === "FACEBOOK" || customer.facebookId || customer.psid || customer.facebookUrl) {
-    tagSet.add("Fanpage FB");
-  }
-  if (src === "ZALO_OA") tagSet.add("Zalo OA");
-
-  const patho = String(customer.pathology || "").toLowerCase();
-  if (patho.includes("tuýp 2") || patho.includes("type 2")) tagSet.add("Tiểu Đường Tuýp 2");
-  else if (patho.includes("tiểu đường") || patho.includes("đường huyết")) tagSet.add("Tiểu Đường Tuýp 2");
-  if (patho.includes("men gan") || patho.includes("gan")) tagSet.add("Men Gan Cao");
-
-  if (
-    String(customer.vipLevel || "").toUpperCase().includes("VIP") ||
-    Number(customer.totalOrders) >= 3 ||
-    Number(customer.totalSpent) >= 2000000
-  ) {
-    tagSet.add("VIP");
-  }
-
   return {
     ...customer,
     tags: Array.from(tagSet),
@@ -247,7 +226,7 @@ export async function upsertCustomerByThreadOrPhone(input = {}) {
     feedbackRating: "NONE",
     source: effectiveSource,
     channelLabel: input.channelLabel || effectiveSource,
-    tags: ["Khách Mới", effectiveSource],
+    tags: Array.isArray(input.tags) ? input.tags : [],
     staffId: routing.staffId,
     staffName: routing.staffName,
     staffCode: routing.staffCode,
@@ -342,7 +321,7 @@ export async function resolveCustomerIdentity(input = {}) {
     feedbackRating: "NONE",
     source: effectiveSource,
     channelLabel: input.channelLabel || effectiveSource || "Trực tiếp",
-    tags: ["Khách Mới", effectiveSource || "Tư vấn"],
+    tags: Array.isArray(input.tags) ? input.tags : [],
     staffId: routing.staffId,
     staffName: routing.staffName,
     staffCode: routing.staffCode,

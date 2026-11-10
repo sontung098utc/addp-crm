@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import StaffManager from "./StaffManager";
 import ChannelPermissionMatrix from "./ChannelPermissionMatrix";
 
@@ -125,6 +126,14 @@ export default function SettingsPage() {
           >
             🚀 4. Cầu Nối SSO & Nghiệm Thu GĐ 1 (WBS-09 & 10)
           </button>
+
+          <Link
+            href="/settings/tags"
+            className="rounded-lg px-3 py-2 text-xs font-semibold transition text-amber-400 hover:text-white hover:bg-slate-800 border border-amber-500/30 flex items-center gap-1.5"
+          >
+            <span>🏷️ 5. Quản Lý Thẻ Tag Khách Hàng</span>
+            <span className="text-[10px] bg-amber-500/20 px-1.5 py-0.2 rounded font-bold">Mới</span>
+          </Link>
         </div>
       </div>
 

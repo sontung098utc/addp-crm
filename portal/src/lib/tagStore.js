@@ -1,27 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { COLOR_VARIANTS, COLOR_OPTIONS } from "./tagConstants.js";
 
-export const COLOR_VARIANTS = {
-  amber: "bg-amber-500/15 text-amber-400 dark:text-amber-300 border-amber-500/30",
-  rose: "bg-rose-500/15 text-rose-400 dark:text-rose-300 border-rose-500/30",
-  blue: "bg-blue-500/15 text-blue-400 dark:text-blue-300 border-blue-500/30",
-  emerald: "bg-emerald-500/15 text-emerald-400 dark:text-emerald-300 border-emerald-500/30",
-  purple: "bg-purple-500/15 text-purple-400 dark:text-purple-300 border-purple-500/30",
-  teal: "bg-teal-500/15 text-teal-400 dark:text-teal-300 border-teal-500/30",
-  indigo: "bg-indigo-500/15 text-indigo-400 dark:text-indigo-300 border-indigo-500/30",
-  orange: "bg-orange-500/15 text-orange-400 dark:text-orange-300 border-orange-500/30",
-  pink: "bg-pink-500/15 text-pink-400 dark:text-pink-300 border-pink-500/30",
-  slate: "bg-slate-500/15 text-slate-400 dark:text-slate-300 border-slate-500/30",
-};
-
-export const DEFAULT_TAGS = [
-  { id: "tag_vip", name: "Khách VIP", color: "amber", bg: COLOR_VARIANTS.amber },
-  { id: "tag_hot", name: "Khách Nóng - Chốt Ngay", color: "rose", bg: COLOR_VARIANTS.rose },
-  { id: "tag_tieu_duong", name: "Tiểu Đường", color: "blue", bg: COLOR_VARIANTS.blue },
-  { id: "tag_men_gan", name: "Men Gan", color: "emerald", bg: COLOR_VARIANTS.emerald },
-  { id: "tag_lan_tan_gia", name: "Lăn Tăn Giá", color: "purple", bg: COLOR_VARIANTS.purple },
-  { id: "tag_da_chot", name: "Đã Chốt Đơn", color: "teal", bg: COLOR_VARIANTS.teal },
-];
+export { COLOR_VARIANTS, COLOR_OPTIONS };
 
 function resolveDataPath(filename) {
   const candidates = [
@@ -46,15 +27,12 @@ export function getTags() {
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
-    // Khởi tạo file mặc định
-    saveTags(DEFAULT_TAGS);
-    return DEFAULT_TAGS;
   } catch (err) {
     console.error("[getTags ERROR]", err);
-    return DEFAULT_TAGS;
   }
+  return [];
 }
 
 export function saveTags(tags) {
@@ -73,7 +51,7 @@ export function addTag({ name, color = "blue", bg }) {
   const cleanName = String(name || "").trim();
   if (!cleanName) return null;
   const tags = getTags();
-  
+
   // Tránh trùng tên
   const existing = tags.find((t) => t.name.toLowerCase() === cleanName.toLowerCase());
   if (existing) return existing;
@@ -84,6 +62,7 @@ export function addTag({ name, color = "blue", bg }) {
     name: cleanName,
     color: validColor,
     bg: bg || COLOR_VARIANTS[validColor],
+    createdAt: new Date().toISOString(),
   };
 
   tags.push(newTag);
@@ -91,10 +70,52 @@ export function addTag({ name, color = "blue", bg }) {
   return newTag;
 }
 
+export function updateTag({ id, name, color, bg }) {
+  if (!id) return null;
+  const tags = getTags();
+  const index = tags.findIndex((t) => t.id === id || t.name === id);
+  if (index === -1) return null;
+
+  const cleanName = name ? String(name).trim() : tags[index].name;
+  const validColor = color && COLOR_VARIANTS[color] ? color : tags[index].color || "blue";
+
+  tags[index] = {
+    ...tags[index],
+    name: cleanName,
+    color: validColor,
+    bg: bg || COLOR_VARIANTS[validColor],
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveTags(tags);
+  return tags[index];
+}
+
 export function deleteTag(id) {
   const tags = getTags();
+  const target = tags.find((t) => t.id === id || t.name === id);
+  const targetName = target ? target.name : id;
   const filtered = tags.filter((t) => t.id !== id && t.name !== id);
   saveTags(filtered);
+
+  // Cũng dọn dẹp thẻ này khỏi conversation_tags
+  try {
+    const convMap = getAllConversationTags();
+    let changed = false;
+    for (const tid of Object.keys(convMap)) {
+      if (Array.isArray(convMap[tid]) && (convMap[tid].includes(id) || convMap[tid].includes(targetName))) {
+        convMap[tid] = convMap[tid].filter((t) => t !== id && t !== targetName);
+        changed = true;
+      }
+    }
+    if (changed) {
+      const convFile = resolveDataPath("conversation_tags.json");
+      fs.writeFileSync(convFile, JSON.stringify(convMap, null, 2), "utf8");
+    }
+  } catch (err) {
+    console.error("[deleteTag clean conv tags err]", err);
+  }
+
   return filtered;
 }
 
@@ -133,4 +154,18 @@ export function updateConversationTags(threadId, tags) {
     console.error("[updateConversationTags ERROR]", err);
   }
   return cleanTags;
+}
+
+export function getTagUsageCount() {
+  const convTags = getAllConversationTags();
+  const counts = {};
+  for (const tid of Object.keys(convTags)) {
+    const list = convTags[tid];
+    if (Array.isArray(list)) {
+      for (const t of list) {
+        counts[t] = (counts[t] || 0) + 1;
+      }
+    }
+  }
+  return counts;
 }

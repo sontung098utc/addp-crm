@@ -172,7 +172,6 @@ export default function LiveZaloInbox() {
   const [matchedCustomer, setMatchedCustomer] = useState(null);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [detectedChatPhone, setDetectedChatPhone] = useState("");
-  const [detectedAiTags, setDetectedAiTags] = useState([]);
 
   // Tin nhắn của cuộc trò chuyện đang chọn
   const [messages, setMessages] = useState([]);
@@ -305,13 +304,16 @@ export default function LiveZaloInbox() {
   }, [isTagPopoverOpen]);
 
   // Bật/tắt thẻ tag cho active conversation
-  const handleToggleTagOnActiveConv = async (tagName) => {
+  const handleToggleTagOnActiveConv = async (tagNameOrId) => {
     if (!activeConv?.id) return;
+    const foundTag = availableTags.find((t) => t.id === tagNameOrId || t.name === tagNameOrId);
+    const targetName = foundTag ? foundTag.name : tagNameOrId;
+
     const currentTags = Array.isArray(activeConv.tags) ? [...activeConv.tags] : [];
-    const exists = currentTags.includes(tagName);
+    const exists = currentTags.includes(targetName) || currentTags.includes(tagNameOrId);
     const updatedTags = exists
-      ? currentTags.filter((t) => t !== tagName)
-      : [...currentTags, tagName];
+      ? currentTags.filter((t) => t !== targetName && t !== tagNameOrId)
+      : [...currentTags, targetName];
 
     // Cập nhật giao diện tức thì
     setActiveConv((prev) => (prev ? { ...prev, tags: updatedTags } : prev));
@@ -640,9 +642,6 @@ export default function LiveZaloInbox() {
             data.customers.find((c) => effectivePhone && normalizePhone(c.phone) === effectivePhone) ||
             data.customers[0];
           setMatchedCustomer(exact);
-          if (Array.isArray(exact.tags) && exact.tags.length > 0) {
-            setDetectedAiTags(exact.tags);
-          }
         } else if (!isCancelled) {
           setMatchedCustomer(null);
         }
@@ -1588,6 +1587,15 @@ export default function LiveZaloInbox() {
                 </button>
 
                 <Link
+                  href="/settings/tags"
+                  aria-label="Quản lý thẻ tag"
+                  title="Quản lý danh mục thẻ tag"
+                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors"
+                >
+                  <Tag className="w-3.5 h-3.5 text-amber-400" />
+                </Link>
+
+                <Link
                   href="/channels"
                   aria-label="Quản lý kênh kết nối"
                   title="Quản lý kênh kết nối"
@@ -2063,7 +2071,7 @@ export default function LiveZaloInbox() {
                     </div>
 
                     {/* Dòng 2: Nhãn kênh tiếp nhận + Thẻ Tags */}
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 truncate flex-wrap">
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
                       <span
                         className={`rounded px-1.5 py-0.2 text-[9px] font-bold whitespace-nowrap shrink-0 ${
                           getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
@@ -2071,7 +2079,7 @@ export default function LiveZaloInbox() {
                       >
                         {activeChannelName}
                       </span>
-                      <span className="truncate">
+                      <span className="truncate max-w-[150px]">
                         {activeConv.type === "GROUP" && activeConv.memberCount > 0
                           ? `Nhóm ${activeConv.memberCount} thành viên`
                           : activeConv.channel === "FACEBOOK" && activeConv.pageName
@@ -2083,23 +2091,23 @@ export default function LiveZaloInbox() {
 
                       {/* Thẻ tags đã gắn cho khách */}
                       {(activeConv.tags || []).map((tagStr) => {
-                        const tagMeta = availableTags.find((t) => t.name === tagStr) || {
+                        const tagMeta = availableTags.find((t) => t.name === tagStr || t.id === tagStr) || {
                           name: tagStr,
-                          bg: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/30",
+                          bg: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
                         };
                         return (
                           <span
                             key={tagStr}
-                            className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold border transition-colors ${tagMeta.bg}`}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${tagMeta.bg}`}
                           >
-                            <span>🏷️ {tagStr}</span>
+                            <span>🏷️ {tagMeta.name}</span>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleToggleTagOnActiveConv(tagStr);
                               }}
-                              className="hover:opacity-75 cursor-pointer ml-0.5 text-xs leading-none"
+                              className="hover:text-red-500 font-bold ml-0.5 text-xs cursor-pointer"
                               title="Gỡ thẻ tag"
                             >
                               ×
@@ -2112,56 +2120,69 @@ export default function LiveZaloInbox() {
                       <div className="relative inline-block" ref={tagPopoverRef}>
                         <button
                           type="button"
-                          onClick={() => setIsTagPopoverOpen(!isTagPopoverOpen)}
-                          className="px-1.5 py-0.2 rounded text-[10px] font-semibold text-slate-500 dark:text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-700 transition-colors inline-flex items-center gap-0.5 cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsTagPopoverOpen(!isTagPopoverOpen);
+                          }}
+                          className="text-[11px] text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-0.5 rounded-full flex items-center gap-1 transition-all cursor-pointer"
                         >
-                          <Tag className="w-2.5 h-2.5" />
-                          <span>+ Gắn Thẻ</span>
+                          <span>🏷️</span> + Gắn Thẻ
                         </button>
 
                         {isTagPopoverOpen && (
-                          <div className="absolute left-0 top-full mt-1.5 z-50 w-72 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl space-y-2.5 text-xs text-slate-800 dark:text-slate-200">
-                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
-                              <span className="font-bold text-[11px] text-slate-700 dark:text-slate-300">
-                                Gắn thẻ cho khách hàng
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setIsTagPopoverOpen(false)}
-                                className="text-slate-400 hover:text-white"
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
+                          >
+                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
+                              <span>Gắn Thẻ Khách Hàng</span>
+                              <Link
+                                className="text-[10px] text-blue-600 hover:underline font-normal inline-flex items-center gap-0.5"
+                                href="/settings/tags"
+                                target="_blank"
                               >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                                ⚙️ Quản lý thẻ
+                              </Link>
                             </div>
 
-                            {/* Danh sách thẻ có sẵn */}
-                            <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto pr-1">
-                              {availableTags.map((t) => {
-                                const isAttached = (activeConv.tags || []).includes(t.name);
-                                return (
-                                  <button
-                                    key={t.id || t.name}
-                                    type="button"
-                                    onClick={() => handleToggleTagOnActiveConv(t.name)}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-semibold border transition-all inline-flex items-center gap-1 cursor-pointer ${
-                                      isAttached
-                                        ? "bg-blue-600 text-white border-blue-500 font-bold"
-                                        : `${t.bg} hover:brightness-110`
-                                    }`}
-                                  >
-                                    {isAttached && <Check className="w-3 h-3" />}
-                                    <span>{t.name}</span>
-                                  </button>
-                                );
-                              })}
+                            {/* Danh sách thẻ thực tế trong hệ thống */}
+                            <div className="max-h-44 overflow-y-auto space-y-1 mb-2 pr-0.5">
+                              {availableTags.length === 0 ? (
+                                <p className="text-[11px] text-slate-400 italic text-center py-2">
+                                  Chưa có thẻ nào trong hệ thống
+                                </p>
+                              ) : (
+                                availableTags.map((tag) => {
+                                  const isChecked =
+                                    (activeConv?.tags || []).includes(tag.name) ||
+                                    (activeConv?.tags || []).includes(tag.id);
+                                  return (
+                                    <label
+                                      key={tag.id || tag.name}
+                                      className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-lg cursor-pointer transition-colors"
+                                    >
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+                                          tag.bg || "bg-slate-100 text-slate-700 border-slate-200"
+                                        }`}
+                                      >
+                                        🏷️ {tag.name}
+                                      </span>
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => handleToggleTagOnActiveConv(tag.name || tag.id)}
+                                        className="rounded text-blue-600 focus:ring-0 cursor-pointer h-3.5 w-3.5"
+                                      />
+                                    </label>
+                                  );
+                                })
+                              )}
                             </div>
 
-                            {/* Tạo thẻ tag mới */}
-                            <div className="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
-                              <span className="text-[10px] text-slate-400 block font-medium">
-                                Tạo thẻ tag mới:
-                              </span>
-                              <div className="flex items-center gap-1.5">
+                            {/* Form thêm nhanh thẻ mới tại chỗ */}
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                              <div className="flex gap-1.5">
                                 <input
                                   type="text"
                                   placeholder="Tên thẻ mới..."
@@ -2173,15 +2194,15 @@ export default function LiveZaloInbox() {
                                       handleCreateAndAttachTag();
                                     }
                                   }}
-                                  className="flex-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs focus:outline-none focus:border-blue-500"
+                                  className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-blue-500 text-slate-900 dark:text-white"
                                 />
                                 <button
                                   type="button"
                                   onClick={handleCreateAndAttachTag}
                                   disabled={!newTagName.trim()}
-                                  className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold disabled:opacity-40 transition-colors cursor-pointer"
+                                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
                                 >
-                                  + Thêm
+                                  Thêm
                                 </button>
                               </div>
                             </div>
@@ -2511,37 +2532,35 @@ export default function LiveZaloInbox() {
                     ? `SĐT: ${activeConv.phone || detectedChatPhone}`
                     : `ID: ${activeConv.id}`}
                 </p>
-                {(() => {
-                  const allDisplayTags = Array.from(
-                    new Set([...(activeConv.tags || []), ...detectedAiTags])
-                  );
-                  if (allDisplayTags.length === 0) return null;
-                  return (
-                    <div className="flex flex-wrap justify-center gap-1 pt-0.5">
-                      {allDisplayTags.map((tag, idx) => {
-                        const isAttached = (activeConv.tags || []).includes(tag);
-                        return (
-                          <span
-                            key={idx}
-                            className="rounded-full bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.2 text-[9px] font-semibold text-indigo-300 inline-flex items-center gap-1"
+                <div className="flex flex-wrap justify-center gap-1.5 mt-2">
+                  {activeConv?.tags && activeConv.tags.length > 0 ? (
+                    activeConv.tags.map((tagId) => {
+                      const tag = availableTags.find((t) => t.id === tagId || t.name === tagId);
+                      const tagName = tag ? tag.name : tagId;
+                      const tagBg =
+                        tag?.bg ||
+                        "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700";
+                      return (
+                        <span
+                          key={tagId}
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-medium border flex items-center gap-1 ${tagBg}`}
+                        >
+                          🏷️ {tagName}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTagOnActiveConv(tagId)}
+                            className="hover:text-red-500 font-bold ml-0.5 text-xs cursor-pointer"
+                            title="Gỡ thẻ tag"
                           >
-                            <span>🏷️ {tag}</span>
-                            {isAttached && (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleTagOnActiveConv(tag)}
-                                className="hover:text-rose-400 cursor-pointer text-[10px] leading-none"
-                                title="Gỡ thẻ tag"
-                              >
-                                ×
-                              </button>
-                            )}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })
+                  ) : (
+                    <span className="text-[11px] text-slate-400 italic">Chưa gắn thẻ tag nào</span>
+                  )}
+                </div>
               </div>
 
               {/* Action buttons nhỏ */}
@@ -2622,7 +2641,7 @@ export default function LiveZaloInbox() {
                               ? ` • Đường huyết: ${matchedCustomer.currentGlucose} mmol/L`
                               : ""
                           }`
-                        : "Tiểu đường tuýp 2, đường huyết ~7.0 mmol/L, hay mệt mỏi, người uể oải, tiểu đêm.")}
+                        : "Chưa có thông tin bệnh lý.")}
                   </p>
                 </div>
 
@@ -2633,7 +2652,9 @@ export default function LiveZaloInbox() {
                   </div>
                   <p className="text-[11px] leading-relaxed">
                     {aiSummary?.demand ||
-                      "Bổ sung dinh dưỡng kiểm soát đường huyết êm, bồi bổ thể trạng; quan tâm Sữa hạt Glucare Plus Isomalt & Đông trùng hạ thảo (liệu trình 2 - 3 lon)."}
+                      (matchedCustomer?.demand
+                        ? matchedCustomer.demand
+                        : "Chưa có ghi nhận nhu cầu cụ thể.")}
                   </p>
                 </div>
 
@@ -2644,7 +2665,9 @@ export default function LiveZaloInbox() {
                   </div>
                   <p className="text-[11px] leading-relaxed">
                     {aiSummary?.concerns ||
-                      "Lo ngại vị ngọt sữa có làm tăng đường không (Isomalt hấp thu chậm); thắc mắc chính sách ship và cam kết hiệu quả."}
+                      (matchedCustomer?.notes
+                        ? matchedCustomer.notes
+                        : "Chưa ghi nhận băn khoăn nào.")}
                   </p>
                 </div>
 
@@ -2657,12 +2680,12 @@ export default function LiveZaloInbox() {
                     <button
                       type="button"
                       onClick={() => {
-                        const text =
-                          aiSummary?.closing_script ||
-                          `Dạ với mức đường và thể trạng này, ${
-                            aiSummary?.customerPronoun || "mình"
-                          } duy trì 2 ly Glucare Plus mỗi ngày thay bữa phụ giúp giữ đường huyết rất êm, bớt đói mệt. Hôm nay bên em đang có ưu đãi miễn phí ship tận nhà kèm cẩm nang ăn uống, em gửi về cho mình nhé?`;
-                        setInputMessage(text);
+                        if (!aiSummary?.closing_script) {
+                          setToast({ type: "error", text: "Vui lòng bấm 'Tóm tắt ngay' trước để AI phân tích kịch bản chốt." });
+                          setTimeout(() => setToast(null), 2500);
+                          return;
+                        }
+                        setInputMessage(aiSummary.closing_script);
                         setToast({ type: "success", text: "Đã điền kịch bản chốt vào ô nhập tin nhắn!" });
                         setTimeout(() => setToast(null), 2500);
                       }}
@@ -2674,8 +2697,9 @@ export default function LiveZaloInbox() {
                     </button>
                   </div>
                   <p className="text-[11px] leading-relaxed italic">
-                    "{aiSummary?.closing_script ||
-                      "Dạ với mức đường và thể trạng này, duy trì 2 ly Glucare Plus mỗi ngày thay bữa phụ giúp giữ đường huyết rất êm, bớt đói mệt. Hôm nay bên em đang có ưu đãi miễn phí ship tận nhà kèm cẩm nang ăn uống, em gửi về cho mình nhé?"}"
+                    {aiSummary?.closing_script
+                      ? `"${aiSummary.closing_script}"`
+                      : "Bấm nút 'Tóm tắt ngay' bên trên để AI phân tích kịch bản chốt đơn phù hợp nhất cho khách hàng này."}
                   </p>
                 </div>
               </div>
