@@ -116,6 +116,17 @@ function getChannelMeta(channel, pageId = "", connectedPages = []) {
         pillClass: "bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30",
         dotColor: "bg-amber-400",
       };
+    case "TIKTOK_SHOP":
+    case "TIKTOK":
+    case "tiktok_shop":
+      return {
+        code: "TT",
+        label: "TikTok Shop",
+        avatarLetter: "♪",
+        badgeBg: "bg-slate-900",
+        pillClass: "bg-pink-500/15 text-pink-600 dark:text-pink-300 border border-pink-500/30",
+        dotColor: "bg-pink-500",
+      };
     default:
       return {
         code: "ZALO",
@@ -149,6 +160,7 @@ export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [connectedPages, setConnectedPages] = useState([]);
   const [connectedZaloAccounts, setConnectedZaloAccounts] = useState([]);
+  const [connectedTikTokShops, setConnectedTikTokShops] = useState([]);
   const [loadingConv, setLoadingConv] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeConv, setActiveConv] = useState(null);
@@ -163,6 +175,7 @@ export default function LiveZaloInbox() {
   const [channelFilter, setChannelFilter] = useState("ALL");
   const [selectedPageId, setSelectedPageId] = useState("ALL");
   const [selectedZaloAccountId, setSelectedZaloAccountId] = useState("ALL");
+  const [selectedTikTokShopId, setSelectedTikTokShopId] = useState("ALL");
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const [zaloSyncStatus, setZaloSyncStatus] = useState(null);
@@ -447,6 +460,9 @@ export default function LiveZaloInbox() {
 
       if (Array.isArray(dataConv.connectedPages)) {
         setConnectedPages(dataConv.connectedPages);
+      }
+      if (Array.isArray(dataConv.connectedTikTokShops)) {
+        setConnectedTikTokShops(dataConv.connectedTikTokShops);
       }
       if (dataConv.currentUserRole) {
         setCurrentUserRole(dataConv.currentUserRole);
@@ -1020,6 +1036,32 @@ export default function LiveZaloInbox() {
     );
   }, [connectedZaloAccounts]);
 
+  // Danh sách gian hàng TikTok Shop đang hoạt động (đọc từ channels.json qua API)
+  const effectiveTikTokShops = useMemo(() => {
+    const map = new Map();
+    for (const s of connectedTikTokShops || []) {
+      const key = String(s.shopId || s.id || "").trim();
+      if (key && !map.has(key)) {
+        map.set(key, s);
+      }
+    }
+    for (const c of conversations || []) {
+      if (c.channel === "TIKTOK_SHOP" || c.channel === "TIKTOK") {
+        const key = String(c.shopId || c.accountId || "").trim();
+        if (key && !map.has(key)) {
+          map.set(key, {
+            id: `tiktok_shop_${key}`,
+            shopId: key,
+            shortId: key.slice(-4),
+            name: c.accountName || "TikTok Shop",
+            displayName: c.accountName || "TikTok Shop",
+          });
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [connectedTikTokShops, conversations]);
+
   // Xử lý khi đổi lựa chọn trong Dropdown Gom Kênh ở Cột 1
   const handleAccountDropdownChange = (val) => {
     setSelectedAccountFilter(val);
@@ -1027,26 +1069,43 @@ export default function LiveZaloInbox() {
       setChannelFilter("ALL");
       setSelectedZaloAccountId("ALL");
       setSelectedPageId("ALL");
+      setSelectedTikTokShopId("ALL");
     } else if (val === "ZALO_ALL") {
       setChannelFilter("ZALO_PERSONAL");
       setSelectedZaloAccountId("ALL");
       setSelectedPageId("ALL");
+      setSelectedTikTokShopId("ALL");
     } else if (val === "FB_ALL") {
       setChannelFilter("FACEBOOK");
       setSelectedPageId("ALL");
       setSelectedZaloAccountId("ALL");
+      setSelectedTikTokShopId("ALL");
     } else if (val.startsWith("ZALO_ACCOUNT:")) {
       const accId = val.replace("ZALO_ACCOUNT:", "");
       setChannelFilter("ZALO_PERSONAL");
       setSelectedZaloAccountId(accId);
       setSelectedPageId("ALL");
+      setSelectedTikTokShopId("ALL");
     } else if (val.startsWith("PAGE:")) {
       const pId = val.replace("PAGE:", "");
       setChannelFilter("FACEBOOK");
       setSelectedPageId(pId);
       setSelectedZaloAccountId("ALL");
+      setSelectedTikTokShopId("ALL");
     } else if (val === "ZALO_OA") {
       setChannelFilter("ZALO_OA");
+      setSelectedPageId("ALL");
+      setSelectedZaloAccountId("ALL");
+      setSelectedTikTokShopId("ALL");
+    } else if (val === "TIKTOK_ALL") {
+      setChannelFilter("TIKTOK_SHOP");
+      setSelectedTikTokShopId("ALL");
+      setSelectedPageId("ALL");
+      setSelectedZaloAccountId("ALL");
+    } else if (val.startsWith("TIKTOK_SHOP:")) {
+      const shopId = val.replace("TIKTOK_SHOP:", "");
+      setChannelFilter("TIKTOK_SHOP");
+      setSelectedTikTokShopId(shopId);
       setSelectedPageId("ALL");
       setSelectedZaloAccountId("ALL");
     }
@@ -1314,6 +1373,32 @@ export default function LiveZaloInbox() {
         count: oaCount,
       };
     }
+    if (selectedAccountFilter === "TIKTOK_ALL") {
+      const ttCount = (conversations || []).filter(
+        (c) => c.channel === "TIKTOK_SHOP" || c.channel === "TIKTOK"
+      ).length;
+      return {
+        icon: "🎵",
+        label: "Tất cả TikTok Shop",
+        count: ttCount,
+      };
+    }
+    if (selectedAccountFilter.startsWith("TIKTOK_SHOP:")) {
+      const shopId = selectedAccountFilter.replace("TIKTOK_SHOP:", "");
+      const matched = effectiveTikTokShops.find(
+        (s) => String(s.shopId || s.id) === String(shopId)
+      );
+      const ttCount = (conversations || []).filter(
+        (c) =>
+          (c.channel === "TIKTOK_SHOP" || c.channel === "TIKTOK") &&
+          String(c.shopId || c.accountId || c.pageId || "") === String(shopId)
+      ).length;
+      return {
+        icon: "🎵",
+        label: matched ? matched.displayName || matched.name : "TikTok Shop",
+        count: ttCount,
+      };
+    }
     return {
       icon: "🌐",
       label: "Tất cả kênh",
@@ -1492,6 +1577,13 @@ export default function LiveZaloInbox() {
         if (channelFilter === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
         if (channelFilter === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
         if (channelFilter === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
+        if (
+          channelFilter === "TIKTOK_SHOP" &&
+          c.channel !== "TIKTOK_SHOP" &&
+          c.channel !== "TIKTOK"
+        ) {
+          return false;
+        }
       }
 
       if (selectedZaloAccountId !== "ALL") {
@@ -1502,6 +1594,16 @@ export default function LiveZaloInbox() {
 
       if (selectedPageId !== "ALL") {
         if (c.channel !== "FACEBOOK" || String(c.pageId) !== String(selectedPageId)) return false;
+      }
+
+      if (selectedTikTokShopId !== "ALL") {
+        const convShopId = String(c.shopId || c.accountId || c.pageId || "");
+        if (
+          (c.channel !== "TIKTOK_SHOP" && c.channel !== "TIKTOK") ||
+          convShopId !== String(selectedTikTokShopId)
+        ) {
+          return false;
+        }
       }
 
       // Lọc theo Thanh Pill-Tabs thực chiến
@@ -1548,6 +1650,7 @@ export default function LiveZaloInbox() {
     channelFilter,
     selectedZaloAccountId,
     selectedPageId,
+    selectedTikTokShopId,
     activeTab,
     selectedTagFilter,
     isConversationAccountHuman,
@@ -1595,6 +1698,8 @@ export default function LiveZaloInbox() {
           (conv.pageName && conv.pageShortId
             ? `${conv.pageName} (#${conv.pageShortId})`
             : conv.pageName || "Fanpage FB")
+        : conv.channel === "TIKTOK_SHOP" || conv.channel === "TIKTOK"
+        ? conv.accountName || conv.channelLabel || "TikTok Shop"
         : conv.channel === "ZALO_OA"
         ? "Zalo OA Official"
         : conv.accountDisplayName
@@ -1841,35 +1946,47 @@ export default function LiveZaloInbox() {
               </div>
             </div>
 
-            {/* Hàng 2: Nút chọn kênh chuẩn chỉnh Full-Width (w-full) */}
+            {/* Hàng 2: Nút chọn kênh chuẩn chỉnh Full-Width độ tương phản cao (Sáng & Tối) */}
             <div className="relative w-full" ref={channelPopoverRef}>
               <button
                 type="button"
                 onClick={() => setChannelPopoverOpen(!channelPopoverOpen)}
                 aria-label="Lọc theo kênh hoặc tài khoản"
                 title="Nhấn để chọn kênh và tài khoản lọc tin nhắn"
-                className="w-full flex items-center justify-between px-3 py-2 bg-slate-800/90 hover:bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-slate-200 shadow-sm transition-all cursor-pointer"
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-semibold shadow-sm border transition-all cursor-pointer ${
+                  selectedAccountFilter === "ALL"
+                    ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-500 badge-solid-white shadow-blue-600/20"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white dark:border-slate-600"
+                }`}
               >
                 <span className="flex items-center gap-2 truncate">
-                  <span className="text-sm shrink-0">{getSelectedFilterInfo().icon}</span>
+                  <span className="text-base leading-none shrink-0">{getSelectedFilterInfo().icon}</span>
                   <span className="truncate">{getSelectedFilterInfo().label}</span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-slate-300 font-bold tabular-nums shrink-0">
+                  <span
+                    className={`text-[11px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                      selectedAccountFilter === "ALL"
+                        ? "bg-white/25 text-white badge-solid-white"
+                        : "bg-blue-600 text-white badge-solid-white"
+                    }`}
+                  >
                     {getSelectedFilterInfo().count}
                   </span>
                 </span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform duration-200 ${
-                    channelPopoverOpen ? "rotate-180" : ""
-                  }`}
+                  className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
+                    selectedAccountFilter === "ALL"
+                      ? "text-white/90"
+                      : "text-slate-600 dark:text-slate-300"
+                  } ${channelPopoverOpen ? "rotate-180" : ""}`}
                 />
               </button>
 
               {/* Popover Menu Thả Xuống Full-Width Tự Đóng Khi Chọn */}
               {channelPopoverOpen && (
-                <div className="absolute left-0 right-0 top-full mt-2 w-full rounded-xl shadow-2xl border border-slate-700 bg-slate-900/98 backdrop-blur-md p-2 z-50 max-h-96 overflow-y-auto space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute left-0 right-0 top-full mt-2 w-full rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 z-50 max-h-[28rem] overflow-y-auto space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100">
                   {/* Nhóm 1: Tất cả kênh hợp nhất */}
                   <div>
-                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Kênh Hợp Nhất
                     </div>
                     <button
@@ -1878,17 +1995,27 @@ export default function LiveZaloInbox() {
                         handleAccountDropdownChange("ALL");
                         setChannelPopoverOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left cursor-pointer border transition-colors text-[13px] ${
                         selectedAccountFilter === "ALL"
-                          ? "bg-blue-600 text-white font-bold"
-                          : "text-slate-200 hover:bg-slate-800"
+                          ? "bg-blue-600 text-white font-semibold border-blue-500 shadow-sm badge-solid-white"
+                          : "bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-300 font-medium dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 dark:border-slate-700"
                       }`}
                     >
                       <span className="flex items-center gap-2 truncate">
-                        <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <Globe
+                          className={`w-4 h-4 shrink-0 ${
+                            selectedAccountFilter === "ALL" ? "text-white" : "text-blue-600 dark:text-blue-400"
+                          }`}
+                        />
                         <span className="truncate">Tất cả kênh (Hợp nhất)</span>
                       </span>
-                      <span className="text-[11px] tabular-nums font-semibold px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
+                      <span
+                        className={`text-[11px] tabular-nums font-bold px-2 py-0.5 rounded-full ${
+                          selectedAccountFilter === "ALL"
+                            ? "bg-white/25 text-white badge-solid-white"
+                            : "bg-white text-slate-700 border border-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600"
+                        }`}
+                      >
                         {conversations.length}
                       </span>
                     </button>
@@ -2012,7 +2139,7 @@ export default function LiveZaloInbox() {
                   </div>
 
                   {/* Nhóm 4: Zalo OA */}
-                  <div className="border-t border-slate-800 pt-1.5">
+                  <div className="border-t border-slate-200 dark:border-slate-800 pt-1.5">
                     <button
                       type="button"
                       onClick={() => {
@@ -2021,18 +2148,132 @@ export default function LiveZaloInbox() {
                       }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
                         selectedAccountFilter === "ZALO_OA"
-                          ? "bg-sky-600 text-white font-bold"
-                          : "text-slate-200 hover:bg-slate-800"
+                          ? "bg-sky-600 text-white font-bold badge-solid-white"
+                          : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                       }`}
                     >
                       <span className="flex items-center gap-2 truncate">
-                        <ShieldAlert className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <ShieldAlert className="w-3.5 h-3.5 text-sky-500 shrink-0" />
                         <span className="truncate">Zalo OA Official</span>
                       </span>
-                      <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                      <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         {(conversations || []).filter((c) => c.channel === "ZALO_OA").length}
                       </span>
                     </button>
+                  </div>
+
+                  {/* Nhóm 5: TikTok Shop */}
+                  <div className="border-t border-slate-200 dark:border-slate-800 pt-1.5">
+                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-pink-600 dark:text-pink-400 flex items-center justify-between">
+                      <span>🎵 TIKTOK SHOP</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {effectiveTikTokShops.length} gian hàng
+                      </span>
+                    </div>
+                    <div className="space-y-0.5">
+                      {(() => {
+                        const ttAllConvs = (conversations || []).filter(
+                          (c) => c.channel === "TIKTOK_SHOP" || c.channel === "TIKTOK"
+                        );
+                        const ttUnread = ttAllConvs.reduce(
+                          (sum, c) => sum + Number(c.unreadCount || c.unread || 0),
+                          0
+                        );
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAccountDropdownChange("TIKTOK_ALL");
+                              setChannelPopoverOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                              selectedAccountFilter === "TIKTOK_ALL"
+                                ? "bg-blue-600 text-white font-bold border border-blue-500 shadow-sm badge-solid-white"
+                                : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2 truncate">
+                              <span className="flex h-4 w-4 items-center justify-center rounded bg-slate-900 text-[10px] font-black text-white shrink-0 border border-pink-500/40">
+                                ♪
+                              </span>
+                              <span className="truncate">Tất cả TikTok Shop</span>
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              {ttUnread > 0 && (
+                                <span className="text-[10px] tabular-nums font-bold px-1.5 py-0.2 rounded-full bg-rose-500 text-white badge-solid-white">
+                                  {ttUnread}
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded ${
+                                  selectedAccountFilter === "TIKTOK_ALL"
+                                    ? "bg-white/25 text-white badge-solid-white"
+                                    : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                }`}
+                              >
+                                {ttAllConvs.length}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })()}
+
+                      {effectiveTikTokShops.length === 0 ? (
+                        <div className="pl-6 pr-2.5 py-1.5 text-[11px] text-slate-500 italic">
+                          Chưa có gian hàng TikTok Shop đang kết nối
+                        </div>
+                      ) : (
+                        effectiveTikTokShops.map((shop) => {
+                          const shopKey = String(shop.shopId || shop.id || "");
+                          const shopConvs = (conversations || []).filter(
+                            (c) =>
+                              (c.channel === "TIKTOK_SHOP" || c.channel === "TIKTOK") &&
+                              String(c.shopId || c.accountId || c.pageId || "") === shopKey
+                          );
+                          const shopUnread = shopConvs.reduce(
+                            (sum, c) => sum + Number(c.unreadCount || c.unread || 0),
+                            0
+                          );
+                          const isShopActive = selectedAccountFilter === `TIKTOK_SHOP:${shopKey}`;
+                          return (
+                            <button
+                              key={shop.id || shopKey}
+                              type="button"
+                              onClick={() => {
+                                handleAccountDropdownChange(`TIKTOK_SHOP:${shopKey}`);
+                                setChannelPopoverOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
+                                isShopActive
+                                  ? "bg-blue-600 text-white font-bold badge-solid-white"
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2 truncate">
+                                <span className="h-2 w-2 rounded-full bg-pink-500 shrink-0" />
+                                <span className="truncate">{shop.displayName || shop.name}</span>
+                              </span>
+                              <span className="flex items-center gap-1 shrink-0">
+                                {shopUnread > 0 && (
+                                  <span className="text-[10px] tabular-nums font-bold px-1.5 py-0.2 rounded-full bg-rose-500 text-white badge-solid-white">
+                                    {shopUnread}
+                                  </span>
+                                )}
+                                <span
+                                  className={`text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded ${
+                                    isShopActive
+                                      ? "bg-white/25 text-white badge-solid-white"
+                                      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                  }`}
+                                >
+                                  {shopConvs.length}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

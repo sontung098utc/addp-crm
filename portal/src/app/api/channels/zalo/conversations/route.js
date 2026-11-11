@@ -12,6 +12,7 @@ import {
 import {
   getOmnichannelConversations,
   getConnectedFacebookPages,
+  getConnectedTikTokShops,
 } from "@/lib/unifiedMessageRouter.js";
 import { listAllChannels } from "@/lib/connectionHub.js";
 import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
@@ -254,6 +255,7 @@ export async function GET(request) {
         activeCount: combinedWithTags.length,
         connectedZaloAccounts: [],
         connectedPages: getConnectedFacebookPages(),
+        connectedTikTokShops: getConnectedTikTokShops(),
         currentUserRole: liveStaff?.role || "ADMIN",
         currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
         conversations: combinedWithTags,
@@ -514,6 +516,7 @@ export async function GET(request) {
 
     const combined = [...allActive, ...contactOnlyConversations];
     const connectedPages = getConnectedFacebookPages();
+    const connectedTikTokShops = getConnectedTikTokShops();
 
     // Gắn thẻ tag đã lưu vào từng hội thoại (hỗ trợ cả threadId và SĐT chuẩn từ migrate)
     const allThreadTags = getAllConversationTags();
@@ -532,6 +535,7 @@ export async function GET(request) {
       activeCount: allActive.length,
       connectedZaloAccounts,
       connectedPages,
+      connectedTikTokShops,
       currentUserRole: liveStaff?.role || "ADMIN",
       currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
       syncStatus: {

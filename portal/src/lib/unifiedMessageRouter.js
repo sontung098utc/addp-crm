@@ -18,6 +18,7 @@ import path from "path";
 import { runZaloCommand, sendTextMessage } from "./zaloRunner.js";
 import { extractPhoneNumbersFromText, getOrCreateCustomerByPhone } from "./customerIdentityResolver.js";
 import { listAllChannels } from "./connectionHub.js";
+import { TIKTOK_APP_KEY, TIKTOK_APP_SECRET, generateTikTokSignV2 } from "./tiktokConfig.js";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 
@@ -285,6 +286,171 @@ export function getConnectedFacebookPages() {
   });
 }
 
+let cachedTikTokConversations = null;
+let lastTikTokFetchTime = 0;
+const TIKTOK_CACHE_TTL_MS = 60 * 1000;
+
+/**
+ * Lấy danh sách toàn bộ các gian hàng TikTok Shop đang kết nối (an toàn, không lộ token)
+ */
+export function getConnectedTikTokShops() {
+  const channels = listAllChannels();
+  const tiktokChannels = channels.filter((c) => {
+    const isTikTok =
+      c.platform === "TIKTOK_SHOP" ||
+      c.type === "tiktok_shop" ||
+      c.channel_type === "tiktok_shop";
+    const statusNorm = String(c.status || "").toUpperCase();
+    const isActive =
+      statusNorm !== "DISCONNECTED" &&
+      statusNorm !== "DELETED" &&
+      statusNorm !== "INACTIVE";
+    return isTikTok && isActive;
+  });
+
+  const nameCounts = new Map();
+  for (const ch of tiktokChannels) {
+    const norm = String(ch.name || ch.sellerName || "").trim().toLowerCase();
+    nameCounts.set(norm, (nameCounts.get(norm) || 0) + 1);
+  }
+
+  return tiktokChannels.map((ch, idx) => {
+    const shopId = String(
+      ch.shopId || ch.config?.shopId || ch.externalId || ch.id || ""
+    ).trim();
+    const shortId = shopId ? shopId.slice(-4) : String(idx + 1);
+    const sellerName = String(
+      ch.sellerName || ch.config?.sellerName || ch.name || "TikTok Shop"
+    ).trim();
+    const rawName = String(ch.name || sellerName).trim();
+    const isDuplicateName = (nameCounts.get(rawName.toLowerCase()) || 0) > 1;
+    const displayName = isDuplicateName && shortId ? `${rawName} (#${shortId})` : rawName;
+
+    return {
+      id: ch.id,
+      shopId: shopId || String(ch.id),
+      shortId,
+      name: rawName,
+      displayName,
+      sellerName,
+      status: ch.status || "CONNECTED",
+      colorIndex: idx,
+    };
+  });
+}
+
+/**
+ * Đồng bộ hội thoại thật từ TikTok Shop Open API (nếu gian hàng có quyền Customer Service)
+ */
+export async function fetchLiveTikTokConversations(forceRefresh = false) {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    cachedTikTokConversations &&
+    now - lastTikTokFetchTime < TIKTOK_CACHE_TTL_MS
+  ) {
+    return cachedTikTokConversations;
+  }
+
+  const channels = listAllChannels();
+  const tiktokChannels = channels.filter((c) => {
+    const isTikTok =
+      c.platform === "TIKTOK_SHOP" ||
+      c.type === "tiktok_shop" ||
+      c.channel_type === "tiktok_shop";
+    const statusNorm = String(c.status || "").toUpperCase();
+    const token = c.accessToken || c.config?.accessToken;
+    const cipher = c.shopCipher || c.config?.shopCipher;
+    return (
+      isTikTok &&
+      statusNorm !== "DISCONNECTED" &&
+      statusNorm !== "DELETED" &&
+      statusNorm !== "INACTIVE" &&
+      Boolean(token) &&
+      Boolean(cipher)
+    );
+  });
+
+  if (tiktokChannels.length === 0) {
+    cachedTikTokConversations = [];
+    lastTikTokFetchTime = now;
+    return [];
+  }
+
+  const results = [];
+  for (const ch of tiktokChannels) {
+    const shopId = String(ch.shopId || ch.config?.shopId || ch.externalId || ch.id || "").trim();
+    const shopName = String(ch.name || ch.sellerName || "TikTok Shop").trim();
+    const accessToken = ch.accessToken || ch.config?.accessToken;
+    const shopCipher = ch.shopCipher || ch.config?.shopCipher;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4500);
+    try {
+      const reqPath = "/customer_service/202309/conversations";
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const queryParams = {
+        app_key: TIKTOK_APP_KEY,
+        page_size: "20",
+        shop_cipher: shopCipher,
+        timestamp,
+      };
+      const sign = generateTikTokSignV2(reqPath, queryParams, TIKTOK_APP_SECRET);
+      const qs = new URLSearchParams({ ...queryParams, sign });
+      const res = await fetch(
+        `https://open-api.tiktokglobalshop.com${reqPath}?${qs.toString()}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-tts-access-token": accessToken,
+          },
+          signal: controller.signal,
+        }
+      );
+      const json = await res.json().catch(() => null);
+      const convList = Array.isArray(json?.data?.conversations)
+        ? json.data.conversations
+        : [];
+      for (const c of convList) {
+        const tsRaw = Number(c.latest_message?.create_time || c.create_time || 0);
+        const ts = tsRaw > 0 && tsRaw < 1e12 ? tsRaw * 1000 : tsRaw || Date.now();
+        const buyer = Array.isArray(c.participants)
+          ? c.participants.find((p) => String(p.role || "").toUpperCase() === "BUYER") || c.participants[0]
+          : null;
+        results.push({
+          id: String(c.id),
+          recipientId: buyer?.im_user_id || buyer?.user_id || String(c.id),
+          shopId,
+          accountId: shopId,
+          accountName: shopName,
+          accountDisplayName: shopName,
+          channel: "TIKTOK_SHOP",
+          channelLabel: shopName,
+          channelIcon: "🎵",
+          name: buyer?.nickname || buyer?.name || "Khách TikTok Shop",
+          type: "DIRECT",
+          avatar: buyer?.avatar || "",
+          lastMessage: c.latest_message?.content || "Hội thoại TikTok Shop",
+          timestamp: ts,
+          lastActive: formatTimeAgo(ts),
+          unreadCount: Number(c.unread_count || 0),
+          unread: Number(c.unread_count || 0),
+          status: Number(c.unread_count || 0) > 0 ? "need_human" : "sale_handled",
+        });
+      }
+    } catch (err) {
+      console.warn(`[TIKTOK_CONV_FETCH_WARN] ${shopName}:`, err?.message || err);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  cachedTikTokConversations = results;
+  lastTikTokFetchTime = now;
+  return results;
+}
+
 /**
  * Đồng bộ danh sách hội thoại thật 100% từ tất cả các Fanpage Facebook đã kết nối qua Meta Graph API
  */
@@ -476,10 +642,16 @@ export async function getThreadMessages(threadId, channel = "ALL", pageIdHint = 
 export async function getOmnichannelConversations(forceRefresh = false) {
   const convMap = new Map();
 
-  // 1. Lấy hội thoại thật từ các Fanpage Facebook qua Meta Graph API
-  const liveFb = await fetchLiveFacebookConversations(forceRefresh);
+  // 1. Lấy hội thoại thật từ các Fanpage Facebook & TikTok Shop qua API
+  const [liveFb, liveTikTok] = await Promise.all([
+    fetchLiveFacebookConversations(forceRefresh),
+    fetchLiveTikTokConversations(forceRefresh).catch(() => []),
+  ]);
   for (const fbConv of liveFb) {
     convMap.set(`FACEBOOK_${fbConv.id}`, fbConv);
+  }
+  for (const ttConv of liveTikTok) {
+    convMap.set(`TIKTOK_SHOP_${ttConv.id}`, ttConv);
   }
 
   // 2. Bổ sung các tin nhắn realtime nhận qua Webhook
@@ -489,7 +661,9 @@ export async function getOmnichannelConversations(forceRefresh = false) {
     // Loại bỏ dữ liệu mẫu test cũ (nếu còn sót)
     if (String(m.threadId) === "zalo_oa_user_8899") continue;
 
-    const key = `${m.channel}_${m.threadId}`;
+    const normalizedChannel =
+      m.channel === "TIKTOK" || m.channel === "tiktok_shop" ? "TIKTOK_SHOP" : m.channel;
+    const key = `${normalizedChannel}_${m.threadId}`;
     const existing = convMap.get(key);
 
     if (!existing || m.timestamp >= existing.timestamp) {
@@ -499,13 +673,16 @@ export async function getOmnichannelConversations(forceRefresh = false) {
         existing?.pageDisplay ||
         (m.channelName && shortId ? `${m.channelName} (#${shortId})` : m.channelName || "");
       let icon = "🌐";
-      let channelLabel = m.channelName || m.channel;
-      if (m.channel === "FACEBOOK") {
+      let channelLabel = m.channelName || normalizedChannel;
+      if (normalizedChannel === "FACEBOOK") {
         icon = "📘";
         channelLabel = pageDisplay ? `Page: ${pageDisplay}` : "Fanpage Facebook";
-      } else if (m.channel === "ZALO_OA") {
+      } else if (normalizedChannel === "ZALO_OA") {
         icon = "🏢";
         channelLabel = "Zalo OA";
+      } else if (normalizedChannel === "TIKTOK_SHOP") {
+        icon = "🎵";
+        channelLabel = m.channelName || existing?.accountName || "TikTok Shop";
       }
 
       convMap.set(key, {
@@ -515,13 +692,18 @@ export async function getOmnichannelConversations(forceRefresh = false) {
         pageShortId: existing?.pageShortId || shortId,
         pageName: existing?.pageName || m.channelName || "",
         pageDisplay,
-        accountName: pageDisplay || existing?.accountName || channelLabel,
-        channel: m.channel,
+        shopId: existing?.shopId || (normalizedChannel === "TIKTOK_SHOP" ? m.channelId || "" : ""),
+        accountId: existing?.accountId || m.channelId || "",
+        accountName:
+          normalizedChannel === "TIKTOK_SHOP"
+            ? m.channelName || existing?.accountName || "TikTok Shop"
+            : pageDisplay || existing?.accountName || channelLabel,
+        channel: normalizedChannel,
         channelLabel,
         channelIcon: icon,
-        name: existing?.name || m.senderName || `Khách ${m.channel}`,
+        name: existing?.name || m.senderName || `Khách ${normalizedChannel}`,
         type: "DIRECT",
-        avatar: "",
+        avatar: existing?.avatar || "",
         lastMessage: m.isMe ? `Bạn: ${m.text}` : m.text,
         timestamp: m.timestamp,
         lastActive: formatTimeAgo(m.timestamp),
