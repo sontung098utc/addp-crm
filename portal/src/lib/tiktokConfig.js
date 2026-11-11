@@ -36,7 +36,7 @@ export function isUsableTikTokCipher(value) {
 export function isLikelyTikTokCipher(value) {
   const v = String(value || "").trim();
   if (!isUsableTikTokCipher(v)) return false;
-  return v.startsWith("ROW_") || (v.length >= 20 && !/^\d+$/.test(v));
+  return v.startsWith("ROW_");
 }
 
 /**
@@ -55,7 +55,7 @@ export function extractRealTikTokCipherFromChannel(channel) {
   ];
   for (const cand of explicitCandidates) {
     const v = String(cand || "").trim();
-    if (isUsableTikTokCipher(v) && !/^\d+$/.test(v) && !v.startsWith("tiktok_shop_")) {
+    if (isUsableTikTokCipher(v) && v.startsWith("ROW_") && !v.startsWith("tiktok_shop_")) {
       return v;
     }
   }

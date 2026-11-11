@@ -851,9 +851,12 @@ async function callTikTokShopApi(
       queryParams.shop_cipher ||
       TIKTOK_DEFAULT_SHOP_CIPHER;
     const sanitizedQueryParams = { ...queryParams };
-    if (sanitizedQueryParams.page_size !== undefined && sanitizedQueryParams.page_size !== null) {
-      const rawSize = Number(sanitizedQueryParams.page_size) || 20;
+    const rawPageSize =
+      sanitizedQueryParams.page_size ?? sanitizedQueryParams.pageSize;
+    if (rawPageSize !== undefined && rawPageSize !== null) {
+      const rawSize = Number(rawPageSize) || 20;
       sanitizedQueryParams.page_size = String(Math.min(Math.max(rawSize, 1), 20));
+      delete sanitizedQueryParams.pageSize;
     }
     const params = {
       app_key: session.appKey,
