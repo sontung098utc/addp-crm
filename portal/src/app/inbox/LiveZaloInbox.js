@@ -629,7 +629,7 @@ export default function LiveZaloInbox() {
             activeConv.pageId || ""
           )}&accountId=${encodeURIComponent(activeConv.accountId || "")}&homeDir=${encodeURIComponent(
             activeConv.zaloHome || ""
-          )}`
+          )}&name=${encodeURIComponent(activeConv.name || activeConv.customerName || "")}`
         );
         const data = await res.json();
         if (isCancelled) return;
@@ -1760,12 +1760,14 @@ export default function LiveZaloInbox() {
   const contactOnlyList = (filteredConversations || []).filter((c) => c.isContactOnly);
 
   const displayedActiveChats = useMemo(() => {
-    if (channelFilter === "ZALO_PERSONAL") {
-      const pinned = activeChatList.filter((c) => c.isPinned);
-      const unpinned = activeChatList.filter((c) => !c.isPinned);
-      return [...pinned, ...unpinned];
-    }
-    return activeChatList;
+    const list = [...activeChatList];
+    list.sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      const tsA = Number(a.updatedAt || a.timestamp || 0);
+      const tsB = Number(b.updatedAt || b.timestamp || 0);
+      return tsB - tsA;
+    });
+    return list;
   }, [channelFilter, activeChatList]);
 
   // Reset số lượng hiển thị khi đổi bộ lọc
@@ -3089,7 +3091,7 @@ export default function LiveZaloInbox() {
                   </div>
                 ) : (
                   messages.map((m) => {
-                    const isMe = m.isMe;
+                    const isMe = Boolean(m.isMe || m.sender === "STAFF" || m.senderRole === "SHOP");
                     const isAi = m.isAi || m.fromBot || (isMe && m.senderName?.includes("AI"));
                     const rawUrl = m.url || m.thumb || m.mediaUrl || "";
                     const hasValidUrl =
@@ -3169,7 +3171,7 @@ export default function LiveZaloInbox() {
                               isMe ? (isAi ? "text-purple-200" : "text-blue-100") : "text-slate-400"
                             }`}
                           >
-                            <span>{m.time}</span>
+                            <span>{m.time || (m.timestamp ? new Date(m.timestamp).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "")}</span>
                             {isMe && (
                               <span className="inline-flex items-center">
                                 {m.status === "sending" ? (

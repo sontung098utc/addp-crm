@@ -134,23 +134,37 @@ export async function GET(request) {
     }
 
     // 1b. Nếu là hội thoại TikTok Shop -> Lấy từ TikTok Customer Service Open API + lịch sử đã đồng bộ
-    if (
-      channel === "TIKTOK_SHOP" ||
-      channel === "TIKTOK" ||
-      String(threadId).startsWith("tiktok_")
-    ) {
-      const ttMsgs = await getThreadMessages(threadId, "TIKTOK_SHOP", accountId || pageId);
+    const channelUpper = String(channel || "").toUpperCase();
+    const threadStr = String(threadId || "").trim();
+    const customerNameHint =
+      url.searchParams.get("name") ||
+      url.searchParams.get("customerName") ||
+      "";
+    const isTikTok =
+      channelUpper === "TIKTOK_SHOP" ||
+      channelUpper === "TIKTOK" ||
+      threadStr.toLowerCase().startsWith("tiktok_") ||
+      threadStr.toLowerCase().startsWith("tt_");
+
+    if (isTikTok) {
+      const ttMsgs = await getThreadMessages(
+        threadId,
+        "TIKTOK_SHOP",
+        accountId || pageId,
+        customerNameHint
+      );
       const formatted = ttMsgs.map((m) => {
         const { time, date } = formatMessageTime(m.timestamp);
         return {
           id: m.id,
           text: m.text,
+          sender: m.sender || (m.isMe ? "STAFF" : "CUSTOMER"),
           senderId: m.senderId,
           senderName: m.senderName,
-          isMe: m.isMe,
+          isMe: Boolean(m.isMe || m.sender === "STAFF"),
           timestamp: m.timestamp,
-          time,
-          date,
+          time: m.time || time,
+          date: m.date || date,
           type: m.type || "text",
           mediaUrl: m.mediaUrl || null,
           status: "sent",
