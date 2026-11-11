@@ -1,0 +1,188 @@
+import crypto from "crypto";
+
+/**
+ * ADDP Omnichannel AI CRM — TikTok Shop Official Partner Configuration
+ * Hỗ trợ OAuth 1-Click Multi-Shop, Token Exchange, Refresh Token & Authorized Shops Lookup.
+ */
+
+export const TIKTOK_SERVICE_ID =
+  process.env.TIKTOK_SERVICE_ID || "7706525357121636097";
+export const TIKTOK_APP_KEY =
+  process.env.TIKTOK_APP_KEY || "6ls9j0lb830he";
+export const TIKTOK_APP_SECRET =
+  process.env.TIKTOK_APP_SECRET || "b32f208f743dda776a98432d9c8ac714372fda61";
+
+export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?service_id=${TIKTOK_SERVICE_ID}`;
+
+/**
+ * Tạo chữ ký HMAC-SHA256 chuẩn TikTok Shop Open API v2
+ * Base = app_secret + path + sorted(params without sign/access_token) + body + app_secret
+ */
+export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_APP_SECRET, bodyStr = "") {
+  const cleanParams = { ...params };
+  delete cleanParams.sign;
+  delete cleanParams.access_token;
+
+  const keys = Object.keys(cleanParams).sort();
+  let paramPart = "";
+  for (const k of keys) {
+    if (cleanParams[k] !== undefined && cleanParams[k] !== null) {
+      paramPart += `${k}${cleanParams[k]}`;
+    }
+  }
+  const base = `${appSecret}${reqPath}${paramPart}${bodyStr}${appSecret}`;
+  return crypto.createHmac("sha256", appSecret).update(base).digest("hex");
+}
+
+/**
+ * Đổi authorization code (auth_code) lấy access_token, refresh_token, open_id, seller_name
+ */
+export async function exchangeTikTokAuthCode(authCode, options = {}) {
+  const appKey = options.appKey || TIKTOK_APP_KEY;
+  const appSecret = options.appSecret || TIKTOK_APP_SECRET;
+
+  // TikTok /api/v2/token/get hỗ trợ POST JSON hoặc GET query params tùy gateway khu vực
+  let tokenData = null;
+  let lastError = "";
+
+  try {
+    const postRes = await fetch("https://auth.tiktok-shops.com/api/v2/token/get", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        app_key: appKey,
+        app_secret: appSecret,
+        auth_code: authCode,
+        grant_type: "authorized_code",
+      }),
+    });
+    const rawText = await postRes.text();
+    try {
+      tokenData = JSON.parse(rawText);
+    } catch {
+      lastError = `HTTP ${postRes.status}: ${rawText.slice(0, 160)}`;
+    }
+  } catch (err) {
+    lastError = err?.message || "POST token exchange failed";
+  }
+
+  // Fallback GET query params (theo đặc tả Partner API v2 GET /api/v2/token/get) nếu POST không trả code === 0
+  if (!tokenData || (tokenData.code !== 0 && /method|get|invalid request/i.test(String(tokenData.message || lastError)))) {
+    try {
+      const qs = new URLSearchParams({
+        app_key: appKey,
+        app_secret: appSecret,
+        auth_code: authCode,
+        grant_type: "authorized_code",
+      });
+      const getRes = await fetch(`https://auth.tiktok-shops.com/api/v2/token/get?${qs.toString()}`);
+      const getJson = await getRes.json();
+      if (getJson && (getJson.code === 0 || !tokenData)) {
+        tokenData = getJson;
+      }
+    } catch (err) {
+      if (!lastError) lastError = err?.message || "GET token exchange failed";
+    }
+  }
+
+  if (!tokenData || tokenData.code !== 0 || !tokenData.data) {
+    return {
+      ok: false,
+      error: tokenData?.message || lastError || "token_exchange_failed",
+      raw: tokenData,
+    };
+  }
+
+  return {
+    ok: true,
+    data: tokenData.data,
+  };
+}
+
+/**
+ * Lấy danh sách gian hàng đã ủy quyền (Authorized Shops) bằng access_token thật
+ */
+export async function fetchTikTokAuthorizedShops({
+  accessToken,
+  appKey = TIKTOK_APP_KEY,
+  appSecret = TIKTOK_APP_SECRET,
+}) {
+  if (!accessToken) return [];
+  try {
+    const reqPath = "/authorization/202309/shops";
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const queryParams = {
+      app_key: appKey,
+      timestamp,
+    };
+    const sign = generateTikTokSignV2(reqPath, queryParams, appSecret);
+    const qs = new URLSearchParams({
+      ...queryParams,
+      sign,
+    });
+
+    const res = await fetch(`https://open-api.tiktokglobalshop.com${reqPath}?${qs.toString()}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "x-tts-access-token": accessToken,
+      },
+    });
+
+    const data = await res.json();
+    if (data?.code === 0 && Array.isArray(data?.data?.shops)) {
+      return data.data.shops;
+    }
+  } catch (err) {
+    console.warn("[TIKTOK_AUTHORIZED_SHOPS_WARN]", err?.message || err);
+  }
+  return [];
+}
+
+/**
+ * Làm mới Access Token bằng Refresh Token
+ */
+export async function refreshTikTokOAuthToken({
+  refreshToken,
+  appKey = TIKTOK_APP_KEY,
+  appSecret = TIKTOK_APP_SECRET,
+}) {
+  if (!refreshToken) {
+    return { ok: false, error: "Kênh chưa có Refresh Token để làm mới." };
+  }
+
+  const qs = new URLSearchParams({
+    app_key: appKey,
+    app_secret: appSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
+
+  const res = await fetch(`https://auth.tiktok-shops.com/api/v2/token/refresh?${qs.toString()}`);
+  const data = await res.json();
+
+  if (data?.code === 0 && data?.data) {
+    const expireInSec = Number(data.data.access_token_expire_in || 0);
+    const tokenExpiresAt =
+      expireInSec > 1e11
+        ? expireInSec
+        : expireInSec > 1e9
+        ? expireInSec * 1000
+        : Date.now() + Math.max(expireInSec, 3600) * 1000;
+
+    return {
+      ok: true,
+      accessToken: data.data.access_token,
+      refreshToken: data.data.refresh_token || refreshToken,
+      tokenExpiresAt,
+      refreshTokenExpireIn: data.data.refresh_token_expire_in || null,
+      openId: data.data.open_id || "",
+      sellerName: data.data.seller_name || "",
+    };
+  }
+
+  return {
+    ok: false,
+    error: data?.message || "Không thể làm mới TikTok Shop Token.",
+  };
+}

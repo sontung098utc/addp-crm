@@ -27,6 +27,9 @@ import {
   ExternalLink,
 } from "lucide-react";
 
+const TIKTOK_AUTH_URL =
+  "https://services.tiktokshop.com/open/authorize?service_id=7706525357121636097";
+
 const PLATFORM_TABS = [
   { id: "ALL", label: "Tất Cả Kênh", Icon: Globe },
   { id: "ZALO_PERSONAL", label: "Zalo Cá Nhân (QR)", Icon: MessageCircle, badge: "Multi-QR" },
@@ -55,6 +58,7 @@ export default function ChannelsPage() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [guidePlatform, setGuidePlatform] = useState(null);
   const [testingId, setTestingId] = useState(null);
+  const [refreshingTokenId, setRefreshingTokenId] = useState(null);
   const [syncingChannelId, setSyncingChannelId] = useState(null);
   const [updatingBotModeId, setUpdatingBotModeId] = useState(null);
   const [banner, setBanner] = useState(null);
@@ -92,6 +96,61 @@ export default function ChannelsPage() {
   useEffect(() => {
     loadChannels();
   }, [loadChannels]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("success");
+    const shop = params.get("shop");
+    const error = params.get("error");
+
+    if (success === "tiktok_connected") {
+      setActiveTab("TIKTOK_SHOP");
+      setBanner({
+        type: "success",
+        text: `Kết nối thành công TikTok Shop: ${shop || "Gian hàng mới"}! Sẵn sàng đồng bộ đơn hàng & GMV Max.`,
+      });
+      loadChannels();
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (error) {
+      const errorTextMap = {
+        missing_code: "TikTok Shop không trả về mã ủy quyền (code). Vui lòng thử ủy quyền lại.",
+        token_exchange_failed: "Không thể đổi mã ủy quyền lấy Token TikTok Shop.",
+        internal_error: "Lỗi hệ thống khi xử lý ủy quyền TikTok Shop.",
+      };
+      setBanner({
+        type: "error",
+        text: errorTextMap[error] || `Ủy quyền TikTok Shop thất bại: ${error}`,
+      });
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [loadChannels]);
+
+  const handleOpenTikTokOAuth = () => {
+    window.open(TIKTOK_AUTH_URL, "_blank", "noopener,noreferrer");
+  };
+
+  const handleRefreshTikTokToken = async (ch) => {
+    setRefreshingTokenId(ch.id);
+    try {
+      const res = await fetch("/api/channels/tiktok/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId: ch.id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setBanner({ type: "success", text: data.message || `Đã làm mới Token cho ${ch.name}.` });
+        loadChannels();
+      } else {
+        setBanner({ type: "error", text: data.error || "Không thể làm mới Token TikTok Shop." });
+      }
+    } catch {
+      setBanner({ type: "error", text: "Lỗi kết nối khi làm mới Token TikTok Shop." });
+    } finally {
+      setRefreshingTokenId(null);
+    }
+  };
 
   const handleTestHealth = async (id) => {
     setTestingId(id);
@@ -303,6 +362,14 @@ export default function ChannelsPage() {
           >
             <MessageSquare className="w-3.5 h-3.5 shrink-0" />
             <span>Kết Nối Fanpage 1-Click</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenTikTokOAuth}
+            className="rounded-xl bg-slate-900 hover:bg-black border border-slate-700 text-white text-xs font-bold px-4 py-2.5 shadow-md transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+          >
+            <span>🎵</span>
+            <span>Kết Nối TikTok Shop 1-Click</span>
           </button>
           <button
             type="button"
@@ -542,6 +609,38 @@ export default function ChannelsPage() {
                       </select>
                     </div>
 
+                    {/* Thông tin chi tiết gian hàng TikTok Shop OAuth & nút Làm mới Token */}
+                    {ch.platform === "TIKTOK_SHOP" && (
+                      <div className="pt-1.5 border-t border-slate-800/60 space-y-1.5 text-[10px]">
+                        {(ch.sellerName || ch.shopId || ch.openId) && (
+                          <div className="flex items-center justify-between gap-2 text-slate-400">
+                            <span>Gian hàng:</span>
+                            <span className="text-slate-200 font-semibold truncate">
+                              {ch.sellerName || ch.name} {ch.region ? `(${ch.region})` : ""}
+                            </span>
+                          </div>
+                        )}
+                        {(ch.refreshToken || ch.config?.refreshToken) && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-slate-400">OAuth Token:</span>
+                            <button
+                              type="button"
+                              disabled={refreshingTokenId === ch.id}
+                              onClick={() => handleRefreshTikTokToken(ch)}
+                              className="px-2 py-0.5 rounded-md bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500/30 font-semibold inline-flex items-center gap-1 whitespace-nowrap cursor-pointer transition-colors disabled:opacity-50"
+                            >
+                              <RefreshCw
+                                className={`w-3 h-3 ${refreshingTokenId === ch.id ? "animate-spin" : ""}`}
+                              />
+                              <span>
+                                {refreshingTokenId === ch.id ? "Đang làm mới..." : "🔄 Làm mới Token"}
+                              </span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Đồng bộ lịch sử tin nhắn cho nick Zalo */}
                     {ch.platform === "ZALO_PERSONAL" && isConnected && (
                       <div className="pt-1.5 border-t border-slate-800/60 flex items-center justify-between gap-2">
@@ -747,10 +846,30 @@ export default function ChannelsPage() {
 
               {/* DYNAMIC FORM FIELDS THEO TỪNG NỀN TẢNG */}
               {newForm.platform === "TIKTOK_SHOP" && (
-                <div className="space-y-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
-                  <div className="font-bold text-amber-300 flex items-center gap-1.5 text-xs">
+                <div className="space-y-3 p-3.5 rounded-xl bg-slate-950 border border-slate-800">
+                  <div className="rounded-xl bg-gradient-to-r from-slate-900 to-zinc-900 border border-pink-500/30 p-3 space-y-2.5">
+                    <div className="font-bold text-pink-300 flex items-center gap-1.5 text-xs">
+                      <span>🎵</span>
+                      <span>Ủy Quyền Tự Động TikTok Shop (OAuth 1-Click)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Bạn chỉ cần bấm nút <strong className="text-white">[Ủy Quyền 1-Click]</strong>,
+                      hệ thống sẽ tự động liên kết nhiều gian hàng song song mà không cần nhập Refresh Token thủ công.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleOpenTikTokOAuth}
+                      className="w-full rounded-xl bg-slate-900 hover:bg-black border border-pink-500/40 text-white text-xs font-bold px-4 py-2.5 shadow-md transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <span>🎵</span>
+                      <span>Ủy Quyền 1-Click Ngay (Mở TikTok Shop)</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-pink-400" />
+                    </button>
+                  </div>
+
+                  <div className="font-bold text-amber-300 flex items-center gap-1.5 text-[11px] pt-1">
                     <ShoppingBag className="w-3.5 h-3.5" />
-                    <span>Cấu hình TikTok Shop Open API (WBS-18)</span>
+                    <span>Hoặc cấu hình thủ công (Tùy chọn nâng cao)</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>

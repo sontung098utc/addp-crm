@@ -456,7 +456,10 @@ export function createChannelAccount(input) {
   const extId = input.externalId ? String(input.externalId).trim() : "";
   const isConnected =
     input.status === "CONNECTED" ||
+    input.status === "active" ||
     Boolean(input.config?.pageAccessToken) ||
+    Boolean(input.config?.refreshToken) ||
+    Boolean(input.config?.accessToken) ||
     Boolean(input.config?.ownId) ||
     Boolean(input.config?.homeDir) ||
     Boolean(input.config?.apiToken) ||
@@ -486,21 +489,29 @@ export function createChannelAccount(input) {
     saveDeletedChannelIds(deletedSet);
   }
 
-  // Kiểm tra nếu đã tồn tại kênh cùng externalId thì cập nhật luôn không tạo trùng
-  if (extId) {
+  // Kiểm tra nếu đã tồn tại kênh cùng externalId hoặc id thì cập nhật luôn không tạo trùng
+  if (extId || input.id) {
+    const matchTargetId = input.id ? String(input.id).trim() : "";
     for (const [k, v] of runtimeChannelsStore.entries()) {
-      if (v.externalId === extId || k === extId || k === `zalo_${extId}`) {
+      if (
+        (extId && (v.externalId === extId || k === extId || k === `zalo_${extId}`)) ||
+        (matchTargetId && k === matchTargetId)
+      ) {
         const updated = {
           ...v,
+          ...(input.extraFields || {}),
           name,
           status: isConnected ? "CONNECTED" : v.status,
-          statusLabel: isConnected
-            ? platform === "ZALO_PERSONAL"
-              ? "Đã kết nối trực tiếp (Quét QR)"
-              : "Đã kết nối trực tiếp"
-            : v.statusLabel,
+          statusLabel:
+            input.statusLabel ||
+            (isConnected
+              ? platform === "ZALO_PERSONAL"
+                ? "Đã kết nối trực tiếp (Quét QR)"
+                : "Đã kết nối trực tiếp"
+              : v.statusLabel),
           config: { ...v.config, ...input.config },
           lastCheckedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         };
         runtimeChannelsStore.set(k, updated);
         savePersistedChannels();
@@ -509,26 +520,31 @@ export function createChannelAccount(input) {
     }
   }
 
-  const nextId =
-    platform === "ZALO_PERSONAL" && extId
-      ? `zalo_${extId}`
-      : extId || String(Date.now());
+  const nextId = input.id
+    ? String(input.id).trim()
+    : platform === "ZALO_PERSONAL" && extId
+    ? `zalo_${extId}`
+    : extId || String(Date.now());
   const newAccount = {
+    ...(input.extraFields || {}),
     id: nextId,
     platform,
     name,
     externalId: extId || `ext_${String(nextId).slice(-6)}`,
     status: isConnected ? "CONNECTED" : "READY_TO_CONNECT",
-    statusLabel: isConnected
-      ? platform === "ZALO_PERSONAL"
-        ? "Đã kết nối trực tiếp (Quét QR)"
-        : "Đã kết nối trực tiếp"
-      : "Vừa khởi tạo, sẵn sàng kết nối",
+    statusLabel:
+      input.statusLabel ||
+      (isConnected
+        ? platform === "ZALO_PERSONAL"
+          ? "Đã kết nối trực tiếp (Quét QR)"
+          : "Đã kết nối trực tiếp"
+        : "Vừa khởi tạo, sẵn sàng kết nối"),
     botMode: input.botMode === "AI" ? "AI" : "HUMAN",
     assignedStaff: input.assignedStaff || { id: "ADMIN", name: "Quản Trị Viên ADDP" },
     config: {
       ...input.config,
     },
+    createdAt: new Date().toISOString(),
     lastCheckedAt: new Date().toISOString(),
     assignedStaffCodes: input.assignedStaffCodes || ["ADMIN", "S001", "S002", "CS01"],
   };
@@ -562,6 +578,9 @@ export function updateChannelAccount(id, updates) {
   }
   if (updates.config) {
     existing.config = { ...existing.config, ...updates.config };
+  }
+  if (updates.extraFields && typeof updates.extraFields === "object") {
+    Object.assign(existing, updates.extraFields);
   }
   if (updates.assignedStaffCodes) {
     existing.assignedStaffCodes = updates.assignedStaffCodes;
@@ -676,9 +695,13 @@ export async function testChannelHealth(id) {
     case "ZALO_OA":
       result.message = "Zalo OA Open API v3: Miền crm.addp.vn sẵn sàng tiếp nhận sự kiện tương tác.";
       break;
-    case "TIKTOK_SHOP":
-      result.message = "TikTok Partner API: Hàng đợi bóc tách công thức Combo và đối soát GMV Max sẵn sàng.";
+    case "TIKTOK_SHOP": {
+      const hasOAuth = Boolean(channel.refreshToken || channel.config?.refreshToken || channel.accessToken || channel.config?.accessToken);
+      result.message = hasOAuth
+        ? `TikTok Shop "${channel.sellerName || channel.name}" đã ủy quyền OAuth hợp lệ (Shop ID: ${channel.shopId || channel.config?.shopId || channel.externalId}).`
+        : "TikTok Partner API: Hàng đợi bóc tách công thức Combo và đối soát GMV Max sẵn sàng.";
       break;
+    }
     case "SHOPEE":
       result.message = "Shopee Open API v2: Cấu hình nhận thông báo đơn hàng và vận đơn SPX sẵn sàng.";
       break;
