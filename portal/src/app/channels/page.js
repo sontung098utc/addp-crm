@@ -29,6 +29,7 @@ import {
 
 const TIKTOK_AUTH_URL =
   "https://services.tiktokshop.com/open/authorize?service_id=7706525357121636097";
+const processedTikTokOAuthCodes = new Set();
 
 const PLATFORM_TABS = [
   { id: "ALL", label: "Tất Cả Kênh", Icon: Globe },
@@ -100,9 +101,52 @@ export default function ChannelsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    const oauthCode = (params.get("code") || params.get("auth_code") || "").trim();
     const success = params.get("success");
     const shop = params.get("shop");
     const error = params.get("error");
+
+    // 1. Tự động bắt ?code=... khi TikTok Shop redirect về /channels?code=xxxx hoặc /?code=xxxx
+    if (oauthCode) {
+      window.history.replaceState({}, "", window.location.pathname);
+      if (processedTikTokOAuthCodes.has(oauthCode)) return;
+      processedTikTokOAuthCodes.add(oauthCode);
+
+      setActiveTab("TIKTOK_SHOP");
+      setBanner({
+        type: "success",
+        text: "⏳ Đang kích hoạt kết nối TikTok Shop...",
+      });
+
+      (async () => {
+        try {
+          const res = await fetch("/api/channels/tiktok/callback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: oauthCode }),
+          });
+          const data = await res.json();
+          if (res.ok && data?.ok) {
+            setBanner({
+              type: "success",
+              text: `Kết nối thành công TikTok Shop: ${data.shopName || "Gian hàng mới"}! Sẵn sàng đồng bộ đơn hàng & GMV Max.`,
+            });
+            await loadChannels();
+          } else {
+            setBanner({
+              type: "error",
+              text: `Ủy quyền TikTok Shop thất bại: ${data?.error || "Không thể đổi mã code lấy Token."}`,
+            });
+          }
+        } catch {
+          setBanner({
+            type: "error",
+            text: "Lỗi kết nối máy chủ khi kích hoạt TikTok Shop.",
+          });
+        }
+      })();
+      return;
+    }
 
     if (success === "tiktok_connected") {
       setActiveTab("TIKTOK_SHOP");

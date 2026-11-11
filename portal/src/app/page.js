@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { resolveComboFormulaList } from "../lib/comboResolver";
 import { buildCareSchedule } from "../lib/careAutomation";
 import {
@@ -82,8 +83,19 @@ const SCHEMA_TABLES = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
   const [formulaInput, setFormulaInput] = useState("XANH03+2GOI_GLUCARE");
   const [orderQty, setOrderQty] = useState(1);
+
+  // Tự động đón mã code OAuth khi TikTok Shop redirect về root URL (https://crm.addp.vn/?code=xxxx)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = (params.get("code") || params.get("auth_code") || "").trim();
+    if (code) {
+      router.replace(`/channels${window.location.search}`);
+    }
+  }, [router]);
 
   const resolvedItems = resolveComboFormulaList(formulaInput, Number(orderQty) || 1);
   const sampleCareTasks = buildCareSchedule({

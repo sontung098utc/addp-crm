@@ -38,12 +38,153 @@ function normalizeExpiryTimestamp(expireInRaw) {
   return Date.now() + num * 1000;
 }
 
+async function processTikTokOAuthCode(authCode) {
+  const exchange = await exchangeTikTokAuthCode(authCode, {
+    appKey: TIKTOK_APP_KEY,
+    appSecret: TIKTOK_APP_SECRET,
+  });
+
+  if (!exchange.ok || !exchange.data) {
+    return {
+      ok: false,
+      error: exchange.error || "token_exchange_failed",
+      raw: exchange.raw || null,
+    };
+  }
+
+  const {
+    access_token,
+    refresh_token,
+    access_token_expire_in,
+    refresh_token_expire_in,
+    open_id,
+    seller_name,
+    seller_base_region,
+  } = exchange.data;
+
+  const tokenExpiresAt = normalizeExpiryTimestamp(access_token_expire_in);
+  const refreshTokenExpiresAt = normalizeExpiryTimestamp(refresh_token_expire_in);
+  const cleanOpenId = String(open_id || "").trim();
+  const defaultSellerName =
+    String(seller_name || "").trim() ||
+    (cleanOpenId ? `Gian Hàng TikTok #${cleanOpenId.slice(-4)}` : "Gian Hàng TikTok Shop");
+
+  const authorizedShops = await fetchTikTokAuthorizedShops({
+    accessToken: access_token,
+    appKey: TIKTOK_APP_KEY,
+    appSecret: TIKTOK_APP_SECRET,
+  });
+
+  const savedChannels = [];
+
+  if (Array.isArray(authorizedShops) && authorizedShops.length > 0) {
+    for (const shop of authorizedShops) {
+      const shopId = String(shop.id || shop.shop_id || cleanOpenId || Date.now()).trim();
+      const shopName = String(shop.name || shop.shop_name || defaultSellerName).trim();
+      const channelId = `tiktok_shop_${shopId}`;
+
+      const res = createChannelAccount({
+        id: channelId,
+        platform: "TIKTOK_SHOP",
+        name: `TikTok Shop - ${shopName}`,
+        externalId: shopId,
+        status: "CONNECTED",
+        statusLabel: "Đã ủy quyền OAuth TikTok Shop",
+        extraFields: {
+          type: "tiktok_shop",
+          channel_type: "tiktok_shop",
+          shopId,
+          shopCode: shop.code || "",
+          shopCipher: shop.cipher || "",
+          region: shop.region || seller_base_region || "VN",
+          sellerName: shopName,
+          openId: cleanOpenId,
+          refreshToken: refresh_token,
+          accessToken: access_token,
+          tokenExpiresAt,
+          refreshTokenExpiresAt,
+          oauthStatus: "active",
+        },
+        config: {
+          serviceId: TIKTOK_SERVICE_ID,
+          appKey: TIKTOK_APP_KEY,
+          appSecret: TIKTOK_APP_SECRET,
+          shopId,
+          shopCode: shop.code || "",
+          shopCipher: shop.cipher || "",
+          region: shop.region || seller_base_region || "VN",
+          sellerName: shopName,
+          openId: cleanOpenId,
+          accessToken: access_token,
+          refreshToken: refresh_token,
+          tokenExpiresAt,
+          refreshTokenExpiresAt,
+        },
+      });
+
+      if (res.ok && res.channel) {
+        savedChannels.push(res.channel);
+      }
+    }
+  } else {
+    const fallbackShopId = cleanOpenId || String(Date.now());
+    const channelId = `tiktok_shop_${fallbackShopId}`;
+
+    const res = createChannelAccount({
+      id: channelId,
+      platform: "TIKTOK_SHOP",
+      name: `TikTok Shop - ${defaultSellerName}`,
+      externalId: fallbackShopId,
+      status: "CONNECTED",
+      statusLabel: "Đã ủy quyền OAuth TikTok Shop",
+      extraFields: {
+        type: "tiktok_shop",
+        channel_type: "tiktok_shop",
+        shopId: fallbackShopId,
+        region: seller_base_region || "VN",
+        sellerName: defaultSellerName,
+        openId: cleanOpenId,
+        refreshToken: refresh_token,
+        accessToken: access_token,
+        tokenExpiresAt,
+        refreshTokenExpiresAt,
+        oauthStatus: "active",
+      },
+      config: {
+        serviceId: TIKTOK_SERVICE_ID,
+        appKey: TIKTOK_APP_KEY,
+        appSecret: TIKTOK_APP_SECRET,
+        shopId: fallbackShopId,
+        region: seller_base_region || "VN",
+        sellerName: defaultSellerName,
+        openId: cleanOpenId,
+        accessToken: access_token,
+        refreshToken: refresh_token,
+        tokenExpiresAt,
+        refreshTokenExpiresAt,
+      },
+    });
+
+    if (res.ok && res.channel) {
+      savedChannels.push(res.channel);
+    }
+  }
+
+  const shopNames = savedChannels.map((c) => c.sellerName || c.name);
+  const displayShopName = shopNames.join(", ") || defaultSellerName;
+
+  return {
+    ok: true,
+    shopName: displayShopName,
+    count: savedChannels.length || 1,
+    channels: savedChannels,
+    message: `Kết nối thành công TikTok Shop: ${displayShopName}`,
+  };
+}
+
 /**
  * GET /api/channels/tiktok/callback?code=...&app_key=...
- * Callback OAuth 1-Click TikTok Shop:
- * 1. Đổi auth_code lấy access_token, refresh_token, open_id, seller_name
- * 2. Gọi API /authorization/202309/shops để lấy chi tiết từng gian hàng đã cấp quyền
- * 3. Lưu nhiều gian hàng song song (Multi-Shop) vào channels.json qua connectionHub
+ * Hỗ trợ cả redirect trực tiếp về `/channels` lẫn trả JSON (`?mode=json` hoặc Accept: application/json)
  */
 export async function GET(request) {
   const publicOrigin = resolvePublicOrigin(request);
@@ -56,159 +197,90 @@ export async function GET(request) {
       ""
     ).trim();
     const errorParam = (searchParams.get("error") || searchParams.get("err_msg") || "").trim();
+    const wantsJson =
+      searchParams.get("mode") === "json" ||
+      String(request.headers.get("accept") || "").includes("application/json");
 
     if (errorParam && !authCode) {
+      if (wantsJson) {
+        return NextResponse.json({ ok: false, error: errorParam }, { status: 400 });
+      }
       return NextResponse.redirect(
         `${publicOrigin}/channels?error=${encodeURIComponent(errorParam)}`
       );
     }
 
     if (!authCode) {
+      if (wantsJson) {
+        return NextResponse.json(
+          { ok: false, error: "Thiếu mã ủy quyền (code) từ TikTok Shop." },
+          { status: 400 }
+        );
+      }
       return NextResponse.redirect(`${publicOrigin}/channels?error=missing_code`);
     }
 
-    // 1. Đổi auth_code lấy Access Token & Refresh Token
-    const exchange = await exchangeTikTokAuthCode(authCode, {
-      appKey: TIKTOK_APP_KEY,
-      appSecret: TIKTOK_APP_SECRET,
-    });
+    const result = await processTikTokOAuthCode(authCode);
 
-    if (!exchange.ok || !exchange.data) {
-      console.error("[TIKTOK_TOKEN_EXCHANGE_ERR]", exchange);
+    if (!result.ok) {
+      console.error("[TIKTOK_TOKEN_EXCHANGE_ERR]", result);
+      if (wantsJson) {
+        return NextResponse.json(
+          { ok: false, error: result.error || "token_exchange_failed" },
+          { status: 400 }
+        );
+      }
       return NextResponse.redirect(
         `${publicOrigin}/channels?error=${encodeURIComponent(
-          exchange.error || "token_exchange_failed"
+          result.error || "token_exchange_failed"
         )}`
       );
     }
 
-    const {
-      access_token,
-      refresh_token,
-      access_token_expire_in,
-      refresh_token_expire_in,
-      open_id,
-      seller_name,
-      seller_base_region,
-    } = exchange.data;
-
-    const tokenExpiresAt = normalizeExpiryTimestamp(access_token_expire_in);
-    const refreshTokenExpiresAt = normalizeExpiryTimestamp(refresh_token_expire_in);
-    const cleanOpenId = String(open_id || "").trim();
-    const defaultSellerName =
-      String(seller_name || "").trim() ||
-      (cleanOpenId ? `Gian Hàng TikTok #${cleanOpenId.slice(-4)}` : "Gian Hàng TikTok Shop");
-
-    // 2. Lấy danh sách chi tiết các gian hàng đã cấp quyền
-    const authorizedShops = await fetchTikTokAuthorizedShops({
-      accessToken: access_token,
-      appKey: TIKTOK_APP_KEY,
-      appSecret: TIKTOK_APP_SECRET,
-    });
-
-    const savedShops = [];
-
-    if (Array.isArray(authorizedShops) && authorizedShops.length > 0) {
-      for (const shop of authorizedShops) {
-        const shopId = String(shop.id || shop.shop_id || cleanOpenId || Date.now()).trim();
-        const shopName = String(shop.name || shop.shop_name || defaultSellerName).trim();
-        const channelId = `tiktok_shop_${shopId}`;
-
-        const res = createChannelAccount({
-          id: channelId,
-          platform: "TIKTOK_SHOP",
-          name: `TikTok Shop - ${shopName}`,
-          externalId: shopId,
-          status: "CONNECTED",
-          statusLabel: "Đã ủy quyền OAuth TikTok Shop",
-          extraFields: {
-            type: "tiktok_shop",
-            channel_type: "tiktok_shop",
-            shopId,
-            shopCode: shop.code || "",
-            shopCipher: shop.cipher || "",
-            region: shop.region || seller_base_region || "VN",
-            sellerName: shopName,
-            openId: cleanOpenId,
-            refreshToken: refresh_token,
-            accessToken: access_token,
-            tokenExpiresAt,
-            refreshTokenExpiresAt,
-            oauthStatus: "active",
-          },
-          config: {
-            serviceId: TIKTOK_SERVICE_ID,
-            appKey: TIKTOK_APP_KEY,
-            appSecret: TIKTOK_APP_SECRET,
-            shopId,
-            shopCode: shop.code || "",
-            shopCipher: shop.cipher || "",
-            region: shop.region || seller_base_region || "VN",
-            sellerName: shopName,
-            openId: cleanOpenId,
-            accessToken: access_token,
-            refreshToken: refresh_token,
-            tokenExpiresAt,
-            refreshTokenExpiresAt,
-          },
-        });
-
-        if (res.ok) {
-          savedShops.push(shopName);
-        }
-      }
-    } else {
-      // Fallback nếu API /shops trả rỗng -> vẫn lưu gian hàng theo open_id / seller_name
-      const fallbackShopId = cleanOpenId || String(Date.now());
-      const channelId = `tiktok_shop_${fallbackShopId}`;
-
-      const res = createChannelAccount({
-        id: channelId,
-        platform: "TIKTOK_SHOP",
-        name: `TikTok Shop - ${defaultSellerName}`,
-        externalId: fallbackShopId,
-        status: "CONNECTED",
-        statusLabel: "Đã ủy quyền OAuth TikTok Shop",
-        extraFields: {
-          type: "tiktok_shop",
-          channel_type: "tiktok_shop",
-          shopId: fallbackShopId,
-          region: seller_base_region || "VN",
-          sellerName: defaultSellerName,
-          openId: cleanOpenId,
-          refreshToken: refresh_token,
-          accessToken: access_token,
-          tokenExpiresAt,
-          refreshTokenExpiresAt,
-          oauthStatus: "active",
-        },
-        config: {
-          serviceId: TIKTOK_SERVICE_ID,
-          appKey: TIKTOK_APP_KEY,
-          appSecret: TIKTOK_APP_SECRET,
-          shopId: fallbackShopId,
-          region: seller_base_region || "VN",
-          sellerName: defaultSellerName,
-          openId: cleanOpenId,
-          accessToken: access_token,
-          refreshToken: refresh_token,
-          tokenExpiresAt,
-          refreshTokenExpiresAt,
-        },
-      });
-
-      if (res.ok) {
-        savedShops.push(defaultSellerName);
-      }
+    if (wantsJson) {
+      return NextResponse.json(result);
     }
 
-    const displayShopParam = savedShops.join(", ") || defaultSellerName;
     const redirectUrl = `${publicOrigin}/channels?success=tiktok_connected&shop=${encodeURIComponent(
-      displayShopParam
-    )}&count=${savedShops.length || 1}`;
+      result.shopName
+    )}&count=${result.count}`;
     return NextResponse.redirect(redirectUrl);
   } catch (err) {
     console.error("[TIKTOK_OAUTH_CALLBACK_EXCEPTION]", err);
     return NextResponse.redirect(`${publicOrigin}/channels?error=internal_error`);
+  }
+}
+
+/**
+ * POST /api/channels/tiktok/callback
+ * Đổi mã code ngầm (JSON) khi người dùng được redirect về `/?code=...` hoặc `/channels?code=...`
+ */
+export async function POST(request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const authCode = String(body?.code || body?.auth_code || "").trim();
+
+    if (!authCode) {
+      return NextResponse.json(
+        { ok: false, error: "Thiếu mã ủy quyền (code) từ TikTok Shop." },
+        { status: 400 }
+      );
+    }
+
+    const result = await processTikTokOAuthCode(authCode);
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, error: result.error || "Đổi Token TikTok Shop thất bại." },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(result);
+  } catch (err) {
+    console.error("[TIKTOK_OAUTH_CALLBACK_POST_ERR]", err);
+    return NextResponse.json(
+      { ok: false, error: err?.message || "Lỗi hệ thống khi xử lý ủy quyền TikTok Shop." },
+      { status: 500 }
+    );
   }
 }
