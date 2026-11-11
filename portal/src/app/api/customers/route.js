@@ -9,6 +9,80 @@ import { getTags, getAllConversationTags } from "@/lib/tagStore";
 import { getSessionStaff } from "@/lib/auth";
 import { filterRecordsByRbac } from "@/lib/rbac";
 
+function normalizeCustomerPlatform(customer = {}) {
+  const raw = String(
+    customer.source || customer.sourceChannel || customer.channel || ""
+  )
+    .trim()
+    .toUpperCase();
+  const labelLower = String(customer.channelLabel || "").trim().toLowerCase();
+
+  if (
+    raw === "FACEBOOK" ||
+    raw === "FB" ||
+    raw === "FANPAGE" ||
+    raw === "VPAGE" ||
+    labelLower.includes("facebook") ||
+    labelLower.includes("fanpage")
+  ) {
+    return "FACEBOOK";
+  }
+  if (
+    raw === "ZALO_PERSONAL" ||
+    raw === "ZALO" ||
+    raw === "ZALO_QR" ||
+    raw === "ZALO_OA" ||
+    labelLower.includes("zalo")
+  ) {
+    return "ZALO_PERSONAL";
+  }
+  if (raw === "TIKTOK" || raw === "TIKTOK_SHOP" || labelLower.includes("tiktok")) {
+    return "TIKTOK";
+  }
+  if (raw === "SHOPEE" || labelLower.includes("shopee")) {
+    return "SHOPEE";
+  }
+  if (
+    raw === "WEBSITE" ||
+    raw === "WEBSITE_MAGENTO" ||
+    raw === "MAGENTO" ||
+    labelLower.includes("magento") ||
+    labelLower.includes("website")
+  ) {
+    return "WEBSITE";
+  }
+  if (
+    raw === "KHACHHANG_OLD" ||
+    raw === "OTHER" ||
+    customer.migratedFrom === "khachhang.addp.vn" ||
+    Boolean(customer.legacyId) ||
+    labelLower.includes("khachhang.addp.vn") ||
+    labelLower.includes("vpage") ||
+    labelLower.includes("hệ thống cũ")
+  ) {
+    return "KHACHHANG_OLD";
+  }
+  return raw || "KHACHHANG_OLD";
+}
+
+function isLegacySystemCustomer(customer = {}) {
+  const raw = String(
+    customer.source || customer.sourceChannel || customer.channel || ""
+  )
+    .trim()
+    .toUpperCase();
+  const labelLower = String(customer.channelLabel || "").trim().toLowerCase();
+  return (
+    customer.migratedFrom === "khachhang.addp.vn" ||
+    Boolean(customer.legacyId) ||
+    raw === "KHACHHANG_OLD" ||
+    raw === "OTHER" ||
+    labelLower.includes("khachhang.addp.vn") ||
+    labelLower.includes("vpage") ||
+    labelLower.includes("hệ thống cũ")
+  );
+}
+
 export async function GET(request) {
   try {
     const currentStaff = await getSessionStaff(request);
@@ -22,22 +96,30 @@ export async function GET(request) {
     const staffNameParam = searchParams.get("staff") || "ALL";
     const productParam = searchParams.get("product") || "ALL";
     const purchaseLevelParam = searchParams.get("purchaseLevel") || "ALL";
+    const rawPlatformParam =
+      searchParams.get("platform") || searchParams.get("source") || "all";
+    const platformFilter = String(rawPlatformParam).trim();
 
     let customers = getAllCustomers();
 
     // 1. Phân quyền RBAC (Điều 5 AGENTS.md)
     customers = filterRecordsByRbac(currentStaff, customers, "customers");
 
-    // Hợp nhất thẻ tag từ conversation_tags.json theo SĐT chuẩn
+    // Hợp nhất thẻ tag từ conversation_tags.json theo SĐT chuẩn & chuẩn hóa trường Nguồn/Nền tảng
     const convTagsMap = getAllConversationTags();
     const tagPalette = getTags();
     customers = customers.map((c) => {
       const cleanPhone = normalizePhone(c.phone);
       const phoneTags = cleanPhone && Array.isArray(convTagsMap[cleanPhone]) ? convTagsMap[cleanPhone] : [];
       const mergedTags = Array.from(new Set([...(Array.isArray(c.tags) ? c.tags : []), ...phoneTags].filter(Boolean)));
+      const normalizedPlatform = normalizeCustomerPlatform(c);
+      const isLegacy = isLegacySystemCustomer(c);
       return {
         ...c,
         phone: cleanPhone || c.phone || "",
+        source: c.source || normalizedPlatform,
+        normalizedPlatform,
+        isLegacySource: isLegacy,
         assignedStaff: c.assignedStaff || c.staffName || "Chưa gán",
         purchasedProducts: Array.isArray(c.purchasedProducts) ? c.purchasedProducts : [],
         tags: mergedTags,
@@ -49,12 +131,45 @@ export async function GET(request) {
     const filterStaffSet = new Set();
     const filterProductSet = new Set();
     const filterPurchaseLevelSet = new Set();
+    const platformCounts = {
+      KHACHHANG_OLD: 0,
+      FACEBOOK: 0,
+      ZALO_PERSONAL: 0,
+      TIKTOK: 0,
+      SHOPEE: 0,
+      WEBSITE: 0,
+    };
 
     for (const c of customers) {
       for (const t of c.tags) filterTagSet.add(t);
       if (c.assignedStaff && c.assignedStaff !== "Chưa gán") filterStaffSet.add(c.assignedStaff);
       for (const p of c.purchasedProducts) filterProductSet.add(p);
       if (c.purchaseLevel) filterPurchaseLevelSet.add(c.purchaseLevel);
+      if (c.isLegacySource) platformCounts.KHACHHANG_OLD += 1;
+      if (c.normalizedPlatform && platformCounts[c.normalizedPlatform] !== undefined) {
+        if (c.normalizedPlatform !== "KHACHHANG_OLD") {
+          platformCounts[c.normalizedPlatform] += 1;
+        }
+      }
+    }
+
+    const platformOptions = [
+      { value: "KHACHHANG_OLD", label: "📦 Hệ thống cũ (khachhang.addp.vn / Vpage)", count: platformCounts.KHACHHANG_OLD },
+      { value: "FACEBOOK", label: "📘 Fanpage Facebook", count: platformCounts.FACEBOOK },
+      { value: "ZALO_PERSONAL", label: "💬 Zalo Cá Nhân", count: platformCounts.ZALO_PERSONAL },
+      { value: "TIKTOK", label: "🎵 TikTok Shop", count: platformCounts.TIKTOK },
+      { value: "SHOPEE", label: "🟧 Shopee", count: platformCounts.SHOPEE },
+      { value: "WEBSITE", label: "🌐 Website ADDP (Magento)", count: platformCounts.WEBSITE },
+    ];
+
+    // 1.5 Lọc theo Nền tảng / Nguồn khách hàng
+    const normPlatformParam = platformFilter.toUpperCase();
+    if (normPlatformParam && normPlatformParam !== "ALL") {
+      if (normPlatformParam === "KHACHHANG_OLD") {
+        customers = customers.filter((c) => c.isLegacySource || c.normalizedPlatform === "KHACHHANG_OLD");
+      } else {
+        customers = customers.filter((c) => c.normalizedPlatform === normPlatformParam);
+      }
     }
 
     // 2. Lọc theo nhân viên chỉ định (ID hoặc Tên nhân viên)
@@ -116,11 +231,13 @@ export async function GET(request) {
       customers,
       total: customers.length,
       tagCatalog: tagPalette,
+      platformOptions,
       filterOptions: {
         tags: Array.from(filterTagSet),
         staffs: Array.from(filterStaffSet).sort(),
         products: Array.from(filterProductSet).sort(),
         purchaseLevels: Array.from(filterPurchaseLevelSet),
+        platforms: platformOptions,
       },
       currentStaff: currentStaff
         ? {

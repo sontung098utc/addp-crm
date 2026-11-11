@@ -5,16 +5,94 @@ import Link from "next/link";
 import { VIP_LEVELS, calculateVipLevel } from "@/lib/customerTiers";
 
 const CHANNEL_META = {
-  FACEBOOK: { label: "Fanpage FB / Vpage", icon: "📘" },
-  ZALO_PERSONAL: { label: "Zalo Cá Nhân", icon: "💬" },
-  ZALO_OA: { label: "Zalo OA", icon: "📱" },
-  TIKTOK_SHOP: { label: "TikTok Shop", icon: "🎵" },
-  SHOPEE: { label: "Shopee", icon: "🛍️" },
-  WEBSITE_MAGENTO: { label: "Magento 2.4.8", icon: "🌐" },
-  KIOTVIET: { label: "KiotViet POS", icon: "🏪" },
-  CALL: { label: "Hotline / Tư vấn", icon: "📞" },
-  OTHER: { label: "Vpage / Hệ thống cũ", icon: "🏷️" },
+  KHACHHANG_OLD: {
+    label: "khachhang.addp.vn",
+    icon: "📦",
+    badgeClass: "bg-purple-500/15 text-purple-300 border-purple-500/35",
+  },
+  FACEBOOK: {
+    label: "Facebook",
+    icon: "📘",
+    badgeClass: "bg-blue-500/15 text-blue-300 border-blue-500/35",
+  },
+  ZALO_PERSONAL: {
+    label: "Zalo",
+    icon: "💬",
+    badgeClass: "bg-cyan-500/15 text-cyan-300 border-cyan-500/35",
+  },
+  ZALO_OA: {
+    label: "Zalo OA",
+    icon: "📱",
+    badgeClass: "bg-sky-500/15 text-sky-300 border-sky-500/35",
+  },
+  TIKTOK: {
+    label: "TikTok Shop",
+    icon: "🎵",
+    badgeClass: "bg-zinc-950 text-zinc-100 border-zinc-600",
+  },
+  TIKTOK_SHOP: {
+    label: "TikTok Shop",
+    icon: "🎵",
+    badgeClass: "bg-zinc-950 text-zinc-100 border-zinc-600",
+  },
+  SHOPEE: {
+    label: "Shopee",
+    icon: "🟧",
+    badgeClass: "bg-orange-500/15 text-orange-300 border-orange-500/40",
+  },
+  WEBSITE: {
+    label: "Website",
+    icon: "🌐",
+    badgeClass: "bg-sky-500/15 text-sky-300 border-sky-500/35",
+  },
+  WEBSITE_MAGENTO: {
+    label: "Website",
+    icon: "🌐",
+    badgeClass: "bg-sky-500/15 text-sky-300 border-sky-500/35",
+  },
+  KIOTVIET: {
+    label: "KiotViet POS",
+    icon: "🏪",
+    badgeClass: "bg-emerald-500/15 text-emerald-300 border-emerald-500/35",
+  },
+  CALL: {
+    label: "Hotline",
+    icon: "📞",
+    badgeClass: "bg-teal-500/15 text-teal-300 border-teal-500/35",
+  },
+  OTHER: {
+    label: "Hệ thống cũ",
+    icon: "📦",
+    badgeClass: "bg-purple-500/15 text-purple-300 border-purple-500/35",
+  },
 };
+
+function resolveCustomerChannelBadge(customer = {}) {
+  const key = String(
+    customer.normalizedPlatform ||
+      customer.sourceChannel ||
+      customer.source ||
+      customer.channel ||
+      "KHACHHANG_OLD"
+  )
+    .trim()
+    .toUpperCase();
+  const base = CHANNEL_META[key] || {
+    label: customer.channelLabel || key || "Hệ thống cũ",
+    icon: "🏷️",
+    badgeClass: "bg-slate-800 text-slate-300 border-slate-700",
+  };
+  return {
+    key,
+    icon: base.icon,
+    label:
+      key === "KHACHHANG_OLD" && customer.channelLabel && !/khachhang/i.test(customer.channelLabel)
+        ? customer.channelLabel
+        : base.label,
+    badgeClass: base.badgeClass,
+    isLegacy: Boolean(customer.isLegacySource || customer.migratedFrom === "khachhang.addp.vn"),
+  };
+}
 
 const PAGE_SIZE = 50;
 
@@ -26,9 +104,11 @@ export default function CustomersPage() {
     staffs: [],
     products: [],
     purchaseLevels: [],
+    platforms: [],
   });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selectedPlatform, setSelectedPlatform] = useState("all");
   const [tagFilter, setTagFilter] = useState("ALL");
   const [staffFilter, setStaffFilter] = useState("ALL");
   const [productFilter, setProductFilter] = useState("ALL");
@@ -79,6 +159,7 @@ export default function CustomersPage() {
       setLoading(true);
       const params = new URLSearchParams();
       if (search.trim()) params.set("search", search.trim());
+      if (selectedPlatform && selectedPlatform !== "all") params.set("platform", selectedPlatform);
       if (tagFilter !== "ALL") params.set("tag", tagFilter);
       if (staffFilter !== "ALL") params.set("staff", staffFilter);
       if (productFilter !== "ALL") params.set("product", productFilter);
@@ -115,7 +196,7 @@ export default function CustomersPage() {
 
   useEffect(() => {
     fetchCustomers();
-  }, [tagFilter, staffFilter, productFilter, purchaseLevelFilter, vipFilter]);
+  }, [selectedPlatform, tagFilter, staffFilter, productFilter, purchaseLevelFilter, vipFilter]);
 
   const staffOptionsList = useMemo(() => {
     const names = new Set();
@@ -324,6 +405,7 @@ export default function CustomersPage() {
 
   const hasActiveFilters =
     search.trim() !== "" ||
+    selectedPlatform !== "all" ||
     tagFilter !== "ALL" ||
     staffFilter !== "ALL" ||
     productFilter !== "ALL" ||
@@ -332,6 +414,7 @@ export default function CustomersPage() {
 
   const handleResetFilters = () => {
     setSearch("");
+    setSelectedPlatform("all");
     setTagFilter("ALL");
     setStaffFilter("ALL");
     setProductFilter("ALL");
@@ -454,7 +537,7 @@ export default function CustomersPage() {
 
       {/* Bộ lọc thông minh đa chiều */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-2.5">
           {/* Ô tìm kiếm */}
           <form onSubmit={handleSearchSubmit} className="lg:col-span-2 relative">
             <input
@@ -462,7 +545,7 @@ export default function CustomersPage() {
               placeholder="Tìm Tên, SĐT 10 số, Sản phẩm, Bệnh lý..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-9 pr-20 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-9 pr-16 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
             />
             <span className="absolute left-3 top-2.5 text-slate-500 text-xs">🔍</span>
             <button
@@ -472,6 +555,36 @@ export default function CustomersPage() {
               Tìm
             </button>
           </form>
+
+          {/* Lọc theo Nền tảng / Nguồn khách hàng */}
+          <div className="relative">
+            <select
+              value={selectedPlatform}
+              onChange={(e) => {
+                setSelectedPlatform(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer"
+              title="Lọc khách hàng theo nền tảng / nguồn"
+            >
+              <option value="all">🌐 Tất Cả Nền Tảng</option>
+              {(filterOptions.platforms && filterOptions.platforms.length > 0
+                ? filterOptions.platforms
+                : [
+                    { value: "KHACHHANG_OLD", label: "📦 Hệ thống cũ (khachhang.addp.vn / Vpage)" },
+                    { value: "FACEBOOK", label: "📘 Fanpage Facebook" },
+                    { value: "ZALO_PERSONAL", label: "💬 Zalo Cá Nhân" },
+                    { value: "TIKTOK", label: "🎵 TikTok Shop" },
+                    { value: "SHOPEE", label: "🟧 Shopee" },
+                    { value: "WEBSITE", label: "🌐 Website ADDP (Magento)" },
+                  ]
+              ).map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.count !== undefined ? `${opt.label} (${opt.count})` : opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {/* Lọc theo Thẻ Tag Lộ trình */}
           <div>
@@ -640,9 +753,7 @@ export default function CustomersPage() {
                       (c.vipLevel && VIP_LEVELS[c.vipLevel]) ||
                       calculateVipLevel(c.totalOrders, c.totalSpent) ||
                       VIP_LEVELS.POTENTIAL;
-                    const rawSource = c.sourceChannel || c.source || c.channel || "OTHER";
-                    const ch = CHANNEL_META[rawSource] || { label: rawSource, icon: "🏷️" };
-                    const channelDisplay = c.channelLabel || ch.label;
+                    const chBadge = resolveCustomerChannelBadge(c);
                     const productsList = Array.isArray(c.purchasedProducts) ? c.purchasedProducts : [];
                     const tagsList = Array.isArray(c.tags) ? c.tags : [];
                     const staffDisplay = c.assignedStaff || c.staffName || "Chưa gán";
@@ -700,11 +811,15 @@ export default function CustomersPage() {
                             {c.phone || <span className="text-slate-500 font-sans">Chưa có SĐT</span>}
                           </div>
                           <span
-                            className="mt-0.5 inline-flex items-center gap-1 rounded bg-slate-800/90 text-slate-300 px-1.5 py-0.5 text-[10px] font-medium border border-slate-700/60 max-w-full truncate"
-                            title={channelDisplay}
+                            className={`mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold border max-w-full truncate ${chBadge.badgeClass}`}
+                            title={
+                              chBadge.isLegacy
+                                ? `${chBadge.label} • Đồng bộ từ khachhang.addp.vn`
+                                : chBadge.label
+                            }
                           >
-                            <span className="shrink-0">{ch.icon}</span>
-                            <span className="truncate">{channelDisplay}</span>
+                            <span className="shrink-0">{chBadge.icon}</span>
+                            <span className="truncate">{chBadge.label}</span>
                           </span>
                         </td>
 
