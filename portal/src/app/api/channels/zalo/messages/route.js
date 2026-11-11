@@ -137,7 +137,9 @@ export async function GET(request) {
     const targetHome = resolvedAcc.homeDir;
     const ownId = resolvedAcc.ownId || getOwnIdForHome(targetHome);
     const selfName = resolvedAcc.displayName || getActiveZaloAccountName(targetHome);
-    ensureZaloMcpDaemon(targetHome);
+    if (!getZaloSyncStatus(targetHome).isSyncing) {
+      ensureZaloMcpDaemon(targetHome);
+    }
 
     // 2. Ưu tiên đọc lịch sử tin nhắn thật từ các file history JSONL của đúng tài khoản Zalo này
     const localMessages = getThreadMessagesFromAllHistories(targetHome, threadId, ownId, selfName);

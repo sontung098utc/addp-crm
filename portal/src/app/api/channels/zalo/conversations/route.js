@@ -254,6 +254,8 @@ export async function GET(request) {
         activeCount: combinedWithTags.length,
         connectedZaloAccounts: [],
         connectedPages: getConnectedFacebookPages(),
+        currentUserRole: liveStaff?.role || "ADMIN",
+        currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
         conversations: combinedWithTags,
       });
     }
@@ -278,12 +280,8 @@ export async function GET(request) {
       return false;
     });
 
-    // 3. Đảm bảo daemon `mcp start --http` chỉ chạy cho tài khoản Zalo đang thực sự active
-    for (const acc of zaloAccountsToSync) {
-      ensureZaloMcpDaemon(acc.homeDir);
-    }
-
     // 2. Đồng bộ song song Metadata + Tin nhắn của tất cả tài khoản Zalo & Hội thoại Fanpage FB
+    // (Không khởi chạy ensureZaloMcpDaemon trước bước sync để tránh đụng WebSocket code 3000 khi backfill)
     const [zaloSyncResults, otherConversations] = await Promise.all([
       Promise.all(
         zaloAccountsToSync.map(async (acc) => {
@@ -292,6 +290,9 @@ export async function GET(request) {
           const threadsMap = getLatestThreadsFromAllHistories(acc.homeDir, effectiveOwnId);
 
           const syncStatus = getZaloSyncStatus(acc.homeDir);
+          if (!syncStatus.isSyncing) {
+            ensureZaloMcpDaemon(acc.homeDir);
+          }
 
           return {
             acc,
@@ -531,6 +532,8 @@ export async function GET(request) {
       activeCount: allActive.length,
       connectedZaloAccounts,
       connectedPages,
+      currentUserRole: liveStaff?.role || "ADMIN",
+      currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
       syncStatus: {
         isSyncing: isAnyZaloSyncing,
         accounts: syncAccounts,

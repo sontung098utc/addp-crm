@@ -116,29 +116,9 @@ export async function addUnifiedMessage({
   // Phát SSE cho trình duyệt cập nhật bong bóng chat tức thì
   broadcastMessage({ type: "NEW_MESSAGE", message: messageObj });
 
-  // Nếu là tin nhắn từ khách hàng -> Bắt SĐT, Gộp Khách Hàng 360 & Xử lý AI Bot Auto-Reply (Module 5)
+  // Nếu là tin nhắn từ khách hàng -> Chỉ cập nhật AI Bot nếu không phải sync/lịch sử cũ;
+  // KHÔNG tự ý lấy SĐT trong nội dung tin nhắn tạo mới hồ sơ Khách hàng
   if (!isMe && text) {
-    let resolvedCustomer = null;
-    const primaryPhone =
-      extractCustomerPhoneFromMessage(text) ||
-      (extractPhoneNumbersFromText(text)[0] ?? null);
-
-    if (primaryPhone) {
-      resolvedCustomer = getOrCreateCustomerByPhone({
-        phone: primaryPhone,
-        fullName: senderName || "Khách Hàng ADDP",
-        source: channel,
-        note: `Tự động nhận diện từ tin nhắn ${channel}: "${text.slice(0, 100)}"`,
-      });
-
-      broadcastMessage({
-        type: "CUSTOMER_IDENTIFIED",
-        phone: primaryPhone,
-        customer: resolvedCustomer,
-        threadId,
-      });
-    }
-
     // Kích hoạt luồng AI Bot Dược sĩ Thảo CHỈ cho tin nhắn mới thực tế (< 2 phút), tuyệt đối không chạy khi sync lịch sử
     const isHistoricalSync =
       metadata?.skipAiBot === true ||
@@ -152,9 +132,9 @@ export async function addUnifiedMessage({
         threadId: String(threadId),
         senderName: senderName || "Khách hàng",
         text,
-        customerProfile: resolvedCustomer || {
+        customerProfile: {
           fullName: senderName || "Anh/Chị",
-          phone: primaryPhone || null,
+          phone: null,
         },
       }).catch((err) => {
         console.error("[AI_BOT_AUTO_REPLY_ERR]", err.message);

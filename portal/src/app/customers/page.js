@@ -256,8 +256,16 @@ export default function CustomersPage() {
 
   const handleOpenInboxCare = (customer) => {
     const cleanPhone = String(customer.phone || "").replace(/\D/g, "");
-    const staffParam = encodeURIComponent(customer.assignedStaff || customer.staffName || "");
-    window.open(`/inbox?phone=${encodeURIComponent(cleanPhone)}&staff=${staffParam}&autoOpen=true`, "_blank");
+    const zaloUid = String(customer.zaloUid || customer.zaloThreadId || "").trim();
+    const staffParam = customer.assignedStaff || customer.staffName || "";
+    const qs = new URLSearchParams();
+    if (cleanPhone) qs.set("phone", cleanPhone);
+    if (zaloUid) qs.set("zaloUid", zaloUid);
+    if (customer.fullName) qs.set("name", String(customer.fullName).trim());
+    if (customer.id) qs.set("customerId", String(customer.id));
+    if (staffParam) qs.set("staff", staffParam);
+    qs.set("autoOpen", "true");
+    window.open(`/inbox?${qs.toString()}`, "_blank");
   };
 
   const handleCreateCustomer = async (e) => {
@@ -533,7 +541,11 @@ export default function CustomersPage() {
                     const productsList = Array.isArray(c.purchasedProducts) ? c.purchasedProducts : [];
                     const tagsList = Array.isArray(c.tags) ? c.tags : [];
                     const staffDisplay = c.assignedStaff || c.staffName || "Chưa gán";
-                    const hasPhoneForCare = Boolean(String(c.phone || "").replace(/\D/g, "").length >= 9);
+                    const hasPhoneForCare = Boolean(
+                      String(c.phone || "").replace(/\D/g, "").length >= 9 ||
+                        c.zaloUid ||
+                        c.zaloThreadId
+                    );
 
                     return (
                       <tr key={c.id || c.code} className="hover:bg-slate-800/30 transition align-middle">
@@ -674,8 +686,8 @@ export default function CustomersPage() {
                               className="rounded-md bg-emerald-600/20 hover:bg-emerald-600/40 disabled:opacity-40 disabled:cursor-not-allowed border border-emerald-500/40 px-1.5 py-1 text-[10px] font-bold text-emerald-300 transition cursor-pointer truncate text-center"
                               title={
                                 hasPhoneForCare
-                                  ? `Mở hộp thoại Zalo chăm sóc (${c.phone} - NV: ${staffDisplay})`
-                                  : "Khách chưa có SĐT hợp lệ để mở hội thoại"
+                                  ? `Mở hộp thoại Zalo chăm sóc (${c.phone || c.zaloUid} - NV: ${staffDisplay})`
+                                  : "Khách chưa có SĐT hợp lệ hoặc Zalo UID để mở hội thoại"
                               }
                             >
                               💬 Zalo

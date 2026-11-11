@@ -168,6 +168,8 @@ export default function LiveZaloInbox() {
   const [zaloSyncStatus, setZaloSyncStatus] = useState(null);
   const [refreshMsgCount, setRefreshMsgCount] = useState(0);
   const channelPopoverRef = useRef(null);
+  const [currentUserRole, setCurrentUserRole] = useState("ADMIN");
+  const deepLinkLookupInFlightRef = useRef(false);
 
   // Hồ Sơ Khách Hàng 360 liên kết với hội thoại
   const [matchedCustomer, setMatchedCustomer] = useState(null);
@@ -446,6 +448,9 @@ export default function LiveZaloInbox() {
       if (Array.isArray(dataConv.connectedPages)) {
         setConnectedPages(dataConv.connectedPages);
       }
+      if (dataConv.currentUserRole) {
+        setCurrentUserRole(dataConv.currentUserRole);
+      }
       if (dataConv.syncStatus !== undefined) {
         setZaloSyncStatus(dataConv.syncStatus || null);
       }
@@ -650,17 +655,18 @@ export default function LiveZaloInbox() {
     }
     let isCancelled = false;
 
-    const scannedPhones = extractChatPhoneNumbers(messages);
-    const effectivePhone =
+    // CHỈ sử dụng SĐT xác thực của khách hàng / Zalo profile (tuyệt đối KHÔNG quét bừa SĐT từ nội dung tin nhắn)
+    const verifiedConvPhone =
       (activeConv.phone && normalizePhone(activeConv.phone)) ||
-      scannedPhones[0] ||
+      (activeConv.zaloPhone && normalizePhone(activeConv.zaloPhone)) ||
       "";
-    setDetectedChatPhone(effectivePhone);
+    setDetectedChatPhone(verifiedConvPhone);
 
     async function loadCustomerProfile() {
       try {
         setLoadingCustomer(true);
-        const searchParam = effectivePhone || activeConv.id || activeConv.name || "";
+        const targetUid = String(activeConv.zaloUid || activeConv.id || "").trim();
+        const searchParam = verifiedConvPhone || targetUid || "";
         if (!searchParam) {
           setMatchedCustomer(null);
           return;
@@ -669,9 +675,18 @@ export default function LiveZaloInbox() {
         const data = await res.json();
         if (!isCancelled && data.ok && Array.isArray(data.customers) && data.customers.length > 0) {
           const exact =
-            data.customers.find((c) => effectivePhone && normalizePhone(c.phone) === effectivePhone) ||
-            data.customers[0];
+            data.customers.find(
+              (c) =>
+                (verifiedConvPhone && normalizePhone(c.phone) === verifiedConvPhone) ||
+                (targetUid &&
+                  (String(c.zaloUid || "") === targetUid ||
+                    String(c.zaloThreadId || "") === targetUid))
+            ) || null;
           setMatchedCustomer(exact);
+          if (exact?.phone && !verifiedConvPhone) {
+            const normCrmPhone = normalizePhone(exact.phone);
+            if (normCrmPhone) setDetectedChatPhone(normCrmPhone);
+          }
         } else if (!isCancelled) {
           setMatchedCustomer(null);
         }
@@ -687,7 +702,7 @@ export default function LiveZaloInbox() {
     return () => {
       isCancelled = true;
     };
-  }, [activeConv?.id, activeConv?.name, activeConv?.phone, messages]);
+  }, [activeConv?.id, activeConv?.zaloUid, activeConv?.phone, activeConv?.zaloPhone]);
 
   // Đồng bộ trạng thái Bot AI theo cấp tài khoản & cấp hội thoại
   useEffect(() => {
@@ -1037,15 +1052,18 @@ export default function LiveZaloInbox() {
     }
   };
 
-  // Tự động nhận diện query params (?phone=...&staff=...&autoOpen=true) khi điều hướng từ trang Khách hàng (/customers)
+  // Tự động nhận diện query params (?phone=...&zaloUid=...&name=...&customerId=...&staff=...&autoOpen=true) khi điều hướng từ trang Khách hàng (/customers)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const rawPhone = (params.get("phone") || "").trim();
+    const rawZaloUid = (params.get("zaloUid") || "").trim();
+    const rawName = (params.get("name") || "").trim();
+    const rawCustomerId = (params.get("customerId") || "").trim();
     const rawStaff = (params.get("staff") || "").trim();
     const autoOpen = params.get("autoOpen") === "true";
 
-    if (!rawPhone && !rawStaff) return;
+    if (!rawPhone && !rawZaloUid && !rawStaff) return;
 
     const stripVietnamese = (str) =>
       String(str || "")
@@ -1056,15 +1074,16 @@ export default function LiveZaloInbox() {
         .toLowerCase()
         .trim();
 
-    // 1. Tự động chọn tài khoản Zalo theo Nhân viên phụ trách (staff)
-    let matchedAccId = null;
-    if (rawStaff && !deepLinkStaffAppliedRef.current) {
-      const targetStaffNorm = stripVietnamese(rawStaff);
-      const pool =
-        (effectiveZaloAccounts && effectiveZaloAccounts.length > 0
-          ? effectiveZaloAccounts
-          : connectedZaloAccounts) || [];
+    const isAdminUser = currentUserRole === "ADMIN";
+    const pool =
+      (effectiveZaloAccounts && effectiveZaloAccounts.length > 0
+        ? effectiveZaloAccounts
+        : connectedZaloAccounts) || [];
 
+    // Tìm tài khoản ưu tiên theo NV phụ trách (nếu có)
+    let preferredAccId = null;
+    if (rawStaff) {
+      const targetStaffNorm = stripVietnamese(rawStaff);
       const matchedAcc = pool.find((acc) => {
         const candidates = [
           acc.name,
@@ -1078,86 +1097,168 @@ export default function LiveZaloInbox() {
           return cNorm && targetStaffNorm && (cNorm.includes(targetStaffNorm) || targetStaffNorm.includes(cNorm));
         });
       });
-
       if (matchedAcc?.accountId) {
-        matchedAccId = String(matchedAcc.accountId);
-        deepLinkStaffAppliedRef.current = true;
-        handleAccountDropdownChange(`ZALO_ACCOUNT:${matchedAcc.accountId}`);
+        preferredAccId = String(matchedAcc.accountId);
+        // Với nhân viên (non-Admin): khóa bộ lọc về đúng nick Zalo phụ trách; Admin giữ ALL để quét toàn bộ tài khoản
+        if (!isAdminUser && !deepLinkStaffAppliedRef.current) {
+          deepLinkStaffAppliedRef.current = true;
+          handleAccountDropdownChange(`ZALO_ACCOUNT:${matchedAcc.accountId}`);
+        }
       }
     }
 
-    // 2. Tự động tìm và mở hội thoại theo SĐT (phone & autoOpen)
-    if (rawPhone && !deepLinkAppliedRef.current && (conversations || []).length > 0) {
-      const cleanPhone = normalizePhone(rawPhone);
-      const digitsOnly = rawPhone.replace(/\D/g, "");
+    if (deepLinkAppliedRef.current || loadingConv) return;
+    if (!rawPhone && !rawZaloUid) return;
 
-      const matchesPhone = (c) => {
+    const cleanPhone = normalizePhone(rawPhone);
+
+    const matchesLocalCustomer = (c) => {
+      if (rawZaloUid) {
+        const cid = String(c.id || "").trim();
+        const tid = String(c.threadId || "").trim();
+        if (cid === rawZaloUid || tid === rawZaloUid) return true;
+      }
+      if (cleanPhone) {
         const cPhone = normalizePhone(c.phone || "");
         const cZaloPhone = normalizePhone(c.zaloPhone || "");
-        if (cleanPhone && (cPhone === cleanPhone || cZaloPhone === cleanPhone)) return true;
-        if (digitsOnly.length >= 8) {
-          const idDigits = String(c.id || "").replace(/\D/g, "");
-          const recDigits = String(c.recipientId || "").replace(/\D/g, "");
-          const nameDigits = String(c.name || "").replace(/\D/g, "");
-          const msgDigits = String(c.lastMessage || "").replace(/\D/g, "");
-          if (
-            idDigits.includes(digitsOnly) ||
-            recDigits.includes(digitsOnly) ||
-            nameDigits.includes(digitsOnly) ||
-            msgDigits.includes(digitsOnly)
-          ) {
-            return true;
-          }
-        }
-        return false;
-      };
+        if (cPhone === cleanPhone || cZaloPhone === cleanPhone) return true;
+      }
+      return false;
+    };
 
-      const targetAccCheck =
-        matchedAccId || (selectedZaloAccountId !== "ALL" ? String(selectedZaloAccountId) : null);
+    const targetAccCheck =
+      preferredAccId || (selectedZaloAccountId !== "ALL" ? String(selectedZaloAccountId) : null);
 
-      const matchedConv =
-        (targetAccCheck &&
-          (conversations || []).find(
-            (c) => String(c.accountId || "") === targetAccCheck && matchesPhone(c)
-          )) ||
-        (conversations || []).find((c) => matchesPhone(c));
+    // Nếu là Admin: tìm trong nick ưu tiên trước, không thấy thì tìm trên TẤT CẢ các nick Zalo + kênh khác
+    const scopedPool = isAdminUser
+      ? conversations || []
+      : targetAccCheck
+      ? (conversations || []).filter(
+          (c) => c.channel !== "ZALO_PERSONAL" || String(c.accountId || "") === targetAccCheck
+        )
+      : conversations || [];
 
-      if (matchedConv) {
-        deepLinkAppliedRef.current = true;
-        if (
-          matchedConv.channel === "ZALO_PERSONAL" &&
-          matchedConv.accountId &&
-          selectedZaloAccountId !== "ALL" &&
-          String(matchedConv.accountId) !== String(selectedZaloAccountId)
-        ) {
-          handleAccountDropdownChange(`ZALO_ACCOUNT:${matchedConv.accountId}`);
-        } else if (matchedConv.channel !== "ZALO_PERSONAL" && channelFilter === "ZALO_PERSONAL") {
-          handleAccountDropdownChange("ALL");
-        }
+    const matchedConv =
+      (targetAccCheck &&
+        scopedPool.find(
+          (c) => String(c.accountId || "") === targetAccCheck && matchesLocalCustomer(c)
+        )) ||
+      scopedPool.find((c) => matchesLocalCustomer(c));
 
-        if (matchedConv.isContactOnly) {
-          setShowContactsSection(true);
-        }
-        if (autoOpen || cleanPhone) {
-          setActiveConv(matchedConv);
-          setSearchQuery(cleanPhone || rawPhone);
-          setToast({
-            type: "success",
-            text: `💬 Đã mở hội thoại chăm sóc: ${matchedConv.name || cleanPhone || rawPhone}`,
-          });
-          setTimeout(() => setToast(null), 4000);
-        }
-      } else if (!loadingConv) {
-        deepLinkAppliedRef.current = true;
-        setSearchQuery(cleanPhone || rawPhone);
+    if (matchedConv) {
+      deepLinkAppliedRef.current = true;
+      if (matchedConv.isContactOnly) {
+        setShowContactsSection(true);
+      }
+      if (
+        matchedConv.channel === "ZALO_PERSONAL" &&
+        matchedConv.accountId &&
+        selectedAccountFilter !== "ALL" &&
+        String(selectedZaloAccountId) !== String(matchedConv.accountId)
+      ) {
+        handleAccountDropdownChange(`ZALO_ACCOUNT:${matchedConv.accountId}`);
+      } else if (matchedConv.channel !== "ZALO_PERSONAL" && channelFilter === "ZALO_PERSONAL") {
+        handleAccountDropdownChange("ALL");
+      }
+
+      if (autoOpen || cleanPhone || rawZaloUid) {
+        setActiveConv(matchedConv);
         setToast({
           type: "success",
-          text: `🔍 Đã lọc SĐT ${cleanPhone || rawPhone}${rawStaff ? ` (NV: ${rawStaff})` : ""}. Chưa có lịch sử chat sẵn trong danh sách.`,
+          text: `💬 Đã mở hội thoại Zalo: ${matchedConv.name || rawName || cleanPhone}${matchedConv.accountName ? ` (${matchedConv.accountName})` : ""}`,
         });
-        setTimeout(() => setToast(null), 5000);
+        setTimeout(() => setToast(null), 4500);
       }
+      return;
     }
-  }, [conversations, effectiveZaloAccounts, connectedZaloAccounts, loadingConv, selectedZaloAccountId, channelFilter]);
+
+    // Chưa có trong danh sách hội thoại sẵn có -> Gọi Pure HTTP-REST FindUser trên đúng phạm vi nick Zalo (Admin: tất cả nick; NV: nick được phân quyền)
+    if (deepLinkLookupInFlightRef.current) return;
+    deepLinkLookupInFlightRef.current = true;
+
+    let isCancelled = false;
+    setToast({
+      type: "info",
+      text: `🔍 Đang tìm Zalo khách hàng ${rawName || cleanPhone || rawZaloUid}...`,
+    });
+
+    (async () => {
+      try {
+        const qs = new URLSearchParams();
+        if (cleanPhone || rawPhone) qs.set("phone", cleanPhone || rawPhone);
+        if (rawZaloUid) qs.set("zaloUid", rawZaloUid);
+        if (rawName) qs.set("name", rawName);
+        if (rawCustomerId) qs.set("customerId", rawCustomerId);
+        if (rawStaff) qs.set("staff", rawStaff);
+
+        const res = await fetch(`/api/channels/zalo/find-customer?${qs.toString()}`);
+        const data = await res.json();
+        if (isCancelled) return;
+
+        deepLinkAppliedRef.current = true;
+
+        if (data?.ok && data?.found && data?.conversation) {
+          const foundConv = data.conversation;
+          setConversations((prev) => {
+            const exists = (prev || []).some(
+              (item) =>
+                String(item.id) === String(foundConv.id) &&
+                item.channel === foundConv.channel &&
+                String(item.accountId || "") === String(foundConv.accountId || "")
+            );
+            if (exists) return prev;
+            return [foundConv, ...(prev || [])];
+          });
+          if (foundConv.isContactOnly) {
+            setShowContactsSection(true);
+          }
+          if (selectedAccountFilter !== "ALL") {
+            handleAccountDropdownChange(
+              foundConv.accountId ? `ZALO_ACCOUNT:${foundConv.accountId}` : "ALL"
+            );
+          }
+          setActiveConv(foundConv);
+          setToast({
+            type: "success",
+            text: `💬 Đã tìm thấy & mở Zalo: ${foundConv.name} (${foundConv.accountName || "Zalo"})`,
+          });
+          setTimeout(() => setToast(null), 4500);
+        } else {
+          setToast({
+            type: "error",
+            text:
+              data?.message ||
+              `Không tìm thấy tài khoản Zalo cho ${rawName || cleanPhone || rawZaloUid}.`,
+          });
+          setTimeout(() => setToast(null), 6000);
+        }
+      } catch {
+        if (!isCancelled) {
+          deepLinkAppliedRef.current = true;
+          setToast({
+            type: "error",
+            text: `Lỗi khi tìm kiếm Zalo cho ${rawName || cleanPhone || rawZaloUid}.`,
+          });
+          setTimeout(() => setToast(null), 5000);
+        }
+      } finally {
+        deepLinkLookupInFlightRef.current = false;
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    conversations,
+    effectiveZaloAccounts,
+    connectedZaloAccounts,
+    loadingConv,
+    selectedZaloAccountId,
+    selectedAccountFilter,
+    channelFilter,
+    currentUserRole,
+  ]);
 
   // Helper lấy thông tin hiển thị cho nút Popover Gom Kênh
   const getSelectedFilterInfo = () => {
@@ -1609,17 +1710,26 @@ export default function LiveZaloInbox() {
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColorClass}`} />
               <span className="truncate">{sourceBadgeText}</span>
             </span>
-            {/* Hiển thị 1-2 Thẻ Tags Nhận Diện Nhanh */}
-            {Array.isArray(conv.tags) &&
-              conv.tags.slice(0, 2).map((t) => (
+            {/* Hiển thị gọn tối đa 1 thẻ tag + đếm nếu nhiều */}
+            {Array.isArray(conv.tags) && conv.tags.length > 0 && (
+              <>
                 <span
-                  key={t}
-                  className="inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 truncate max-w-[80px]"
-                  title={`Thẻ tag: ${t}`}
+                  key={conv.tags[0]}
+                  className="inline-flex items-center rounded px-1.5 py-0.2 text-[9px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 truncate max-w-[74px]"
+                  title={`Thẻ tag: ${conv.tags.join(", ")}`}
                 >
-                  🏷️ {t}
+                  {conv.tags[0]}
                 </span>
-              ))}
+                {conv.tags.length > 1 && (
+                  <span
+                    className="inline-flex items-center rounded px-1 py-0.2 text-[9px] font-bold bg-slate-800 text-slate-300 border border-slate-700 shrink-0"
+                    title={conv.tags.slice(1).join(", ")}
+                  >
+                    +{conv.tags.length - 1}
+                  </span>
+                )}
+              </>
+            )}
             {(conv.unreadCount > 0 || conv.unread > 0) && (
               <span className="rounded-full bg-rose-500 px-1.5 py-0.2 text-[9px] font-bold text-white badge-solid-white tabular-nums ml-auto">
                 {conv.unreadCount || conv.unread}
@@ -2189,267 +2299,286 @@ export default function LiveZaloInbox() {
         <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 min-w-0 min-h-0">
           {activeConv ? (
             <>
-              {/* Header khung chat thực chiến chuẩn Responsive */}
-              <div className="min-h-[64px] px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex items-center justify-between gap-3 flex-shrink-0">
-                {/* Cụm Trái: Thông tin khách hàng & SĐT */}
-                <div className="flex-1 min-w-0 pr-2 flex items-center gap-3">
-                  <div className="relative flex-shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={getSafeAvatarUrl(activeConv)}
-                      alt={activeConv.name}
-                      onError={(e) => handleAvatarImgError(e, activeConv.name)}
-                      className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
-                    />
-                    <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
-                  </div>
+              {/* Header khung chat 2 dòng gọn gàng: Dòng 1 Tên + SĐT + Nút tác nghiệp; Dòng 2 Kênh + Dải thẻ gọn */}
+              <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex flex-col gap-1.5 flex-shrink-0">
+                <div className="flex items-center justify-between gap-3">
+                  {/* Cụm Trái: Avatar + Tên khách đầy đủ + Badge SĐT */}
+                  <div className="flex-1 min-w-0 flex items-center gap-2.5">
+                    <div className="relative flex-shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={getSafeAvatarUrl(activeConv)}
+                        alt={activeConv.name}
+                        onError={(e) => handleAvatarImgError(e, activeConv.name)}
+                        className="h-9 w-9 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
+                      />
+                      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
+                    </div>
 
-                  <div className="min-w-0 flex flex-col justify-center space-y-0.5">
-                    {/* Dòng 1: Tên khách + Badge SĐT */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                    <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                      <h3
+                        className="font-bold text-sm text-slate-900 dark:text-white truncate max-w-[220px] sm:max-w-[280px]"
+                        title={activeConv.name}
+                      >
                         {activeConv.name}
                       </h3>
 
-                      {/* Badge SĐT nổi bật */}
                       {(activeConv.phone || detectedChatPhone) && (
                         <span
-                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.2 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 shrink-0"
-                          title="Số điện thoại khách hàng"
+                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 shrink-0 tabular-nums"
+                          title="Số điện thoại xác thực của khách hàng"
                         >
                           📞 {activeConv.phone || detectedChatPhone}
                         </span>
                       )}
-                    </div>
 
-                    {/* Dòng 2: Nhãn kênh tiếp nhận + Thẻ Tags */}
-                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap">
                       <span
-                        className={`rounded px-1.5 py-0.2 text-[9px] font-bold whitespace-nowrap shrink-0 ${
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap shrink-0 ${
                           getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
                         }`}
                       >
                         {activeChannelName}
                       </span>
-                      <span className="truncate max-w-[150px]">
-                        {activeConv.type === "GROUP" && activeConv.memberCount > 0
-                          ? `Nhóm ${activeConv.memberCount} thành viên`
-                          : activeConv.channel === "FACEBOOK" && activeConv.pageName
-                          ? `Page: ${activeConv.pageName}`
-                          : activeConv.accountDisplayName
-                          ? `Tài khoản: ${activeConv.accountDisplayName}`
-                          : `ID: ${activeConv.id}`}
-                      </span>
+                    </div>
+                  </div>
 
-                      {/* Thẻ tags đã gắn cho khách */}
-                      {(activeConv.tags || []).map((tagStr) => {
-                        const tagMeta = availableTags.find((t) => t.name === tagStr || t.id === tagStr) || {
-                          name: tagStr,
-                          bg: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-                        };
-                        return (
-                          <span
-                            key={tagStr}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${tagMeta.bg}`}
-                          >
-                            <span>🏷️ {tagMeta.name}</span>
+                  {/* Cụm Phải: Điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Hồ Sơ */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {(() => {
+                      const isAccountHuman =
+                        isConversationAccountHuman(activeConv) ||
+                        isAccountLevelHuman ||
+                        activeConv?.channelBotMode === "HUMAN" ||
+                        activeConv?.botMode === "HUMAN";
+                      const isThreadHuman = isAccountHuman || convBotMode === "HUMAN";
+
+                      return (
+                        <>
+                          {/* Công tắc Toggle Switch Bật/Tắt AI cho từng khách */}
+                          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs">
                             <button
                               type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleTagOnActiveConv(tagStr);
-                              }}
-                              className="hover:text-red-500 font-bold ml-0.5 text-xs cursor-pointer"
-                              title="Gỡ thẻ tag"
+                              role="switch"
+                              aria-checked={!isThreadHuman}
+                              onClick={handleToggleAiSwitch}
+                              disabled={togglingBot}
+                              title={
+                                !isThreadHuman
+                                  ? "AI Đang Trực — Bấm để chuyển sang Sale trực"
+                                  : "Sale Trực — Bấm để bật lại AI Trực"
+                              }
+                              className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none"
                             >
-                              ×
-                            </button>
-                          </span>
-                        );
-                      })}
-
-                      {/* Nút + Gắn Thẻ Popover */}
-                      <div className="relative inline-block" ref={tagPopoverRef}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsTagPopoverOpen(!isTagPopoverOpen);
-                          }}
-                          className="text-[11px] text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-0.5 rounded-full flex items-center gap-1 transition-all cursor-pointer"
-                        >
-                          <span>🏷️</span> + Gắn Thẻ
-                        </button>
-
-                        {isTagPopoverOpen && (
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
-                          >
-                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
-                              <span>Gắn Thẻ Khách Hàng</span>
-                              <Link
-                                className="text-[10px] text-blue-600 hover:underline font-normal inline-flex items-center gap-0.5"
-                                href="/settings/tags"
-                                target="_blank"
+                              <span className="text-[11px] font-bold whitespace-nowrap">
+                                {!isThreadHuman ? (
+                                  <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                                    <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse shrink-0" />
+                                    🤖 AI Trực
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
+                                    <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                                    👤 Sale Trực
+                                  </span>
+                                )}
+                              </span>
+                              <span
+                                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
+                                  !isThreadHuman
+                                    ? "bg-purple-600"
+                                    : "bg-slate-300 dark:bg-slate-700"
+                                }`}
                               >
-                                ⚙️ Quản lý thẻ
-                              </Link>
-                            </div>
-
-                            {/* Danh sách thẻ thực tế trong hệ thống */}
-                            <div className="max-h-44 overflow-y-auto space-y-1 mb-2 pr-0.5">
-                              {availableTags.length === 0 ? (
-                                <p className="text-[11px] text-slate-400 italic text-center py-2">
-                                  Chưa có thẻ nào trong hệ thống
-                                </p>
-                              ) : (
-                                availableTags.map((tag) => {
-                                  const isChecked =
-                                    (activeConv?.tags || []).includes(tag.name) ||
-                                    (activeConv?.tags || []).includes(tag.id);
-                                  return (
-                                    <label
-                                      key={tag.id || tag.name}
-                                      className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-lg cursor-pointer transition-colors"
-                                    >
-                                      <span
-                                        className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${
-                                          tag.bg || "bg-slate-100 text-slate-700 border-slate-200"
-                                        }`}
-                                      >
-                                        🏷️ {tag.name}
-                                      </span>
-                                      <input
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={() => handleToggleTagOnActiveConv(tag.name || tag.id)}
-                                        className="rounded text-blue-600 focus:ring-0 cursor-pointer h-3.5 w-3.5"
-                                      />
-                                    </label>
-                                  );
-                                })
-                              )}
-                            </div>
-
-                            {/* Form thêm nhanh thẻ mới tại chỗ */}
-                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                              <div className="flex gap-1.5">
-                                <input
-                                  type="text"
-                                  placeholder="Tên thẻ mới..."
-                                  value={newTagName}
-                                  onChange={(e) => setNewTagName(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      handleCreateAndAttachTag();
-                                    }
-                                  }}
-                                  className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                                <span
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                                    !isThreadHuman ? "translate-x-3.5" : "translate-x-0.5"
+                                  }`}
                                 />
-                                <button
-                                  type="button"
-                                  onClick={handleCreateAndAttachTag}
-                                  disabled={!newTagName.trim()}
-                                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
-                                >
-                                  Thêm
-                                </button>
-                              </div>
-                            </div>
+                              </span>
+                            </button>
                           </div>
-                        )}
-                      </div>
-                    </div>
+
+                          {/* Nút Lên Đơn Nhanh */}
+                          <button
+                            type="button"
+                            onClick={() => setIsOrderModalOpen(true)}
+                            title="Tạo đơn hàng nhanh cho khách"
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0"
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                            <span>Lên Đơn</span>
+                          </button>
+                        </>
+                      );
+                    })()}
+
+                    {/* Nút Hồ Sơ 360 */}
+                    <button
+                      type="button"
+                      onClick={() => setShowSidePanel(!showSidePanel)}
+                      title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0 ${
+                        showSidePanel
+                          ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
+                          : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden sm:inline">Hồ Sơ 360</span>
+                    </button>
                   </div>
                 </div>
 
-                {/* Cụm Phải: Điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Gọi + Hồ Sơ */}
-                <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                  {(() => {
-                    const isAccountHuman =
-                      isConversationAccountHuman(activeConv) ||
-                      isAccountLevelHuman ||
-                      activeConv?.channelBotMode === "HUMAN" ||
-                      activeConv?.botMode === "HUMAN";
-                    const isThreadHuman = isAccountHuman || convBotMode === "HUMAN";
+                {/* Dòng 2: Tài khoản tiếp nhận + Thẻ Tag gọn trên 1 hàng */}
+                <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/70">
+                  <span className="truncate max-w-[180px] shrink-0 text-[10px]">
+                    {activeConv.type === "GROUP" && activeConv.memberCount > 0
+                      ? `Nhóm ${activeConv.memberCount} thành viên`
+                      : activeConv.channel === "FACEBOOK" && activeConv.pageName
+                      ? `Page: ${activeConv.pageName}`
+                      : activeConv.accountDisplayName || activeConv.accountName
+                      ? `TK: ${activeConv.accountDisplayName || activeConv.accountName}`
+                      : `ID: ${activeConv.id}`}
+                  </span>
 
-                    return (
-                      <>
-                        {/* Công tắc Toggle Switch Bật/Tắt AI cho từng khách */}
-                        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs">
+                  <span className="text-slate-300 dark:text-slate-700 shrink-0">|</span>
+
+                  {/* Dải thẻ gọn (tối đa 3 thẻ trực tiếp + nút +N nếu nhiều hơn) */}
+                  <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar">
+                    {(activeConv.tags || []).slice(0, 3).map((tagStr) => {
+                      const tagMeta = availableTags.find((t) => t.name === tagStr || t.id === tagStr) || {
+                        name: tagStr,
+                        bg: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
+                      };
+                      return (
+                        <span
+                          key={tagStr}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border whitespace-nowrap shrink-0 max-w-[130px] ${tagMeta.bg}`}
+                          title={tagMeta.name}
+                        >
+                          <span className="truncate">{tagMeta.name}</span>
                           <button
                             type="button"
-                            role="switch"
-                            aria-checked={!isThreadHuman}
-                            onClick={handleToggleAiSwitch}
-                            disabled={togglingBot}
-                            title={
-                              !isThreadHuman
-                                ? "AI Đang Trực — Bấm để chuyển sang Sale trực"
-                                : "Sale Trực — Bấm để bật lại AI Trực"
-                            }
-                            className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleTagOnActiveConv(tagStr);
+                            }}
+                            className="hover:text-red-500 font-bold text-[11px] leading-none cursor-pointer shrink-0"
+                            title="Gỡ thẻ tag"
                           >
-                            <span className="text-xs font-bold whitespace-nowrap">
-                              {!isThreadHuman ? (
-                                <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                                  <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse shrink-0" />
-                                  🤖 AI Trực
-                                </span>
-                              ) : (
-                                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                                  <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
-                                  👤 Sale Trực
-                                </span>
-                              )}
-                            </span>
-                            {/* Switch Pill */}
-                            <span
-                              className={`relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
-                                !isThreadHuman
-                                  ? "bg-purple-600"
-                                  : "bg-slate-300 dark:bg-slate-700"
-                              }`}
-                            >
-                              <span
-                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
-                                  !isThreadHuman ? "translate-x-4" : "translate-x-0.5"
-                                }`}
-                              />
-                            </span>
+                            ×
                           </button>
-                        </div>
+                        </span>
+                      );
+                    })}
+                    {(activeConv.tags || []).length > 3 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsTagPopoverOpen(true);
+                        }}
+                        className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer"
+                        title={(activeConv.tags || []).slice(3).join(", ")}
+                      >
+                        +{(activeConv.tags || []).length - 3}
+                      </button>
+                    )}
 
-                        {/* Nút Lên Đơn Nhanh */}
-                        <button
-                          type="button"
-                          onClick={() => setIsOrderModalOpen(true)}
-                          title="Tạo đơn hàng nhanh cho khách"
-                          className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer badge-solid-white shrink-0"
+                    {/* Nút + Gắn Thẻ Popover */}
+                    <div className="relative inline-block shrink-0" ref={tagPopoverRef}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsTagPopoverOpen(!isTagPopoverOpen);
+                        }}
+                        className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+                      >
+                        + Gắn Thẻ
+                      </button>
+
+                      {isTagPopoverOpen && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
                         >
-                          <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
-                          <span>Lên Đơn</span>
-                        </button>
-                      </>
-                    );
-                  })()}
+                          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
+                            <span>Gắn Thẻ Khách Hàng</span>
+                            <Link
+                              className="text-[10px] text-blue-600 hover:underline font-normal inline-flex items-center gap-0.5"
+                              href="/settings/tags"
+                              target="_blank"
+                            >
+                              ⚙️ Quản lý thẻ
+                            </Link>
+                          </div>
 
-                  {/* Nút Hồ Sơ 360 */}
-                  <button
-                    type="button"
-                    onClick={() => setShowSidePanel(!showSidePanel)}
-                    title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                    className={`px-2 sm:px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-colors border inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer shrink-0 ${
-                      showSidePanel
-                        ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
-                        : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
-                    }`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden sm:inline">Hồ Sơ 360</span>
-                  </button>
+                          {/* Danh sách thẻ thực tế trong hệ thống */}
+                          <div className="max-h-44 overflow-y-auto space-y-1 mb-2 pr-0.5">
+                            {availableTags.length === 0 ? (
+                              <p className="text-[11px] text-slate-400 italic text-center py-2">
+                                Chưa có thẻ nào trong hệ thống
+                              </p>
+                            ) : (
+                              availableTags.map((tag) => {
+                                const isChecked =
+                                  (activeConv?.tags || []).includes(tag.name) ||
+                                  (activeConv?.tags || []).includes(tag.id);
+                                return (
+                                  <label
+                                    key={tag.id || tag.name}
+                                    className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-lg cursor-pointer transition-colors"
+                                  >
+                                    <span
+                                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                                        tag.bg || "bg-slate-100 text-slate-700 border-slate-200"
+                                      }`}
+                                    >
+                                      {tag.name}
+                                    </span>
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => handleToggleTagOnActiveConv(tag.name || tag.id)}
+                                      className="rounded text-blue-600 focus:ring-0 cursor-pointer h-3.5 w-3.5"
+                                    />
+                                  </label>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          {/* Form thêm nhanh thẻ mới tại chỗ */}
+                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                            <div className="flex gap-1.5">
+                              <input
+                                type="text"
+                                placeholder="Tên thẻ mới..."
+                                value={newTagName}
+                                onChange={(e) => setNewTagName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    handleCreateAndAttachTag();
+                                  }
+                                }}
+                                className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleCreateAndAttachTag}
+                                disabled={!newTagName.trim()}
+                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
+                              >
+                                Thêm
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2706,7 +2835,7 @@ export default function LiveZaloInbox() {
                     ? `SĐT: ${activeConv.phone || detectedChatPhone}`
                     : `ID: ${activeConv.id}`}
                 </p>
-                <div className="flex flex-wrap justify-center gap-1.5 mt-2">
+                <div className="flex flex-wrap justify-center gap-1 mt-1.5">
                   {activeConv?.tags && activeConv.tags.length > 0 ? (
                     activeConv.tags.map((tagId) => {
                       const tag = availableTags.find((t) => t.id === tagId || t.name === tagId);
@@ -2717,13 +2846,14 @@ export default function LiveZaloInbox() {
                       return (
                         <span
                           key={tagId}
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-medium border flex items-center gap-1 ${tagBg}`}
+                          className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium border inline-flex items-center gap-1 max-w-[150px] ${tagBg}`}
+                          title={tagName}
                         >
-                          🏷️ {tagName}
+                          <span className="truncate">{tagName}</span>
                           <button
                             type="button"
                             onClick={() => handleToggleTagOnActiveConv(tagId)}
-                            className="hover:text-red-500 font-bold ml-0.5 text-xs cursor-pointer"
+                            className="hover:text-red-500 font-bold text-[11px] leading-none cursor-pointer shrink-0"
                             title="Gỡ thẻ tag"
                           >
                             ×

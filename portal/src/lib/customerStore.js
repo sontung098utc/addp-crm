@@ -369,21 +369,46 @@ export async function syncCustomerMedicalStateFromMessage({
   messageText = "",
   source = "ZALO_PERSONAL",
   avatarUrl = "",
+  createIfMissing = false,
+  allowAutoTags = false,
 } = {}) {
-  const detectedPhones = extractPhoneNumbersFromText(messageText);
-  const effectivePhone = normalizePhone(senderPhone || detectedPhones[0] || "");
+  // Quy tắc chuẩn: KHÔNG tự lấy SĐT ngẫu nhiên trong nội dung tin nhắn để lưu thành SĐT khách hàng,
+  // chỉ dùng SĐT xác thực từ hồ sơ Zalo/CRM (senderPhone).
+  const verifiedPhone = normalizePhone(senderPhone || "");
   const genderInfo = analyzeVietnameseGenderAndPronoun(senderName);
+  const tid = String(threadId || "").trim();
 
-  // Tìm hoặc khởi tạo hồ sơ khách hàng trong store (.data/customers.json)
-  const existingOrCreated = await upsertCustomerByThreadOrPhone({
-    threadId: String(threadId || "").trim(),
-    phone: effectivePhone,
-    fullName: senderName || "Khách Zalo",
-    gender: genderInfo.gender,
-    pronoun: genderInfo.pronoun,
-    source,
-    avatar: avatarUrl,
-  });
+  const allCustomers = getAllCustomers();
+  let existingCustomer = null;
+  if (verifiedPhone) {
+    existingCustomer =
+      allCustomers.find((c) => normalizePhone(c.phone) === verifiedPhone) || null;
+  }
+  if (!existingCustomer && tid) {
+    existingCustomer =
+      allCustomers.find(
+        (c) =>
+          String(c.zaloUid || "") === tid ||
+          String(c.zaloThreadId || "") === tid ||
+          String(c.facebookId || "") === tid ||
+          String(c.psid || "") === tid
+      ) || null;
+  }
+
+  // Không tự ý tạo khách hàng mới từ hội thoại nhắn tin thụ động
+  const existingOrCreated =
+    existingCustomer ||
+    (createIfMissing && verifiedPhone
+      ? await upsertCustomerByThreadOrPhone({
+          threadId: tid,
+          phone: verifiedPhone,
+          fullName: senderName || "Khách Zalo",
+          gender: genderInfo.gender,
+          pronoun: genderInfo.pronoun,
+          source,
+          avatar: avatarUrl,
+        })
+      : null);
 
   const currentRecord = existingOrCreated?.medicalRecord || {
     bloodSugar: existingOrCreated?.currentGlucose
@@ -397,25 +422,45 @@ export async function syncCustomerMedicalStateFromMessage({
   };
 
   const extracted = extractMedicalEntities(messageText, currentRecord);
+
+  if (!existingOrCreated) {
+    return {
+      customer: null,
+      medicalRecord: extracted,
+      extracted,
+      genderInfo,
+    };
+  }
+
   const pathologySummary = formatPathologySummaryFromRecord(
     extracted,
     existingOrCreated?.pathology
   );
 
-  const mergedTags = Array.from(
-    new Set([
-      ...(Array.isArray(existingOrCreated?.tags) ? existingOrCreated.tags : []),
-      ...extracted.autoTags,
-    ])
-  );
+  // Không tự ý thêm thẻ tự động (#MuonTangCan, #OnDinhDuongHuyet...); giữ nguyên thẻ gốc (khachhang.addp.vn / gắn tay)
+  const preservedTags = allowAutoTags
+    ? Array.from(
+        new Set([
+          ...(Array.isArray(existingOrCreated?.tags) ? existingOrCreated.tags : []),
+          ...extracted.autoTags,
+        ])
+      )
+    : Array.isArray(existingOrCreated?.tags)
+    ? existingOrCreated.tags
+    : [];
 
   const updatedCustomer = updateCustomer(existingOrCreated.id, {
     fullName:
-      senderName &&
-      !["khách", "khách zalo", "khách hàng"].includes(senderName.toLowerCase().trim())
+      existingOrCreated.fullName &&
+      !["khách", "khách zalo", "khách hàng"].includes(
+        String(existingOrCreated.fullName).toLowerCase().trim()
+      )
+        ? existingOrCreated.fullName
+        : senderName &&
+          !["khách", "khách zalo", "khách hàng"].includes(senderName.toLowerCase().trim())
         ? senderName
         : existingOrCreated.fullName,
-    phone: effectivePhone || existingOrCreated.phone || "",
+    phone: existingOrCreated.phone || verifiedPhone || "",
     gender:
       genderInfo.gender !== "UNKNOWN"
         ? genderInfo.gender
@@ -425,8 +470,8 @@ export async function syncCustomerMedicalStateFromMessage({
         ? genderInfo.pronoun
         : existingOrCreated.pronoun || "mình",
     zaloUid:
-      source === "ZALO_PERSONAL" && threadId
-        ? String(threadId)
+      source === "ZALO_PERSONAL" && tid
+        ? tid
         : existingOrCreated.zaloUid,
     initialGlucose:
       existingOrCreated.initialGlucose ||
@@ -446,7 +491,7 @@ export async function syncCustomerMedicalStateFromMessage({
       desiredWeightGain: extracted.desiredWeightGain,
       updatedAt: extracted.updatedAt,
     },
-    tags: mergedTags,
+    tags: preservedTags,
   });
 
   return {

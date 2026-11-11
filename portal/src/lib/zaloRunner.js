@@ -116,7 +116,23 @@ export function ensureZaloMcpDaemon(homeDir) {
     const targetHome = homeDir || getActiveZaloHome();
     if (!targetHome) return false;
 
+    // Tuyệt đối không khởi chạy MCP Daemon nếu tài khoản này đang kéo WebSocket Backfill (tránh lỗi CLOSE_DUPLICATE 3000)
+    if (globalThis.__zaloSyncInFlight?.has(targetHome)) {
+      return false;
+    }
     const cliDir = path.join(targetHome, ".zalo-agent-cli");
+    const syncProgressPath = path.join(cliDir, ".crm-sync-progress.json");
+    if (fs.existsSync(syncProgressPath)) {
+      try {
+        const sp = JSON.parse(fs.readFileSync(syncProgressPath, "utf8"));
+        const pidAlive = sp?.pid ? isPidAlive(sp.pid) : false;
+        const fresh = sp?.updatedAt ? Date.now() - Number(sp.updatedAt) < 120000 : false;
+        if (sp?.status === "syncing" && (pidAlive || fresh)) {
+          return false;
+        }
+      } catch {}
+    }
+
     const credPath = path.join(cliDir, "credentials");
     if (!fs.existsSync(credPath)) return false;
 
@@ -343,7 +359,14 @@ export function stopZaloMcpDaemon(homeDir) {
       try {
         const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
         if (pid && isPidAlive(pid)) {
-          process.kill(pid);
+          try {
+            process.kill(pid, "SIGTERM");
+          } catch {}
+          if (isPidAlive(pid)) {
+            try {
+              process.kill(pid, "SIGKILL");
+            } catch {}
+          }
           stopped = true;
         }
         fs.unlinkSync(pidFile);
@@ -992,7 +1015,7 @@ export function triggerDirectSyncWorker(targetHome, optionsOrForceFull = false) 
 
   const forceFull = Boolean(opts.forceFull);
   const runWsBackfill = Boolean(opts.runWsBackfill);
-  const timeoutMs = Number(opts.timeoutMs) || (runWsBackfill ? 180000 : 75000);
+  const timeoutMs = Number(opts.timeoutMs) || (runWsBackfill ? 300000 : 120000);
 
   const promise = (async () => {
     let stoppedDaemonForWs = false;
@@ -1013,10 +1036,10 @@ export function triggerDirectSyncWorker(targetHome, optionsOrForceFull = false) 
         return { ok: false, error: "Không tìm thấy worker hoặc javis-zalo" };
       }
 
-      // Khi chạy WebSocket Backfill chủ động, tạm dừng daemon để tránh xung đột 2 WebSocket (code 3000)
+      // Khi chạy WebSocket Backfill chủ động, tạm dừng daemon và chờ 800ms để Zalo đóng socket cũ tránh code 3000
       if (runWsBackfill) {
         stoppedDaemonForWs = stopZaloMcpDaemon(targetHome);
-        await new Promise((r) => setTimeout(r, 350));
+        await new Promise((r) => setTimeout(r, 850));
       }
 
       return await new Promise((resolve) => {
@@ -1193,10 +1216,15 @@ export async function ensureAccountHistorySynced(zaloHomePath, accountId = "", o
 
     // 2. Đếm tổng số tin nhắn thực tế từ cả history.jsonl và crm-group-history.jsonl
     const msgCount = countLines(historyPath) + countLines(groupHistoryPath);
+    const hasPulledData =
+      Number(workerRes?.dmBackfilledCount || 0) > 0 ||
+      Number(workerRes?.groupBackfilledCount || 0) > 0 ||
+      Number(workerRes?.newGroupMessagesCount || 0) > 0;
 
     state = {
       initialSyncCompleted: Boolean(workerRes?.ok && msgCount > 0),
-      wsBackfillCompleted: Boolean(workerRes?.ok),
+      wsBackfillCompleted: Boolean(workerRes?.ok && !workerRes?.wsError && (hasPulledData || msgCount > 0)),
+      wsError: workerRes?.wsError || null,
       lastSyncTime: Date.now(),
       totalSynced: msgCount,
       dmBackfilled: workerRes?.dmBackfilledCount || 0,
@@ -1413,8 +1441,8 @@ export async function processIncomingZaloMessageWithBot({
     return { skipped: true, reason: "SELF_MESSAGE" };
   }
 
-  // 2. Tự động Định danh Khách hàng 360 & Bóc tách Thực thể Y khoa (Universal Upsert)
-  // Lưu trực tiếp `medicalRecord` (bloodSugar, duration, symptoms, goals) & Auto Tags vào `.data/customers.json`
+  // 2. Chỉ cập nhật ngữ cảnh y khoa vào hồ sơ Khách hàng ĐÃ TỒN TẠI (từ khachhang.addp.vn / tạo tay),
+  // TUYỆT ĐỐI KHÔNG tự tạo khách mới và KHÔNG tự gắn SĐT hay Thẻ Tag từ nội dung tin nhắn
   const detectedPhone = extractCustomerPhoneFromMessage(cleanText);
   let syncedResult = null;
   let customerRecord = null;
@@ -1422,22 +1450,16 @@ export async function processIncomingZaloMessageWithBot({
     syncedResult = await syncCustomerMedicalStateFromMessage({
       threadId: String(threadId),
       senderName: senderName || "Khách Zalo",
-      senderPhone: senderPhone || detectedPhone || "",
+      senderPhone: senderPhone || "",
       messageText: cleanText,
       source: channelId || "ZALO_PERSONAL",
       avatarUrl,
+      createIfMissing: false,
+      allowAutoTags: false,
     });
     customerRecord = syncedResult?.customer || null;
   } catch (syncErr) {
     console.error("[Zalo AI Bot] Lỗi đồng bộ Medical State:", syncErr.message);
-    if (detectedPhone) {
-      customerRecord = await getOrCreateCustomerByPhone({
-        phone: detectedPhone,
-        fullName: senderName || "Khách Zalo",
-        source: "ZALO_PERSONAL",
-        note: `Tự động cập nhật SĐT từ tin nhắn Zalo: "${cleanText.slice(0, 100)}"`,
-      });
-    }
   }
 
   // 3. Kiểm tra trạng thái Bot trên kênh & hội thoại và in log rõ ràng

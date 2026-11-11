@@ -13,7 +13,7 @@ import { pathToFileURL } from "url";
 const MAX_WS_PAGES = 150;
 const WS_PAGE_TIMEOUT_MS = 12000;
 const GROUP_HISTORY_COUNT = 50;
-const GROUP_BATCH_SIZE = 6;
+const GROUP_BATCH_SIZE = 10;
 const GROUP_CALL_TIMEOUT_MS = 8500;
 
 function sleep(ms) {
@@ -725,7 +725,7 @@ async function main() {
     progress.groupRestFetched = totalNewGroupMessages;
     writeProgress(progressPath, progress);
 
-    console.log(
+      console.log(
       JSON.stringify({
         ok: true,
         ownId,
@@ -736,6 +736,7 @@ async function main() {
         dmBackfilledCount: wsResult.dmBackfilled || 0,
         groupBackfilledCount: wsResult.groupBackfilled || 0,
         newGroupMessagesCount: totalNewGroupMessages,
+        wsError: wsResult.wsError || null,
       })
     );
     process.exit(0);
