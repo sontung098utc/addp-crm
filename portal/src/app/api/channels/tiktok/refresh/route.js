@@ -6,6 +6,7 @@ import {
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
   refreshTikTokOAuthToken,
+  fetchTikTokAuthorizedShopsDetailed,
 } from "@/lib/tiktokConfig.js";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,26 @@ export async function POST(request) {
     }
 
     const nowIso = new Date().toISOString();
+    let resolvedCipher = channel.shopCipher || channel.config?.shopCipher || "";
+    let resolvedShopId = channel.shopId || channel.config?.shopId || "";
+    let resolvedShopCode = channel.shopCode || channel.config?.shopCode || "";
+
+    if (!resolvedCipher && refreshed.accessToken) {
+      const authShops = await fetchTikTokAuthorizedShopsDetailed({
+        accessToken: refreshed.accessToken,
+        appKey,
+        appSecret,
+      });
+      const matched =
+        (authShops.shops || []).find((s) => String(s.id) === String(resolvedShopId)) ||
+        authShops.shops?.[0];
+      if (matched?.cipher) {
+        resolvedCipher = matched.cipher;
+        resolvedShopId = matched.id || resolvedShopId;
+        resolvedShopCode = matched.code || resolvedShopCode;
+      }
+    }
+
     const updated = updateChannelAccount(channel.id, {
       status: "CONNECTED",
       statusLabel: "Đã làm mới Token OAuth TikTok Shop",
@@ -69,6 +90,9 @@ export async function POST(request) {
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken,
         tokenExpiresAt: refreshed.tokenExpiresAt,
+        ...(resolvedCipher ? { shopCipher: resolvedCipher } : {}),
+        ...(resolvedShopId ? { shopId: resolvedShopId } : {}),
+        ...(resolvedShopCode ? { shopCode: resolvedShopCode } : {}),
         oauthStatus: "active",
         updatedAt: nowIso,
       },
@@ -76,6 +100,9 @@ export async function POST(request) {
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken,
         tokenExpiresAt: refreshed.tokenExpiresAt,
+        ...(resolvedCipher ? { shopCipher: resolvedCipher } : {}),
+        ...(resolvedShopId ? { shopId: resolvedShopId } : {}),
+        ...(resolvedShopCode ? { shopCode: resolvedShopCode } : {}),
       },
     });
 

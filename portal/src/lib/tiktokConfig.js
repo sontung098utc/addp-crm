@@ -100,14 +100,16 @@ export async function exchangeTikTokAuthCode(authCode, options = {}) {
 }
 
 /**
- * Lấy danh sách gian hàng đã ủy quyền (Authorized Shops) bằng access_token thật
+ * Lấy danh sách gian hàng đã ủy quyền (Authorized Shops) kèm thông tin lỗi chi tiết (nếu có)
  */
-export async function fetchTikTokAuthorizedShops({
+export async function fetchTikTokAuthorizedShopsDetailed({
   accessToken,
   appKey = TIKTOK_APP_KEY,
   appSecret = TIKTOK_APP_SECRET,
 }) {
-  if (!accessToken) return [];
+  if (!accessToken) {
+    return { ok: false, code: -1, message: "Thiếu accessToken TikTok Shop.", shops: [] };
+  }
   try {
     const reqPath = "/authorization/202309/shops";
     const timestamp = String(Math.floor(Date.now() / 1000));
@@ -121,22 +123,66 @@ export async function fetchTikTokAuthorizedShops({
       sign,
     });
 
-    const res = await fetch(`https://open-api.tiktokglobalshop.com${reqPath}?${qs.toString()}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "x-tts-access-token": accessToken,
-      },
-    });
-
-    const data = await res.json();
-    if (data?.code === 0 && Array.isArray(data?.data?.shops)) {
-      return data.data.shops;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    let res;
+    let data = null;
+    try {
+      res = await fetch(`https://open-api.tiktokglobalshop.com${reqPath}?${qs.toString()}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "x-tts-access-token": accessToken,
+        },
+        signal: controller.signal,
+      });
+      data = await res.json().catch(() => null);
+    } finally {
+      clearTimeout(timer);
     }
+
+    if (data?.code === 0 && Array.isArray(data?.data?.shops)) {
+      const normalizedShops = data.data.shops.map((s) => ({
+        ...s,
+        id: s.id || s.shop_id || "",
+        name: s.name || s.shop_name || "",
+        cipher: s.cipher || s.shop_cipher || "",
+      }));
+      return { ok: true, code: 0, message: "success", shops: normalizedShops };
+    }
+
+    return {
+      ok: false,
+      httpStatus: res?.status || 0,
+      code: data?.code ?? -1,
+      message: data?.message || `HTTP ${res?.status || 0}`,
+      shops: [],
+    };
   } catch (err) {
     console.warn("[TIKTOK_AUTHORIZED_SHOPS_WARN]", err?.message || err);
+    return {
+      ok: false,
+      code: -1,
+      message: err?.message || "Lỗi kết nối API /authorization/202309/shops",
+      shops: [],
+    };
   }
-  return [];
+}
+
+/**
+ * Lấy danh sách gian hàng đã ủy quyền (Authorized Shops) bằng access_token thật
+ */
+export async function fetchTikTokAuthorizedShops({
+  accessToken,
+  appKey = TIKTOK_APP_KEY,
+  appSecret = TIKTOK_APP_SECRET,
+}) {
+  const res = await fetchTikTokAuthorizedShopsDetailed({
+    accessToken,
+    appKey,
+    appSecret,
+  });
+  return res.shops || [];
 }
 
 /**
