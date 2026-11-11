@@ -18,6 +18,13 @@ const ORDERS_FILE_PATH = fs.existsSync(path.join(process.cwd(), ".data"))
   ? path.join(process.cwd(), ".data", "orders.json")
   : path.join(process.cwd(), "portal", ".data", "orders.json");
 
+if (!globalThis.__ADDP_ORDERS_CACHE__) {
+  globalThis.__ADDP_ORDERS_CACHE__ = {
+    orders: null,
+    flushTimer: null,
+  };
+}
+
 function ensureStorage() {
   const dir = path.dirname(ORDERS_FILE_PATH);
   if (!fs.existsSync(dir)) {
@@ -26,28 +33,101 @@ function ensureStorage() {
 }
 
 export function getStoredOrders() {
+  if (Array.isArray(globalThis.__ADDP_ORDERS_CACHE__.orders)) {
+    return globalThis.__ADDP_ORDERS_CACHE__.orders;
+  }
   ensureStorage();
   try {
     if (fs.existsSync(ORDERS_FILE_PATH)) {
       const data = fs.readFileSync(ORDERS_FILE_PATH, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        globalThis.__ADDP_ORDERS_CACHE__.orders = parsed;
+        return parsed;
+      }
     }
   } catch (err) {
     console.error("Lỗi đọc file orders.json:", err);
   }
+  globalThis.__ADDP_ORDERS_CACHE__.orders = [];
   return [];
 }
 
 export function saveStoredOrders(orders) {
-  ensureStorage();
+  globalThis.__ADDP_ORDERS_CACHE__.orders = orders;
+
+  if (globalThis.__ADDP_ORDERS_CACHE__.flushTimer) {
+    clearTimeout(globalThis.__ADDP_ORDERS_CACHE__.flushTimer);
+  }
+
+  globalThis.__ADDP_ORDERS_CACHE__.flushTimer = setTimeout(async () => {
+    try {
+      ensureStorage();
+      await fs.promises.writeFile(
+        ORDERS_FILE_PATH,
+        JSON.stringify(globalThis.__ADDP_ORDERS_CACHE__.orders || [], null, 2),
+        "utf8"
+      );
+    } catch (err) {
+      console.error("Lỗi lưu file orders.json:", err);
+    }
+  }, 800);
+
+  return true;
+}
+
+export function flushOrdersSync() {
+  if (globalThis.__ADDP_ORDERS_CACHE__.flushTimer) {
+    clearTimeout(globalThis.__ADDP_ORDERS_CACHE__.flushTimer);
+    globalThis.__ADDP_ORDERS_CACHE__.flushTimer = null;
+  }
   try {
-    fs.writeFileSync(ORDERS_FILE_PATH, JSON.stringify(orders, null, 2), "utf8");
+    ensureStorage();
+    fs.writeFileSync(
+      ORDERS_FILE_PATH,
+      JSON.stringify(globalThis.__ADDP_ORDERS_CACHE__.orders || [], null, 2),
+      "utf8"
+    );
     return true;
   } catch (err) {
-    console.error("Lỗi lưu file orders.json:", err);
+    console.error("Lỗi flush đồng bộ orders.json:", err);
     return false;
   }
+}
+
+/**
+ * Upsert hàng loạt đơn hàng vào bộ nhớ và lưu đĩa debounced
+ */
+export function upsertStoredOrders(newOrders = []) {
+  if (!Array.isArray(newOrders) || newOrders.length === 0) return getStoredOrders();
+  const currentOrders = getStoredOrders();
+  const orderMap = new Map();
+
+  for (const o of currentOrders) {
+    const key = o.kiotVietOrderCode || o.orderCode || o.id;
+    if (key) orderMap.set(String(key), o);
+  }
+
+  for (const item of newOrders) {
+    const key = item.kiotVietOrderCode || item.orderCode || item.id;
+    if (key) {
+      const existing = orderMap.get(String(key));
+      if (existing) {
+        orderMap.set(String(key), { ...existing, ...item, updatedAt: item.updatedAt || new Date().toISOString() });
+      } else {
+        orderMap.set(String(key), item);
+      }
+    }
+  }
+
+  const merged = Array.from(orderMap.values()).sort((a, b) => {
+    const timeA = new Date(a.createdAt || a.createdDate || 0).getTime();
+    const timeB = new Date(b.createdAt || b.createdDate || 0).getTime();
+    return timeB - timeA;
+  });
+
+  saveStoredOrders(merged);
+  return merged;
 }
 
 /**

@@ -199,6 +199,16 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get("refresh") === "1";
 
+    if (!globalThis.__ADDP_CONV_CACHE__) {
+      globalThis.__ADDP_CONV_CACHE__ = new Map();
+    }
+    const cacheKey = `${liveStaff?.id || "anon"}_${liveStaff?.role || "ADMIN"}`;
+    const cachedEntry = globalThis.__ADDP_CONV_CACHE__.get(cacheKey);
+    const nowTs = Date.now();
+    if (!forceRefresh && cachedEntry && nowTs - cachedEntry.timestamp < 3000) {
+      return NextResponse.json(cachedEntry.data);
+    }
+
     // 1. Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang active trong cấu hình Channels (đồng bộ 100% với /channels)
     const systemActiveZaloChannels = listAllChannels().filter(
       (c) =>
@@ -529,7 +539,7 @@ export async function GET(request) {
       ...(r?.syncStatus || { isSyncing: false }),
     }));
 
-    return NextResponse.json({
+    const responsePayload = {
       ok: true,
       total: combinedWithTags.length,
       activeCount: allActive.length,
@@ -543,7 +553,16 @@ export async function GET(request) {
         accounts: syncAccounts,
       },
       conversations: combinedWithTags,
-    });
+    };
+
+    if (globalThis.__ADDP_CONV_CACHE__) {
+      globalThis.__ADDP_CONV_CACHE__.set(cacheKey, {
+        timestamp: Date.now(),
+        data: responsePayload,
+      });
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error) {
     console.error("[ZALO_CONV_EXCEPTION]", error);
     return NextResponse.json({ error: "Lỗi khi tải danh sách hội thoại Zalo." }, { status: 500 });

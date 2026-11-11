@@ -13,34 +13,35 @@ export const TIKTOK_APP_SECRET =
   process.env.TIKTOK_APP_SECRET || "b32f208f743dda776a98432d9c8ac714372fda61";
 export const TIKTOK_DEFAULT_SHOP_ID =
   process.env.TIKTOK_SHOP_ID || "7495657895504611503";
-export const TIKTOK_DEFAULT_SHOP_CIPHER = process.env.TIKTOK_SHOP_CIPHER || "";
-
-const LEGACY_TEST_TIKTOK_CIPHER = "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
+export const TIKTOK_DEFAULT_SHOP_CIPHER =
+  process.env.TIKTOK_SHOP_CIPHER || "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
 
 export function isUsableTikTokCipher(value) {
   const v = String(value || "").trim();
-  return Boolean(v && v !== LEGACY_TEST_TIKTOK_CIPHER);
+  if (!v || v === "tts_pending" || v === "null" || v === "undefined") return false;
+  // Cipher hợp lệ của TikTok Shop có tiền tố ROW_ hoặc là chuỗi mã hóa ký tự đặc biệt
+  return v.length >= 6 && !/^\d+$/.test(v);
 }
 
 export function isLikelyTikTokCipher(value) {
   const v = String(value || "").trim();
   if (!isUsableTikTokCipher(v)) return false;
-  return v.startsWith("9STk") || v.startsWith("ROW_");
+  return v.startsWith("ROW_") || (v.length >= 20 && !/^\d+$/.test(v));
 }
 
 /**
  * Trích xuất shop_cipher thật từ bản ghi kênh TikTok Shop trong channels.json,
- * bỏ qua chuỗi cipher test cũ.
+ * ưu tiên các trường đã cấu hình và fallback về TIKTOK_DEFAULT_SHOP_CIPHER.
  */
 export function extractRealTikTokCipherFromChannel(channel) {
-  if (!channel || typeof channel !== "object") return "";
+  if (!channel || typeof channel !== "object") return TIKTOK_DEFAULT_SHOP_CIPHER;
   const explicitCandidates = [
-    channel.cipher,
     channel.shopCipher,
     channel.shop_cipher,
-    channel.config?.cipher,
+    channel.cipher,
     channel.config?.shopCipher,
     channel.config?.shop_cipher,
+    channel.config?.cipher,
   ];
   for (const cand of explicitCandidates) {
     const v = String(cand || "").trim();
@@ -67,7 +68,7 @@ export function extractRealTikTokCipherFromChannel(channel) {
       return v;
     }
   }
-  return "";
+  return TIKTOK_DEFAULT_SHOP_CIPHER;
 }
 
 export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?service_id=${TIKTOK_SERVICE_ID}`;

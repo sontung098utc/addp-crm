@@ -51,11 +51,11 @@ const CONFIG_FILE_PATH = resolveDataFilePath("kiotviet_config.json");
 const PRODUCTS_CACHE_PATH = resolveDataFilePath("kiotviet_products.json");
 
 const DEFAULT_KIOTVIET_CONFIG = {
-  clientId: process.env.KIOTVIET_CLIENT_ID || "",
-  clientSecret: process.env.KIOTVIET_CLIENT_SECRET || "",
-  retailer: process.env.KIOTVIET_RETAILER || "",
-  branchId: Number(process.env.KIOTVIET_BRANCH_ID) || 1,
-  branchName: "Kho Tổng Dược Phẩm ADDP",
+  clientId: process.env.KIOTVIET_CLIENT_ID || "51ddde69-20f9-4cf0-9163-8ff9dc94cae1",
+  clientSecret: process.env.KIOTVIET_CLIENT_SECRET || "7D6E216C1F4348FD3033D6A11565E13B4CB80F33",
+  retailer: process.env.KIOTVIET_RETAILER || "0904637007",
+  branchId: Number(process.env.KIOTVIET_BRANCH_ID) || 272142,
+  branchName: "Chi nhánh trung tâm",
   autoSync: true,
   accessToken: "",
   tokenExpiresAt: 0,
@@ -164,7 +164,7 @@ export async function getKiotVietAccessToken(overrideConfig = null) {
   // 3. Gọi KiotViet Identity Server để lấy token mới
   try {
     const formParams = new URLSearchParams();
-    formParams.append("scopes", "publicApi.read publicApi.write");
+    formParams.append("scopes", "PublicApi.Access");
     formParams.append("grant_type", "client_credentials");
     formParams.append("client_id", clientId);
     formParams.append("client_secret", clientSecret);

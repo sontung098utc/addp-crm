@@ -21,6 +21,7 @@ import { listAllChannels, updateChannelAccount } from "./connectionHub.js";
 import {
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
+  TIKTOK_DEFAULT_SHOP_ID,
   TIKTOK_DEFAULT_SHOP_CIPHER,
   generateTikTokSignV2,
   fetchTikTokAuthorizedShopsDetailed,
@@ -36,27 +37,54 @@ const DATA_FILE = path.join(process.cwd(), "data", "omnichannel_messages.json");
 // Active SSE client connections
 const sseClients = new Set();
 
+if (!globalThis.__ADDP_MESSAGES_CACHE__) {
+  globalThis.__ADDP_MESSAGES_CACHE__ = {
+    messages: null,
+    flushTimer: null,
+  };
+}
+
 function loadStoredMessages() {
+  if (Array.isArray(globalThis.__ADDP_MESSAGES_CACHE__.messages)) {
+    return globalThis.__ADDP_MESSAGES_CACHE__.messages;
+  }
   try {
     if (fs.existsSync(DATA_FILE)) {
-      return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      if (Array.isArray(parsed)) {
+        globalThis.__ADDP_MESSAGES_CACHE__.messages = parsed;
+        return parsed;
+      }
     }
   } catch (err) {
     console.error("[UNIFIED_ROUTER_READ_ERR]", err);
   }
+  globalThis.__ADDP_MESSAGES_CACHE__.messages = [];
   return [];
 }
 
 function saveStoredMessages(messages) {
-  try {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    // Keep last 2000 messages
-    const trimmed = messages.slice(-2000);
-    fs.writeFileSync(DATA_FILE, JSON.stringify(trimmed, null, 2), "utf8");
-  } catch (err) {
-    console.error("[UNIFIED_ROUTER_SAVE_ERR]", err);
+  const trimmed = messages.slice(-2000);
+  globalThis.__ADDP_MESSAGES_CACHE__.messages = trimmed;
+  storedMessages = trimmed;
+
+  if (globalThis.__ADDP_MESSAGES_CACHE__.flushTimer) {
+    clearTimeout(globalThis.__ADDP_MESSAGES_CACHE__.flushTimer);
   }
+
+  globalThis.__ADDP_MESSAGES_CACHE__.flushTimer = setTimeout(async () => {
+    try {
+      const dir = path.dirname(DATA_FILE);
+      if (!fs.existsSync(dir)) await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(
+        DATA_FILE,
+        JSON.stringify(globalThis.__ADDP_MESSAGES_CACHE__.messages || [], null, 2),
+        "utf8"
+      );
+    } catch (err) {
+      console.error("[UNIFIED_ROUTER_SAVE_ERR]", err);
+    }
+  }, 1000);
 }
 
 let storedMessages = loadStoredMessages();
@@ -553,7 +581,43 @@ async function resolveTikTokSession(channel) {
     }
   }
 
-  // Bước 1: Thử gọi GET /authorization/202309/shops để lấy shop_cipher chính thức từ access_token hiện tại
+  // Bước 1: Ưu tiên dùng trực tiếp shop_cipher thật của shop đã cấu hình hoặc mặc định
+  const knownCipher =
+    extractRealTikTokCipherFromChannel(channel) ||
+    (isUsableTikTokCipher(channel.shopCipher) ? String(channel.shopCipher).trim() : "") ||
+    (isUsableTikTokCipher(channel.shop_cipher) ? String(channel.shop_cipher).trim() : "") ||
+    (isUsableTikTokCipher(TIKTOK_DEFAULT_SHOP_CIPHER) ? String(TIKTOK_DEFAULT_SHOP_CIPHER).trim() : "");
+
+  if (isUsableTikTokCipher(knownCipher)) {
+    if (
+      channel.shopCipher !== knownCipher ||
+      channel.shop_cipher !== knownCipher
+    ) {
+      updateChannelAccount(channel.id, {
+        extraFields: {
+          shopCipher: knownCipher,
+          shop_cipher: knownCipher,
+          shopId: String(channel.shopId || channel.config?.shopId || TIKTOK_DEFAULT_SHOP_ID).trim(),
+        },
+        config: {
+          shopCipher: knownCipher,
+          shop_cipher: knownCipher,
+          shopId: String(channel.shopId || channel.config?.shopId || TIKTOK_DEFAULT_SHOP_ID).trim(),
+        },
+      });
+    }
+
+    return {
+      ok: true,
+      accessToken,
+      refreshToken,
+      shopCipher: knownCipher,
+      appKey,
+      appSecret,
+    };
+  }
+
+  // Bước 2: Thử gọi GET /authorization/202309/shops nếu chưa có shop_cipher
   let shopsRes = await fetchTikTokAuthorizedShopsDetailed({
     accessToken,
     appKey,
@@ -732,11 +796,16 @@ async function callTikTokShopApi(
     : "";
 
   const sendOnce = async (token, cipher) => {
+    const activeCipher =
+      cipher ||
+      session.shopCipher ||
+      queryParams.shop_cipher ||
+      TIKTOK_DEFAULT_SHOP_CIPHER;
     const params = {
       app_key: session.appKey,
-      shop_cipher: cipher,
       timestamp: String(Math.floor(Date.now() / 1000)),
       ...queryParams,
+      shop_cipher: activeCipher,
     };
     const sign = generateTikTokSignV2(reqPath, params, session.appSecret, bodyStr);
     const qs = new URLSearchParams({ ...params, sign });
@@ -1342,13 +1411,22 @@ export async function getThreadMessages(threadId, channel = "ALL", pageIdHint = 
   return localMsgs.sort((a, b) => a.timestamp - b.timestamp);
 }
 
+let cachedOmniConvs = null;
+let lastOmniFetchTime = 0;
+const OMNI_CACHE_TTL_MS = 5000;
+
 /**
  * Gom và nhóm các tin nhắn đã lưu + hội thoại Fanpage thực tế thành danh sách cuộc hội thoại đa kênh
  */
 export async function getOmnichannelConversations(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedOmniConvs && now - lastOmniFetchTime < OMNI_CACHE_TTL_MS) {
+    return cachedOmniConvs;
+  }
+
   const convMap = new Map();
 
-  // 1. Lấy hội thoại thật từ các Fanpage Facebook & TikTok Shop qua API
+  // 1. Lấy hội thoại thật từ các Fanpage Facebook & TikTok Shop qua API (TikTok chỉ fetch khi forceRefresh hoặc cache hết hạn)
   const [liveFb, liveTikTok] = await Promise.all([
     fetchLiveFacebookConversations(forceRefresh),
     fetchLiveTikTokConversations(forceRefresh).catch(() => []),
@@ -1437,7 +1515,10 @@ export async function getOmnichannelConversations(forceRefresh = false) {
     }
   }
 
-  return Array.from(convMap.values());
+  const result = Array.from(convMap.values());
+  cachedOmniConvs = result;
+  lastOmniFetchTime = Date.now();
+  return result;
 }
 
 function formatTimeAgo(ts) {

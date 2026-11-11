@@ -6,6 +6,8 @@ import { setChannelBotStatus } from "./botControlStore.js";
 import {
   isUsableTikTokCipher,
   extractRealTikTokCipherFromChannel,
+  TIKTOK_DEFAULT_SHOP_CIPHER,
+  TIKTOK_DEFAULT_SHOP_ID,
 } from "./tiktokConfig.js";
 
 /**
@@ -162,8 +164,7 @@ function saveDeletedChannelIds(setObj) {
 let runtimeChannelsStore = new Map();
 
 /**
- * Làm sạch shopCipher/shop_cipher sai (cipher test) trong bản ghi kênh TikTok Shop
- * và thay thế bằng cipher thật từ id/accountId/externalId (nếu có).
+ * Đảm bảo shopCipher/shop_cipher và shopId của TikTok Shop luôn đúng chuẩn và hợp lệ.
  */
 function sanitizeTikTokChannelRecord(item) {
   if (!item || typeof item !== "object") return false;
@@ -174,24 +175,11 @@ function sanitizeTikTokChannelRecord(item) {
   if (!isTikTok) return false;
 
   let changed = false;
-  const fields = ["shopCipher", "shop_cipher"];
-  for (const f of fields) {
-    if (item[f] !== undefined && item[f] !== "" && !isUsableTikTokCipher(item[f])) {
-      delete item[f];
-      changed = true;
-    }
-    if (
-      item.config &&
-      item.config[f] !== undefined &&
-      item.config[f] !== "" &&
-      !isUsableTikTokCipher(item.config[f])
-    ) {
-      delete item.config[f];
-      changed = true;
-    }
-  }
+  const realCipher =
+    extractRealTikTokCipherFromChannel(item) || TIKTOK_DEFAULT_SHOP_CIPHER;
+  const realShopId =
+    String(item.shopId || item.config?.shopId || TIKTOK_DEFAULT_SHOP_ID).trim();
 
-  const realCipher = extractRealTikTokCipherFromChannel(item);
   if (realCipher) {
     if (item.shopCipher !== realCipher) {
       item.shopCipher = realCipher;
@@ -201,17 +189,30 @@ function sanitizeTikTokChannelRecord(item) {
       item.shop_cipher = realCipher;
       changed = true;
     }
-    if (item.config && typeof item.config === "object") {
-      if (item.config.shopCipher !== realCipher) {
-        item.config.shopCipher = realCipher;
-        changed = true;
-      }
-      if (item.config.shop_cipher !== realCipher) {
-        item.config.shop_cipher = realCipher;
-        changed = true;
-      }
+    if (!item.config || typeof item.config !== "object") {
+      item.config = {};
+    }
+    if (item.config.shopCipher !== realCipher) {
+      item.config.shopCipher = realCipher;
+      changed = true;
+    }
+    if (item.config.shop_cipher !== realCipher) {
+      item.config.shop_cipher = realCipher;
+      changed = true;
     }
   }
+
+  if (realShopId) {
+    if (item.shopId !== realShopId) {
+      item.shopId = realShopId;
+      changed = true;
+    }
+    if (item.config && item.config.shopId !== realShopId) {
+      item.config.shopId = realShopId;
+      changed = true;
+    }
+  }
+
   return changed;
 }
 

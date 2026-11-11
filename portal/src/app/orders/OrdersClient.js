@@ -45,6 +45,7 @@ export default function OrdersClient() {
     { id: 1, branchName: "Kho Tổng Dược Phẩm ADDP" },
   ]);
   const [savingKiot, setSavingKiot] = useState(false);
+  const [syncingKiot, setSyncingKiot] = useState(false);
 
   const showToastMsg = (msg) => {
     setToast(msg);
@@ -88,6 +89,33 @@ export default function OrdersClient() {
     fetchKiotVietInfo();
   }, []);
 
+  const handleSyncKiotViet = async (mode = "incremental") => {
+    if (syncingKiot) return;
+    try {
+      setSyncingKiot(true);
+      showToastMsg("Đang đồng bộ đơn hàng & hóa đơn từ KiotViet Open API...");
+      const res = await fetch("/api/orders/kiotviet/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, registerWebhooks: true }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        showToastMsg(
+          data.message ||
+            `Đồng bộ KiotViet thành công! Nạp ${data.syncedCount || 0} đơn hàng.`
+        );
+        await fetchOrders();
+      } else {
+        showToastMsg(`Lỗi đồng bộ KiotViet: ${data.error || "Không xác định"}`);
+      }
+    } catch (err) {
+      showToastMsg(`Lỗi kết nối đồng bộ: ${err.message}`);
+    } finally {
+      setSyncingKiot(false);
+    }
+  };
+
   const handleSaveKiotConfig = async (e) => {
     e.preventDefault();
     try {
@@ -108,6 +136,8 @@ export default function OrdersClient() {
         setShowKiotConfigModal(false);
         showToastMsg(data.message || "Đã lưu cấu hình KiotViet Open API!");
         fetchKiotVietInfo();
+        // Tự động kích hoạt đồng bộ đơn hàng và đăng ký Webhook
+        handleSyncKiotViet("incremental");
       }
     } catch {
       showToastMsg("Không thể lưu cấu hình KiotViet.");
@@ -283,6 +313,14 @@ export default function OrdersClient() {
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={() => handleSyncKiotViet("incremental")}
+            disabled={syncingKiot}
+            title="Đồng bộ hóa đơn và đơn đặt hàng mới nhất từ KiotViet về CRM"
+            className="px-3.5 py-2 rounded-xl border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-semibold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <span>{syncingKiot ? "🔄 Đang Đồng Bộ..." : "🔄 Đồng Bộ KiotViet"}</span>
+          </button>
           <button
             onClick={() => setShowKiotConfigModal(true)}
             className="px-3.5 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition cursor-pointer"

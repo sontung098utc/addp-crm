@@ -204,6 +204,10 @@ export default function LiveZaloInbox() {
   // Thông báo nhanh
   const [toast, setToast] = useState(null);
 
+  // Virtualization / Infinite Scroll chống lag Main Thread (WBS-21 Performance)
+  const [visibleCount, setVisibleCount] = useState(40);
+  const messageCacheRef = useRef(new Map());
+
   // Chế độ AI & Toggle Switch từng khách
   const [aiMode, setAiMode] = useState("AUTO_REPLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
   const [convBotMode, setConvBotMode] = useState("AI"); // 'AI' | 'HUMAN'
@@ -606,10 +610,11 @@ export default function LiveZaloInbox() {
     }
   }, [channelFilter, selectedPageId, selectedZaloAccountId, conversations, activeConv]);
 
-  // 2. Tải lịch sử tin nhắn khi đổi người chat & tự động làm mới ngầm
+  // 2. Tải lịch sử tin nhắn khi đổi người chat & tự động làm mới ngầm (Instant Cache Transition 0ms)
   useEffect(() => {
     if (!activeConv?.id) return;
     let isCancelled = false;
+    const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
 
     async function fetchMessagesForActive(silent = false) {
       try {
@@ -630,6 +635,7 @@ export default function LiveZaloInbox() {
         if (isCancelled) return;
 
         if (data.ok && Array.isArray(data.messages)) {
+          messageCacheRef.current.set(convCacheKey, data.messages);
           setMessages((prev) => {
             if (
               silent &&
@@ -650,7 +656,14 @@ export default function LiveZaloInbox() {
       }
     }
 
-    fetchMessagesForActive(false);
+    // Hiển thị ngay lập tức từ client cache nếu đã mở trước đó (0ms delay)
+    const cachedMsgs = messageCacheRef.current.get(convCacheKey);
+    if (cachedMsgs && Array.isArray(cachedMsgs) && cachedMsgs.length > 0) {
+      setMessages(cachedMsgs);
+      fetchMessagesForActive(true);
+    } else {
+      fetchMessagesForActive(false);
+    }
 
     const msgPoll = setInterval(() => {
       fetchMessagesForActive(true);
@@ -905,7 +918,12 @@ export default function LiveZaloInbox() {
       status: "sending",
     };
 
-    setMessages((prev) => [...(prev || []), optimisticMsg]);
+    setMessages((prev) => {
+      const next = [...(prev || []), optimisticMsg];
+      const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
+      messageCacheRef.current.set(convCacheKey, next);
+      return next;
+    });
     setInputMessage("");
     setSending(true);
 
@@ -927,9 +945,12 @@ export default function LiveZaloInbox() {
 
       const data = await res.json();
       if (res.ok && data.ok) {
-        setMessages((prev) =>
-          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "sent" } : m))
-        );
+        setMessages((prev) => {
+          const next = (prev || []).map((m) => (m.id === tempId ? { ...m, status: "sent" } : m));
+          const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
+          messageCacheRef.current.set(convCacheKey, next);
+          return next;
+        });
         setConversations((prev) => {
           const list = prev || [];
           const idx = list.findIndex(
@@ -1746,6 +1767,35 @@ export default function LiveZaloInbox() {
     }
     return activeChatList;
   }, [channelFilter, activeChatList]);
+
+  // Reset số lượng hiển thị khi đổi bộ lọc
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [
+    channelFilter,
+    searchQuery,
+    activeTab,
+    selectedAccountFilter,
+    selectedTagFilter,
+    selectedZaloAccountId,
+    selectedPageId,
+    selectedTikTokShopId,
+  ]);
+
+  // Virtualization / Chunk rendering: Chỉ render visibleCount items đầu tiên để Main Thread luôn mượt mà 60fps
+  const visibleActiveChats = useMemo(() => {
+    return displayedActiveChats.slice(0, visibleCount);
+  }, [displayedActiveChats, visibleCount]);
+
+  const handleScrollConversationList = useCallback(
+    (e) => {
+      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+      if (scrollHeight - scrollTop - clientHeight < 320) {
+        setVisibleCount((prev) => Math.min(prev + 40, displayedActiveChats.length));
+      }
+    },
+    [displayedActiveChats.length]
+  );
 
   const activeChannelName = activeConv
     ? activeConv.accountName ||
@@ -2590,8 +2640,11 @@ export default function LiveZaloInbox() {
             </div>
           )}
 
-          {/* Danh sách các cuộc trò chuyện */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 min-h-0">
+          {/* Danh sách các cuộc trò chuyện (Virtualization / Chunk rendering onScroll) */}
+          <div
+            onScroll={handleScrollConversationList}
+            className="flex-1 overflow-y-auto divide-y divide-slate-800/50 min-h-0 scroll-smooth"
+          >
             {loadingConv ? (
               <div className="p-8 text-center text-xs text-slate-500 space-y-2">
                 <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -2641,8 +2694,22 @@ export default function LiveZaloInbox() {
               )
             ) : (
               <>
-                {/* 1. Danh sách hội thoại có tin nhắn */}
-                {displayedActiveChats.map((conv) => renderConversationRow(conv))}
+                {/* 1. Danh sách hội thoại có tin nhắn (Chunk rendering 40 items đầu, cuộn để nạp tiếp) */}
+                {visibleActiveChats.map((conv) => renderConversationRow(conv))}
+
+                {displayedActiveChats.length > visibleCount && (
+                  <div className="p-3 text-center bg-slate-950/60 border-t border-slate-800/40">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVisibleCount((prev) => Math.min(prev + 40, displayedActiveChats.length))
+                      }
+                      className="w-full py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] font-medium transition cursor-pointer border border-slate-800"
+                    >
+                      Xem thêm ({visibleCount} / {displayedActiveChats.length} hội thoại)
+                    </button>
+                  </div>
+                )}
 
                 {/* 2. Danh bạ & Nhóm chưa có tin nhắn */}
                 {contactOnlyList.length > 0 && (
