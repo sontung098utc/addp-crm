@@ -68,9 +68,11 @@ export async function POST(request) {
       channel === "TIKTOK_SHOP" ||
       channel === "TIKTOK"
     ) {
+      const isTikTok = channel === "TIKTOK_SHOP" || channel === "TIKTOK";
       const result = await sendUnifiedMessage({
         channel,
-        recipientId: recipientId || recipient,
+        recipientId: isTikTok ? recipient || recipientId : recipientId || recipient,
+        conversationId: recipient || recipientId,
         pageId,
         channelId: accountId || pageId,
         text: message,

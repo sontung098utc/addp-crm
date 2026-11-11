@@ -89,6 +89,7 @@ export function broadcastMessage(messageEvent) {
  * Thêm tin nhắn mới từ bất kỳ kênh nào vào Router trung tâm
  */
 export async function addUnifiedMessage({
+  id: customId = null,
   channel, // "ZALO_PERSONAL" | "ZALO_OA" | "FACEBOOK" | "WEB_CHAT"
   channelId,
   channelName,
@@ -102,7 +103,9 @@ export async function addUnifiedMessage({
   timestamp = Date.now(),
   metadata = {},
 }) {
-  const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const id = customId
+    ? String(customId)
+    : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const messageObj = {
     id,
     channel,
@@ -348,22 +351,57 @@ export function getConnectedTikTokShops() {
   });
 }
 
+export function cleanTikTokConversationId(rawId) {
+  let target = rawId;
+  if (target && typeof target === "object") {
+    target =
+      target.externalThreadId ||
+      target.conversationId ||
+      target.threadId ||
+      target.id ||
+      "";
+  }
+  return String(target || "")
+    .trim()
+    .replace(/^(tiktok_shop_|tiktok_|tt_conv_|tt_)+/i, "")
+    .trim();
+}
+
+function tryParseJsonObject(val) {
+  if (!val) return null;
+  if (typeof val === "object") return val;
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith('"')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "string") {
+          return tryParseJsonObject(parsed);
+        }
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 function parseTikTokMessageText(msg) {
   if (!msg) return "[Tin nhắn]";
   const rawContent = msg.content ?? msg.text ?? "";
-  let parsed = null;
-  if (typeof rawContent === "string" && rawContent.trim().startsWith("{")) {
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch {
-      parsed = null;
-    }
-  } else if (rawContent && typeof rawContent === "object") {
-    parsed = rawContent;
-  }
+  let parsed = tryParseJsonObject(rawContent);
 
   if (parsed) {
-    const txt = parsed.content || parsed.text || parsed.msg || "";
+    let txt = parsed.content ?? parsed.text ?? parsed.msg ?? "";
+    if (typeof txt === "string" && txt.trim().startsWith("{")) {
+      const inner = tryParseJsonObject(txt);
+      if (inner) {
+        txt = inner.content ?? inner.text ?? inner.msg ?? txt;
+      }
+    } else if (txt && typeof txt === "object") {
+      txt = txt.content ?? txt.text ?? txt.msg ?? "";
+    }
     if (txt) return String(txt);
     if (parsed.url || parsed.image_url) return "[Hình ảnh]";
     if (parsed.product_name || parsed.product_id) {
@@ -659,6 +697,7 @@ async function callTikTokShopApi(
     method = "GET",
     reqPath,
     queryParams = {},
+    body = null,
     bodyObj = null,
     timeoutMs = 6000,
   }
@@ -684,7 +723,13 @@ async function callTikTokShopApi(
     };
   }
 
-  const bodyStr = bodyObj ? JSON.stringify(bodyObj) : "";
+  // Chuyển body thành bodyStr đúng một lần duy nhất cho cả ký HMAC-SHA256 và fetch
+  const rawBody = body ?? bodyObj;
+  const bodyStr = rawBody
+    ? typeof rawBody === "string"
+      ? rawBody
+      : JSON.stringify(rawBody)
+    : "";
 
   const sendOnce = async (token, cipher) => {
     const params = {
@@ -698,17 +743,20 @@ async function callTikTokShopApi(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      const fetchOpts = {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          "x-tts-access-token": token,
+        },
+        signal: controller.signal,
+      };
+      if (bodyStr) {
+        fetchOpts.body = bodyStr;
+      }
       const res = await fetch(
         `https://open-api.tiktokglobalshop.com${reqPath}?${qs.toString()}`,
-        {
-          method,
-          headers: {
-            "Content-Type": "application/json",
-            "x-tts-access-token": token,
-          },
-          body: bodyStr || undefined,
-          signal: controller.signal,
-        }
+        fetchOpts
       );
       const json = await res.json().catch(() => null);
       return { status: res.status, endpoint: reqPath, json };
@@ -827,9 +875,13 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
           ? c.participants.find((p) => String(p.role || "").toUpperCase() === "BUYER") ||
             c.participants[0]
           : null;
+        const cleanConvId = cleanTikTokConversationId(c.id);
         results.push({
-          id: String(c.id),
-          recipientId: buyer?.im_user_id || buyer?.user_id || String(c.id),
+          id: cleanConvId,
+          conversationId: cleanConvId,
+          externalThreadId: cleanConvId,
+          recipientId: cleanConvId,
+          buyerId: buyer?.im_user_id || buyer?.user_id || "",
           shopId,
           accountId: shopId,
           accountName: shopName,
@@ -920,7 +972,7 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
       let shopMsgCount = 0;
 
       for (const conv of convList) {
-        const convId = String(conv.id || "").trim();
+        const convId = cleanTikTokConversationId(conv.id);
         if (!convId) continue;
         syncedConversations += 1;
         collectedConvs.push(conv);
@@ -940,7 +992,7 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
             reqPath: `/customer_service/202309/conversations/${encodeURIComponent(
               convId
             )}/messages`,
-            queryParams: { page_size: "50" },
+            queryParams: { page_size: "20" },
             timeoutMs: 8000,
           });
           if (Array.isArray(msgAttempt?.json?.data?.messages)) {
@@ -1211,17 +1263,26 @@ export async function getThreadMessages(threadId, channel = "ALL", pageIdHint = 
   }
 
   // Nếu là hội thoại TikTok Shop -> Kéo tin nhắn chi tiết trực tiếp từ TikTok CS API + gộp lịch sử cục bộ
-  if (channel === "TIKTOK_SHOP" || channel === "TIKTOK" || tid.startsWith("tiktok_")) {
-    const rawTid = tid.replace(/^tiktok_/, "");
+  if (
+    channel === "TIKTOK_SHOP" ||
+    channel === "TIKTOK" ||
+    tid.startsWith("tiktok_") ||
+    tid.startsWith("tt_")
+  ) {
+    const rawTid = cleanTikTokConversationId(tid);
     const channels = getActiveTikTokChannels(pageIdHint);
     const mergedMap = new Map();
 
     for (const m of storedMessages) {
       if (
         (m.channel === "TIKTOK_SHOP" || m.channel === "TIKTOK") &&
-        (String(m.threadId) === tid || String(m.threadId) === rawTid)
+        (String(m.threadId) === tid ||
+          cleanTikTokConversationId(m.threadId) === rawTid)
       ) {
-        mergedMap.set(String(m.id), m);
+        mergedMap.set(String(m.id), {
+          ...m,
+          text: parseTikTokMessageText({ content: m.text, type: m.type }),
+        });
       }
     }
 
@@ -1232,7 +1293,7 @@ export async function getThreadMessages(threadId, channel = "ALL", pageIdHint = 
         const { json } = await callTikTokShopApi(ch, {
           method: "GET",
           reqPath: `/customer_service/202309/conversations/${encodeURIComponent(rawTid)}/messages`,
-          queryParams: { page_size: "50" },
+          queryParams: { page_size: "20" },
           timeoutMs: 6000,
         });
         if (Array.isArray(json?.data?.messages)) {
@@ -1330,9 +1391,22 @@ export async function getOmnichannelConversations(forceRefresh = false) {
         channelLabel = m.channelName || existing?.accountName || "TikTok Shop";
       }
 
+      const cleanThreadId =
+        normalizedChannel === "TIKTOK_SHOP"
+          ? cleanTikTokConversationId(m.threadId)
+          : m.threadId;
       convMap.set(key, {
-        id: m.threadId,
-        recipientId: existing?.recipientId || m.senderId || m.threadId,
+        id: cleanThreadId,
+        ...(normalizedChannel === "TIKTOK_SHOP"
+          ? {
+              conversationId: cleanThreadId,
+              externalThreadId: cleanThreadId,
+            }
+          : {}),
+        recipientId:
+          normalizedChannel === "TIKTOK_SHOP"
+            ? cleanThreadId
+            : existing?.recipientId || m.senderId || m.threadId,
         pageId: resolvedPageId,
         pageShortId: existing?.pageShortId || shortId,
         pageName: existing?.pageName || m.channelName || "",
@@ -1380,10 +1454,107 @@ function formatTimeAgo(ts) {
 }
 
 /**
+ * Gửi tin nhắn phản hồi trực tiếp qua TikTok Shop Customer Service API v202309
+ */
+export async function sendTikTokShopMessage({
+  channelObj = null,
+  conversationId,
+  thread = null,
+  recipientId = "",
+  text,
+  channelId = "",
+  pageId = "",
+}) {
+  const cleanConvId = cleanTikTokConversationId(
+    thread || conversationId || recipientId
+  );
+  const cleanText = String(text || "").trim();
+  if (!cleanConvId) {
+    return { ok: false, error: "Thiếu conversation_id của hội thoại TikTok Shop." };
+  }
+  if (!cleanText) {
+    return { ok: false, error: "Nội dung tin nhắn không được để trống." };
+  }
+
+  const ch =
+    channelObj || getActiveTikTokChannels(channelId || pageId || "")[0] || null;
+  if (!ch) {
+    return { ok: false, error: "Chưa tìm thấy gian hàng TikTok Shop đang kết nối." };
+  }
+
+  const chShopId = String(
+    ch.shopId || ch.config?.shopId || ch.externalId || ch.id || ""
+  ).trim();
+  const shopName = String(ch.name || ch.sellerName || "TikTok Shop").trim();
+
+  const bodyStr = JSON.stringify({
+    type: "TEXT",
+    content: JSON.stringify({ content: cleanText }),
+  });
+
+  try {
+    const apiRes = await callTikTokShopApi(ch, {
+      method: "POST",
+      reqPath: `/customer_service/202309/conversations/${encodeURIComponent(
+        cleanConvId
+      )}/messages`,
+      body: bodyStr,
+      timeoutMs: 8000,
+    });
+    const { json } = apiRes;
+
+    if (json && Number(json.code) === 0) {
+      const messageId = json?.data?.message_id || null;
+      await addUnifiedMessage({
+        id: messageId || undefined,
+        channel: "TIKTOK_SHOP",
+        channelId: chShopId,
+        channelName: shopName,
+        threadId: cleanConvId,
+        senderId: "me",
+        senderName: shopName,
+        text: cleanText,
+        isMe: true,
+      });
+      return {
+        ok: true,
+        messageId,
+        conversationId: cleanConvId,
+        message: `Đã gửi tin nhắn qua ${shopName}!`,
+      };
+    }
+
+    const rawCode = json?.code ?? apiRes?.rawCode ?? apiRes?.status ?? -1;
+    const rawMessage =
+      json?.message ||
+      apiRes?.rawMessage ||
+      "Không thể gửi tin nhắn qua TikTok Shop Open API.";
+    return {
+      ok: false,
+      rawCode,
+      rawMessage,
+      endpoint: apiRes?.endpoint || `/customer_service/202309/conversations/${cleanConvId}/messages`,
+      error: `Lỗi TikTok [Code: ${rawCode}]: ${rawMessage}`,
+    };
+  } catch (err) {
+    console.error("[TIKTOK_SEND_ERR]", err);
+    return { ok: false, error: `Lỗi kết nối TikTok Shop API: ${err.message}` };
+  }
+}
+
+/**
  * Gửi tin nhắn phản hồi tới khách hàng qua kênh tương ứng
  */
-export async function sendUnifiedMessage({ channel, recipientId, text, channelId, pageId }) {
-  if (!text || !recipientId) {
+export async function sendUnifiedMessage({
+  channel,
+  recipientId,
+  conversationId,
+  thread,
+  text,
+  channelId,
+  pageId,
+}) {
+  if (!text || (!recipientId && !conversationId && !thread)) {
     return { ok: false, error: "Thiếu nội dung hoặc người nhận tin nhắn." };
   }
 
@@ -1477,53 +1648,14 @@ export async function sendUnifiedMessage({ channel, recipientId, text, channelId
   }
 
   if (channel === "TIKTOK_SHOP" || channel === "TIKTOK") {
-    const channels = getActiveTikTokChannels(channelId || pageId || "");
-    const ch = channels[0];
-    if (!ch) {
-      return { ok: false, error: "Chưa tìm thấy gian hàng TikTok Shop đang kết nối." };
-    }
-
-    const chShopId = String(ch.shopId || ch.config?.shopId || ch.externalId || ch.id || "").trim();
-    const shopName = String(ch.name || ch.sellerName || "TikTok Shop").trim();
-    const rawConvId = String(recipientId).replace(/^tiktok_/, "");
-
-    try {
-      const { json } = await callTikTokShopApi(ch, {
-        method: "POST",
-        reqPath: `/customer_service/202309/conversations/${encodeURIComponent(
-          rawConvId
-        )}/messages`,
-        bodyObj: {
-          type: "TEXT",
-          content: JSON.stringify({ content: text }),
-        },
-        timeoutMs: 8000,
-      });
-
-      if (json && Number(json.code) === 0) {
-        await addUnifiedMessage({
-          channel: "TIKTOK_SHOP",
-          channelId: chShopId,
-          channelName: shopName,
-          threadId: rawConvId,
-          senderId: "me",
-          senderName: shopName,
-          text,
-          isMe: true,
-        });
-        return { ok: true, message: `Đã gửi tin nhắn qua ${shopName}!` };
-      }
-
-      return {
-        ok: false,
-        error: json?.message
-          ? `TikTok Shop báo lỗi (${json.code ?? ""}): ${json.message}`
-          : "Không thể gửi tin nhắn qua TikTok Shop Open API.",
-      };
-    } catch (err) {
-      console.error("[TIKTOK_SEND_ERR]", err);
-      return { ok: false, error: `Lỗi kết nối TikTok Shop API: ${err.message}` };
-    }
+    return await sendTikTokShopMessage({
+      conversationId: conversationId || recipientId,
+      thread,
+      recipientId,
+      text,
+      channelId,
+      pageId,
+    });
   }
 
   await addUnifiedMessage({

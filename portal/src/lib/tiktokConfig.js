@@ -74,9 +74,9 @@ export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?s
 
 /**
  * Tạo chữ ký HMAC-SHA256 chuẩn TikTok Shop Open API v2
- * Base = app_secret + path + sorted(params without sign/access_token) + body + app_secret
+ * Base = app_secret + path + sorted(params without sign/access_token) + bodyStr + app_secret
  */
-export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_APP_SECRET, bodyStr = "") {
+export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_APP_SECRET, body = "") {
   const cleanParams = { ...params };
   delete cleanParams.sign;
   delete cleanParams.access_token;
@@ -88,6 +88,7 @@ export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_AP
       paramPart += `${k}${cleanParams[k]}`;
     }
   }
+  const bodyStr = body ? (typeof body === "string" ? body : JSON.stringify(body)) : "";
   const base = `${appSecret}${reqPath}${paramPart}${bodyStr}${appSecret}`;
   return crypto.createHmac("sha256", appSecret).update(base).digest("hex");
 }
