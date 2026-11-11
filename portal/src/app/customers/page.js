@@ -66,6 +66,14 @@ export default function CustomersPage() {
   const [deletingCustomer, setDeletingCustomer] = useState(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
+  // Chọn hàng loạt & Thao tác hàng loạt (Bulk Selection / Bulk Tag / Bulk Delete)
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
+  const [isBulkTagModalOpen, setIsBulkTagModalOpen] = useState(false);
+  const [selectedBulkTagId, setSelectedBulkTagId] = useState("");
+  const [customBulkTagName, setCustomBulkTagName] = useState("");
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [bulkActionBusy, setBulkActionBusy] = useState(false);
+
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -81,6 +89,7 @@ export default function CustomersPage() {
       const data = await res.json();
       if (data.ok) {
         setCustomers(data.customers || []);
+        setSelectedCustomerIds([]);
         setCurrentPage(1);
         if (Array.isArray(data.tagCatalog)) setTagCatalog(data.tagCatalog);
         if (data.filterOptions) setFilterOptions(data.filterOptions);
@@ -215,6 +224,87 @@ export default function CustomersPage() {
       alert("Lỗi kết nối khi xóa khách hàng.");
     } finally {
       setDeletingBusy(false);
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedCustomerIds.length === 0) return;
+    setIsBulkDeleteModalOpen(true);
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedCustomerIds.length === 0) return;
+    try {
+      setBulkActionBusy(true);
+      const res = await fetch("/api/customers/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          customerIds: selectedCustomerIds,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok || data.success) {
+        setIsBulkDeleteModalOpen(false);
+        setSelectedCustomerIds([]);
+        setActionMessage({
+          type: "success",
+          text: data.message || `Đã xóa thành công ${data.count || 0} khách hàng.`,
+        });
+        fetchCustomers();
+      } else {
+        alert(data.error || "Không thể xóa hàng loạt khách hàng.");
+      }
+    } catch {
+      alert("Lỗi kết nối khi xóa hàng loạt khách hàng.");
+    } finally {
+      setBulkActionBusy(false);
+    }
+  };
+
+  const handleConfirmBulkAddTag = async (e) => {
+    e?.preventDefault();
+    if (selectedCustomerIds.length === 0) return;
+    const tagIdTrimmed = String(selectedBulkTagId || "").trim();
+    const tagNameTrimmed = String(customBulkTagName || "").trim();
+    if (!tagIdTrimmed && !tagNameTrimmed) {
+      alert("Vui lòng chọn thẻ tag hoặc nhập tên thẻ mới.");
+      return;
+    }
+
+    try {
+      setBulkActionBusy(true);
+      const res = await fetch("/api/customers/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add_tag",
+          customerIds: selectedCustomerIds,
+          tagId: tagIdTrimmed,
+          tagName: tagNameTrimmed,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok || data.success) {
+        setIsBulkTagModalOpen(false);
+        setSelectedBulkTagId("");
+        setCustomBulkTagName("");
+        setSelectedCustomerIds([]);
+        setActionMessage({
+          type: "success",
+          text:
+            data.message ||
+            `Đã gắn thẻ "${data.tag || tagNameTrimmed || tagIdTrimmed}" cho ${data.count || 0} khách hàng.`,
+        });
+        fetchCustomers();
+      } else {
+        alert(data.error || "Không thể gắn thẻ hàng loạt.");
+      }
+    } catch {
+      alert("Lỗi kết nối khi gắn thẻ hàng loạt.");
+    } finally {
+      setBulkActionBusy(false);
     }
   };
 
@@ -520,11 +610,26 @@ export default function CustomersPage() {
               <table className="w-full table-fixed min-w-[900px] xl:min-w-0 text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                    <th className="py-2.5 pl-3.5 pr-2 w-[15%]">Khách Hàng</th>
+                    <th className="w-10 px-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={customers.length > 0 && selectedCustomerIds.length === customers.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCustomerIds(customers.map((c) => c.id));
+                          } else {
+                            setSelectedCustomerIds([]);
+                          }
+                        }}
+                        title="Chọn / Bỏ chọn tất cả khách hàng"
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-2.5 pl-2 pr-2 w-[14%]">Khách Hàng</th>
                     <th className="py-2.5 px-2 w-[12%]">SĐT & Kênh</th>
-                    <th className="py-2.5 px-2 w-[17%]">Sản Phẩm / Bệnh Lý</th>
-                    <th className="py-2.5 px-2 w-[12%]">Chi Tiêu / Mức Độ</th>
-                    <th className="py-2.5 px-2 w-[17%]">Thẻ Tag Lộ Trình</th>
+                    <th className="py-2.5 px-2 w-[16%]">Sản Phẩm / Bệnh Lý</th>
+                    <th className="py-2.5 px-2 w-[11%]">Chi Tiêu / Mức Độ</th>
+                    <th className="py-2.5 px-2 w-[16%]">Thẻ Tag Lộ Trình</th>
                     <th className="py-2.5 px-2 w-[11%]">NV Phụ Trách</th>
                     <th className="py-2.5 pl-2 pr-3.5 text-right w-[16%]">Thao Tác</th>
                   </tr>
@@ -546,11 +651,35 @@ export default function CustomersPage() {
                         c.zaloUid ||
                         c.zaloThreadId
                     );
+                    const isRowSelected = selectedCustomerIds.includes(c.id);
 
                     return (
-                      <tr key={c.id || c.code} className="hover:bg-slate-800/30 transition align-middle">
+                      <tr
+                        key={c.id || c.code}
+                        className={`hover:bg-slate-800/30 transition align-middle ${
+                          isRowSelected ? "bg-blue-950/25" : ""
+                        }`}
+                      >
+                        {/* Cột Checkbox */}
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={isRowSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCustomerIds((prev) =>
+                                  prev.includes(c.id) ? prev : [...prev, c.id]
+                                );
+                              } else {
+                                setSelectedCustomerIds((prev) => prev.filter((id) => id !== c.id));
+                              }
+                            }}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
+
                         {/* Cột Tên & Mã */}
-                        <td className="py-2.5 pl-3.5 pr-2">
+                        <td className="py-2.5 pl-2 pr-2">
                           <div className="font-bold text-white hover:text-blue-400 truncate" title={c.fullName}>
                             <Link href={`/customers/${c.id}`}>{c.fullName}</Link>
                           </div>
@@ -1032,6 +1161,173 @@ export default function CustomersPage() {
                 className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-50"
               >
                 {deletingBusy ? "Đang xóa..." : "Xác Nhận Xóa"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Thanh Tác Vụ Hàng Loạt Nổi (Floating Bulk Action Bar) */}
+      {selectedCustomerIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 z-50 border border-slate-700">
+          <span className="text-sm font-medium whitespace-nowrap">
+            Đã chọn <b className="text-blue-400">{selectedCustomerIds.length}</b> khách hàng
+          </span>
+
+          <div className="h-5 w-[1px] bg-slate-700" />
+
+          <button
+            type="button"
+            onClick={() => setIsBulkTagModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
+          >
+            🏷️ Gắn Thẻ Hàng Loạt
+          </button>
+
+          <button
+            type="button"
+            onClick={handleBulkDelete}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-500 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap"
+          >
+            🗑️ Xóa Hàng Loạt
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSelectedCustomerIds([])}
+            className="text-xs text-slate-400 hover:text-white ml-2 cursor-pointer whitespace-nowrap"
+          >
+            Bỏ chọn
+          </button>
+        </div>
+      )}
+
+      {/* Modal Gắn Thẻ Hàng Loạt */}
+      {isBulkTagModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={handleConfirmBulkAddTag}
+            className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4 text-xs"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-base font-bold text-white">
+                🏷️ Gắn Thẻ Cho {selectedCustomerIds.length} Khách Hàng
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsBulkTagModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-slate-300 mb-2 font-semibold">
+                Chọn thẻ có sẵn trong hệ thống
+              </label>
+              {tagCatalog.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-3">
+                  {tagCatalog.map((tag) => {
+                    const isSelected =
+                      selectedBulkTagId === tag.id || selectedBulkTagId === tag.name;
+                    return (
+                      <button
+                        key={tag.id || tag.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBulkTagId(isSelected ? "" : tag.id || tag.name);
+                          if (!isSelected) setCustomBulkTagName("");
+                        }}
+                        className={`rounded-md border px-2.5 py-1 text-[11px] font-semibold transition cursor-pointer ${
+                          isSelected
+                            ? "bg-blue-600/30 border-blue-400 text-blue-200 ring-1 ring-blue-400"
+                            : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800"
+                        }`}
+                      >
+                        {isSelected ? "✓ " : ""}
+                        🏷️ {tag.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500 italic">
+                  Chưa có thẻ sẵn trong danh mục. Nhập tên thẻ mới ở ô bên dưới.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-slate-300 mb-1.5 font-semibold">
+                Hoặc nhập tên thẻ mới
+              </label>
+              <input
+                type="text"
+                value={customBulkTagName}
+                onChange={(e) => {
+                  setCustomBulkTagName(e.target.value);
+                  if (e.target.value.trim()) setSelectedBulkTagId("");
+                }}
+                placeholder="VD: Khách VIP T11..."
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsBulkTagModalOpen(false)}
+                disabled={bulkActionBusy}
+                className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 font-semibold text-slate-300 hover:text-white cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="submit"
+                disabled={bulkActionBusy || (!selectedBulkTagId && !customBulkTagName.trim())}
+                className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500 disabled:opacity-50 cursor-pointer"
+              >
+                {bulkActionBusy
+                  ? "Đang gắn thẻ..."
+                  : `Gắn Thẻ (${selectedCustomerIds.length})`}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal Xác Nhận Xóa Hàng Loạt */}
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-rose-400">
+              🗑️ Xác Nhận Xóa {selectedCustomerIds.length} Khách Hàng
+            </h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Bạn có chắc chắn muốn xóa hàng loạt{" "}
+              <strong className="text-white">{selectedCustomerIds.length}</strong> hồ sơ khách
+              hàng đã chọn? Hệ thống sẽ đồng thời dọn sạch mapping thẻ tag tương ứng trong{" "}
+              <code className="text-amber-300">conversation_tags.json</code>.
+            </p>
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsBulkDeleteModalOpen(false)}
+                disabled={bulkActionBusy}
+                className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBulkDelete}
+                disabled={bulkActionBusy}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-50 cursor-pointer"
+              >
+                {bulkActionBusy
+                  ? "Đang xóa..."
+                  : `Xác Nhận Xóa (${selectedCustomerIds.length})`}
               </button>
             </div>
           </div>

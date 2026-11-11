@@ -177,6 +177,62 @@ export function removeConversationTags(threadId) {
   }
 }
 
+export function bulkAddConversationTag(keys = [], tagValue = "") {
+  const cleanTag = String(tagValue || "").trim();
+  const cleanKeys = Array.from(
+    new Set((Array.isArray(keys) ? keys : []).map((k) => String(k || "").trim()).filter(Boolean))
+  );
+  if (!cleanTag || cleanKeys.length === 0) return false;
+
+  const map = getAllConversationTags();
+  let changed = false;
+  for (const key of cleanKeys) {
+    const prev = Array.isArray(map[key]) ? map[key] : [];
+    if (!prev.includes(cleanTag)) {
+      map[key] = [...prev, cleanTag];
+      changed = true;
+    }
+  }
+  if (!changed) return true;
+
+  try {
+    const file = resolveDataPath("conversation_tags.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    console.error("[bulkAddConversationTag ERROR]", err);
+    return false;
+  }
+}
+
+export function bulkRemoveConversationTags(keys = []) {
+  const cleanKeys = Array.from(
+    new Set((Array.isArray(keys) ? keys : []).map((k) => String(k || "").trim()).filter(Boolean))
+  );
+  if (cleanKeys.length === 0) return false;
+
+  const map = getAllConversationTags();
+  let changed = false;
+  for (const key of cleanKeys) {
+    if (key in map) {
+      delete map[key];
+      changed = true;
+    }
+  }
+  if (!changed) return true;
+
+  try {
+    const file = resolveDataPath("conversation_tags.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    console.error("[bulkRemoveConversationTags ERROR]", err);
+    return false;
+  }
+}
+
 export function getTagUsageCount() {
   const convTags = getAllConversationTags();
   const counts = {};

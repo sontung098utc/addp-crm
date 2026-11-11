@@ -607,3 +607,77 @@ export function getAllAvailableCustomerTags() {
     count,
   }));
 }
+
+/**
+ * Xóa hàng loạt khách hàng theo danh sách ID / Code trong 1 lần ghi đĩa nguyên tử
+ * @param {Array<string|number>} ids
+ */
+export function bulkDeleteCustomersByIds(ids = []) {
+  dynamicCustomersStore = loadPersistedCustomers();
+  const idSet = new Set(
+    (Array.isArray(ids) ? ids : []).map((v) => String(v || "").trim()).filter(Boolean)
+  );
+  if (idSet.size === 0) {
+    return { removed: [], remaining: dynamicCustomersStore };
+  }
+
+  const removed = [];
+  const remaining = [];
+  for (const c of dynamicCustomersStore) {
+    const matchById = c.id !== undefined && c.id !== null && idSet.has(String(c.id).trim());
+    const matchByCode = c.code && idSet.has(String(c.code).trim());
+    if (matchById || matchByCode) {
+      removed.push(c);
+    } else {
+      remaining.push(c);
+    }
+  }
+
+  if (removed.length > 0) {
+    dynamicCustomersStore = remaining;
+    savePersistedCustomers(dynamicCustomersStore);
+  }
+  return { removed, remaining };
+}
+
+/**
+ * Gắn thẻ hàng loạt cho danh sách khách hàng trong 1 lần ghi đĩa nguyên tử
+ * @param {Array<string|number>} ids
+ * @param {string} tagValue
+ */
+export function bulkAddTagToCustomersByIds(ids = [], tagValue = "") {
+  const cleanTag = String(tagValue || "").trim();
+  const idSet = new Set(
+    (Array.isArray(ids) ? ids : []).map((v) => String(v || "").trim()).filter(Boolean)
+  );
+  if (!cleanTag || idSet.size === 0) {
+    return { updated: [] };
+  }
+
+  dynamicCustomersStore = loadPersistedCustomers();
+  const nowIso = new Date().toISOString();
+  const updated = [];
+  let changed = false;
+
+  dynamicCustomersStore = dynamicCustomersStore.map((c) => {
+    const matchById = c.id !== undefined && c.id !== null && idSet.has(String(c.id).trim());
+    const matchByCode = c.code && idSet.has(String(c.code).trim());
+    if (!matchById && !matchByCode) return c;
+
+    const prevTags = Array.isArray(c.tags) ? c.tags : [];
+    const nextTags = prevTags.includes(cleanTag) ? prevTags : [...prevTags, cleanTag];
+    const nextCustomer = ensureCustomerTagsArray({
+      ...c,
+      tags: nextTags,
+      updatedAt: prevTags.includes(cleanTag) ? c.updatedAt : nowIso,
+    });
+    if (!prevTags.includes(cleanTag)) changed = true;
+    updated.push(nextCustomer);
+    return nextCustomer;
+  });
+
+  if (changed) {
+    savePersistedCustomers(dynamicCustomersStore);
+  }
+  return { updated };
+}
