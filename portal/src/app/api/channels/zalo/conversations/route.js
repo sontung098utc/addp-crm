@@ -16,8 +16,21 @@ import {
 import { listAllChannels } from "@/lib/connectionHub.js";
 import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
 import { getAllConversationTags } from "@/lib/tagStore.js";
+import { normalizePhone } from "@/lib/phone.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import fs from "fs";
+
+function attachConversationTags(conv, allThreadTags) {
+  const byId = Array.isArray(allThreadTags[conv.id]) ? allThreadTags[conv.id] : [];
+  const normPhone = normalizePhone(conv.phone || conv.zaloPhone || "");
+  const byPhone = normPhone && Array.isArray(allThreadTags[normPhone]) ? allThreadTags[normPhone] : [];
+  const existing = Array.isArray(conv.tags) ? conv.tags : [];
+  const merged = Array.from(new Set([...byId, ...byPhone, ...existing].filter(Boolean)));
+  return {
+    ...conv,
+    tags: merged,
+  };
+}
 
 /**
  * ADDP Omnichannel AI CRM — API Danh Sách Hội Thoại Đa Kênh Thật 100% (WBS-21 -> WBS-25)
@@ -209,10 +222,7 @@ export async function GET(request) {
         );
 
       const allThreadTags = getAllConversationTags();
-      const combinedWithTags = filteredOther.map((conv) => ({
-        ...conv,
-        tags: allThreadTags[conv.id] || (Array.isArray(conv.tags) ? conv.tags : []),
-      }));
+      const combinedWithTags = filteredOther.map((conv) => attachConversationTags(conv, allThreadTags));
 
       return NextResponse.json({
         ok: true,
@@ -475,12 +485,9 @@ export async function GET(request) {
     const combined = [...allActive, ...contactOnlyConversations];
     const connectedPages = getConnectedFacebookPages();
 
-    // Gắn thẻ tag đã lưu vào từng hội thoại
+    // Gắn thẻ tag đã lưu vào từng hội thoại (hỗ trợ cả threadId và SĐT chuẩn từ migrate)
     const allThreadTags = getAllConversationTags();
-    const combinedWithTags = combined.map((conv) => ({
-      ...conv,
-      tags: allThreadTags[conv.id] || (Array.isArray(conv.tags) ? conv.tags : []),
-    }));
+    const combinedWithTags = combined.map((conv) => attachConversationTags(conv, allThreadTags));
 
     return NextResponse.json({
       ok: true,

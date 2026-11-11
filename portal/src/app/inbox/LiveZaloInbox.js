@@ -247,6 +247,8 @@ export default function LiveZaloInbox() {
   const activeConvRef = useRef(activeConv);
   const convSignatureRef = useRef("");
   const prevMsgCountRef = useRef(0);
+  const deepLinkAppliedRef = useRef(false);
+  const deepLinkStaffAppliedRef = useRef(false);
 
   useEffect(() => {
     activeConvRef.current = activeConv;
@@ -542,6 +544,127 @@ export default function LiveZaloInbox() {
 
     return () => clearInterval(pollTimer);
   }, []);
+
+  // Tự động nhận diện query params (?phone=...&staff=...&autoOpen=true) khi điều hướng từ trang Khách hàng (/customers)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const rawPhone = (params.get("phone") || "").trim();
+    const rawStaff = (params.get("staff") || "").trim();
+    const autoOpen = params.get("autoOpen") === "true";
+
+    if (!rawPhone && !rawStaff) return;
+
+    const stripVietnamese = (str) =>
+      String(str || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .toLowerCase()
+        .trim();
+
+    // 1. Tự động chọn tài khoản Zalo theo Nhân viên phụ trách (staff)
+    let matchedAccId = null;
+    if (rawStaff && !deepLinkStaffAppliedRef.current) {
+      const targetStaffNorm = stripVietnamese(rawStaff);
+      const pool = (effectiveZaloAccounts && effectiveZaloAccounts.length > 0
+        ? effectiveZaloAccounts
+        : connectedZaloAccounts) || [];
+
+      const matchedAcc = pool.find((acc) => {
+        const candidates = [
+          acc.name,
+          acc.displayName,
+          acc.accountName,
+          acc.assignedStaff?.name,
+          acc.accountId,
+        ];
+        return candidates.some((cand) => {
+          const cNorm = stripVietnamese(cand);
+          return cNorm && targetStaffNorm && (cNorm.includes(targetStaffNorm) || targetStaffNorm.includes(cNorm));
+        });
+      });
+
+      if (matchedAcc?.accountId) {
+        matchedAccId = String(matchedAcc.accountId);
+        deepLinkStaffAppliedRef.current = true;
+        handleAccountDropdownChange(`ZALO_ACCOUNT:${matchedAcc.accountId}`);
+      }
+    }
+
+    // 2. Tự động tìm và mở hội thoại theo SĐT (phone & autoOpen)
+    if (rawPhone && !deepLinkAppliedRef.current && (conversations || []).length > 0) {
+      const cleanPhone = normalizePhone(rawPhone);
+      const digitsOnly = rawPhone.replace(/\D/g, "");
+
+      const matchesPhone = (c) => {
+        const cPhone = normalizePhone(c.phone || "");
+        const cZaloPhone = normalizePhone(c.zaloPhone || "");
+        if (cleanPhone && (cPhone === cleanPhone || cZaloPhone === cleanPhone)) return true;
+        if (digitsOnly.length >= 8) {
+          const idDigits = String(c.id || "").replace(/\D/g, "");
+          const recDigits = String(c.recipientId || "").replace(/\D/g, "");
+          const nameDigits = String(c.name || "").replace(/\D/g, "");
+          const msgDigits = String(c.lastMessage || "").replace(/\D/g, "");
+          if (
+            idDigits.includes(digitsOnly) ||
+            recDigits.includes(digitsOnly) ||
+            nameDigits.includes(digitsOnly) ||
+            msgDigits.includes(digitsOnly)
+          ) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const targetAccCheck =
+        matchedAccId || (selectedZaloAccountId !== "ALL" ? String(selectedZaloAccountId) : null);
+
+      const matchedConv =
+        (targetAccCheck &&
+          (conversations || []).find(
+            (c) => String(c.accountId || "") === targetAccCheck && matchesPhone(c)
+          )) ||
+        (conversations || []).find((c) => matchesPhone(c));
+
+      if (matchedConv) {
+        deepLinkAppliedRef.current = true;
+        if (
+          matchedConv.channel === "ZALO_PERSONAL" &&
+          matchedConv.accountId &&
+          selectedZaloAccountId !== "ALL" &&
+          String(matchedConv.accountId) !== String(selectedZaloAccountId)
+        ) {
+          handleAccountDropdownChange(`ZALO_ACCOUNT:${matchedConv.accountId}`);
+        } else if (matchedConv.channel !== "ZALO_PERSONAL" && channelFilter === "ZALO_PERSONAL") {
+          handleAccountDropdownChange("ALL");
+        }
+
+        if (matchedConv.isContactOnly) {
+          setShowContactsSection(true);
+        }
+        if (autoOpen || cleanPhone) {
+          setActiveConv(matchedConv);
+          setSearchQuery(cleanPhone || rawPhone);
+          setToast({
+            type: "success",
+            text: `💬 Đã mở hội thoại chăm sóc: ${matchedConv.name || cleanPhone || rawPhone}`,
+          });
+          setTimeout(() => setToast(null), 4000);
+        }
+      } else if (!loadingConv) {
+        deepLinkAppliedRef.current = true;
+        setSearchQuery(cleanPhone || rawPhone);
+        setToast({
+          type: "success",
+          text: `🔍 Đã lọc SĐT ${cleanPhone || rawPhone}${rawStaff ? ` (NV: ${rawStaff})` : ""}. Chưa có lịch sử chat sẵn trong danh sách.`,
+        });
+        setTimeout(() => setToast(null), 5000);
+      }
+    }
+  }, [conversations, effectiveZaloAccounts, connectedZaloAccounts, loadingConv, selectedZaloAccountId, channelFilter]);
 
   // Tự động chọn hội thoại đầu tiên phù hợp khi đổi Dropdown tài khoản
   useEffect(() => {
