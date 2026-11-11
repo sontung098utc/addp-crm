@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { resolveComboFormulaList } from "./comboResolver.js";
+import { syncKiotVietProductsToInventory } from "./inventoryStore.js";
 
 function loadDefaultProductList() {
   const candidates = [
@@ -29,7 +30,7 @@ function loadDefaultProductList() {
  */
 
 const KIOTVIET_TOKEN_URL = "https://id.kiotviet.vn/connect/token";
-const KIOTVIET_API_BASE = "https://public.kiotviet.vn";
+const KIOTVIET_API_BASE = "https://public.kiotapi.com";
 
 function resolveDataFilePath(fileName) {
   const candidates = [
@@ -235,25 +236,7 @@ export function getLocalProductsInventory() {
     }
   } catch {}
 
-  const defaultProductList = loadDefaultProductList();
-  const seeded = defaultProductList.map((p, idx) => ({
-    id: p.id,
-    kiotProductId: Number(p.kiotProductId) || 98760 + idx,
-    sku: p.sku,
-    code: p.sku,
-    name: p.name,
-    price: Number(p.price) || 0,
-    unit: p.unit || "Hộp",
-    onHand: typeof p.onHand === "number" ? p.onHand : 120,
-    isCombo: Boolean(p.unit === "Combo" || String(p.sku).startsWith("COMBO-")),
-  }));
-
-  try {
-    fs.mkdirSync(path.dirname(PRODUCTS_CACHE_PATH), { recursive: true });
-    fs.writeFileSync(PRODUCTS_CACHE_PATH, JSON.stringify(seeded, null, 2), "utf8");
-  } catch {}
-
-  return seeded;
+  return [];
 }
 
 export function saveLocalProductsInventory(products) {
@@ -372,44 +355,68 @@ export async function fetchKiotVietBranches() {
  */
 export async function fetchKiotVietProducts() {
   const cfg = getKiotVietConfig();
-  const tokenRes = await getKiotVietAccessToken(cfg);
-
-  if (!tokenRes.ok || !cfg.retailer) {
-    const localProducts = getLocalProductsInventory();
+  if (!cfg.retailer || !cfg.clientId || !cfg.clientSecret) {
     return {
-      ok: true,
-      source: "LOCAL_CATALOG",
-      products: localProducts,
-      total: localProducts.length,
-      note: "Đang sử dụng danh mục sản phẩm chuẩn tại chỗ (Chưa nhập Client ID / Secret KiotViet).",
+      ok: false,
+      source: "NOT_CONFIGURED",
+      products: [],
+      total: 0,
+      error: "Chưa cấu hình đầy đủ Tên gian hàng (Retailer), Client ID và Client Secret KiotViet.",
+    };
+  }
+
+  const tokenRes = await getKiotVietAccessToken(cfg);
+  if (!tokenRes.ok || !tokenRes.accessToken) {
+    return {
+      ok: false,
+      source: "AUTH_ERROR",
+      products: [],
+      total: 0,
+      error: tokenRes.error || "Không thể lấy Bearer Token từ KiotViet.",
     };
   }
 
   try {
-    const res = await fetch(
-      `${KIOTVIET_API_BASE}/products?pageSize=100&includeInventory=true&isActive=true`,
-      {
-        method: "GET",
-        headers: {
-          Retailer: cfg.retailer,
-          Authorization: `Bearer ${tokenRes.accessToken}`,
-        },
-        signal: AbortSignal.timeout(12000),
-      }
-    );
+    const allItems = [];
+    let currentItem = 0;
+    const pageSize = 100;
+    let totalAvailable = Infinity;
 
-    const data = await res.json();
-    if (!res.ok || !Array.isArray(data?.data)) {
-      return {
-        ok: false,
-        error:
-          data?.responseStatus?.message ||
-          `Không thể đồng bộ sản phẩm từ KiotViet (HTTP ${res.status})`,
-        products: getLocalProductsInventory(),
-      };
+    while (currentItem < totalAvailable && currentItem < 2000) {
+      const res = await fetch(
+        `${KIOTVIET_API_BASE}/products?pageSize=${pageSize}&currentItem=${currentItem}&includeInventory=true&isActive=true`,
+        {
+          method: "GET",
+          headers: {
+            Retailer: cfg.retailer,
+            Authorization: `Bearer ${tokenRes.accessToken}`,
+          },
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data?.data)) {
+        return {
+          ok: false,
+          error:
+            data?.responseStatus?.message ||
+            `Không thể đồng bộ sản phẩm từ KiotViet (HTTP ${res.status})`,
+          products: getLocalProductsInventory(),
+        };
+      }
+
+      if (typeof data.total === "number") {
+        totalAvailable = data.total;
+      }
+      if (data.data.length === 0) break;
+
+      allItems.push(...data.data);
+      currentItem += data.data.length;
+      if (data.data.length < pageSize) break;
     }
 
-    const mapped = data.data.map((item) => {
+    const mapped = allItems.map((item) => {
       const invList = Array.isArray(item.inventories) ? item.inventories : [];
       const totalOnHand = invList.reduce(
         (sum, inv) => sum + (Number(inv.onHand) || 0),
@@ -428,15 +435,14 @@ export async function fetchKiotVietProducts() {
       };
     });
 
-    if (mapped.length > 0) {
-      saveLocalProductsInventory(mapped);
-      saveKiotVietConfig({ lastSyncedAt: new Date().toISOString() });
-    }
+    saveLocalProductsInventory(mapped);
+    syncKiotVietProductsToInventory(mapped);
+    saveKiotVietConfig({ lastSyncedAt: new Date().toISOString() });
 
     return {
       ok: true,
       source: "KIOTVIET_LIVE",
-      products: mapped.length > 0 ? mapped : getLocalProductsInventory(),
+      products: mapped,
       total: mapped.length,
     };
   } catch (err) {

@@ -88,7 +88,7 @@ export default function CustomerDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center p-16 space-y-3 text-slate-400">
         <div className="h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs">Đang mở hồ sơ khách hàng 360...</p>
+        <p className="text-xs">Đang mở hồ sơ khách hàng...</p>
       </div>
     );
   }
@@ -124,7 +124,7 @@ export default function CustomerDetailPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-slate-400">
           <Link href="/customers" className="hover:text-white transition">
-            ← Danh sách Khách Hàng 360
+            ← Danh sách Khách hàng
           </Link>
           <span>/</span>
           <span className="text-white font-semibold">{customer.fullName} ({customer.code})</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { canAccessModule } from "@/lib/auth";
@@ -25,14 +26,14 @@ import {
 
 const MENU_ITEMS = [
   { key: "dashboard", name: "Tổng quan CRM", href: "/", icon: LayoutDashboard, badge: null },
-  { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: MessageSquare, badge: "4" },
-  { key: "customers", name: "Khách hàng 360", href: "/customers", icon: Users, badge: null },
+  { key: "inbox", name: "Hộp thư Đa kênh", href: "/inbox", icon: MessageSquare, badge: null },
+  { key: "customers", name: "Khách hàng", href: "/customers", icon: Users, badge: null },
   { key: "tags", name: "Quản lý Thẻ Tag", href: "/settings/tags", icon: Tag, badge: null },
-  { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: CalendarClock, badge: "7" },
+  { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: CalendarClock, badge: null },
   { key: "broadcast", name: "AI & Gửi Hàng loạt", href: "/broadcast", icon: Bot, badge: null },
   { key: "orders", name: "Đơn hàng Đa sàn", href: "/orders", icon: Receipt, badge: null },
   { key: "inventory", name: "Kho Combo & SKU", href: "/inventory", icon: PackageSearch, badge: null },
-  { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: Globe2, badge: "7" },
+  { key: "channels", name: "Kết nối 7 Kênh", href: "/channels", icon: Globe2, badge: null },
   { key: "reports", name: "Báo cáo BI & Lãi/Lỗ", href: "/reports", icon: TrendingUp, badge: null },
   { key: "settings", name: "Nhân sự & Phân quyền", href: "/settings", icon: ShieldCheck, badge: null },
   { key: "guide", name: "Hướng Dẫn Sử Dụng", href: "/guide", icon: BookOpen, badge: "Sổ tay" },
@@ -41,10 +42,44 @@ const MENU_ITEMS = [
 export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
   const pathname = usePathname();
   const { theme } = useTheme();
+  const [sidebarStats, setSidebarStats] = useState({
+    inboxUnreadCount: 0,
+    careTasksCount: 0,
+    channelsCount: 0,
+  });
+
+  useEffect(() => {
+    if (pathname === "/login" || !currentUser) return;
+    let cancelled = false;
+
+    const loadStats = () => {
+      fetch("/api/sidebar-stats", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (cancelled || !data?.ok) return;
+          setSidebarStats({
+            inboxUnreadCount: Number(data.inboxUnreadCount) || 0,
+            careTasksCount: Number(data.careTasksCount) || 0,
+            channelsCount: Number(data.channelsCount) || 0,
+          });
+        })
+        .catch(() => {});
+    };
+
+    loadStats();
+    const timer = setInterval(loadStats, 45000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [pathname, currentUser]);
+
   if (pathname === "/login") return null;
 
   const userRole = currentUser?.role || "ADMIN";
-  const visibleItems = MENU_ITEMS.filter((item) => canAccessModule(userRole, item.key));
+  const visibleItems = MENU_ITEMS.filter((item) =>
+    canAccessModule(currentUser || userRole, item.key)
+  );
 
   return (
     <aside
@@ -89,6 +124,19 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
           const Icon = item.icon;
           const isActive =
             pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+
+          let dynamicBadge = item.badge;
+          if (item.key === "inbox") {
+            dynamicBadge =
+              sidebarStats.inboxUnreadCount > 0 ? String(sidebarStats.inboxUnreadCount) : null;
+          } else if (item.key === "work-tracking") {
+            dynamicBadge =
+              sidebarStats.careTasksCount > 0 ? String(sidebarStats.careTasksCount) : null;
+          } else if (item.key === "channels") {
+            dynamicBadge =
+              sidebarStats.channelsCount > 0 ? String(sidebarStats.channelsCount) : null;
+          }
+
           return (
             <Link
               key={item.key}
@@ -108,7 +156,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
                 />
                 {!isCollapsed && <span className="truncate">{item.name}</span>}
               </div>
-              {!isCollapsed && item.badge && (
+              {!isCollapsed && dynamicBadge && (
                 <span
                   className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 whitespace-nowrap transition-colors ${
                     isActive
@@ -116,7 +164,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
                       : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
                   }`}
                 >
-                  {item.badge}
+                  {dynamicBadge}
                 </span>
               )}
             </Link>

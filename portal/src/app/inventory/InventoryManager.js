@@ -18,7 +18,7 @@ export default function InventoryManager() {
   const [toast, setToast] = useState(null);
 
   // Bộ kiểm thử giải mã Combo trực tiếp (Interactive Combo Tester)
-  const [testSku, setTestSku] = useState("COMBO-2GLU-1DOV");
+  const [testSku, setTestSku] = useState("");
   const [testQty, setTestQty] = useState(2);
   const [testResult, setTestResult] = useState(null);
   const [testing, setTesting] = useState(false);
@@ -46,6 +46,114 @@ export default function InventoryManager() {
     shopName: "Dược Phẩm ADDP Official",
     localItemCode: "",
   });
+
+  // Modal Cấu hình Kết nối KiotViet
+  const [isKiotModalOpen, setIsKiotModalOpen] = useState(false);
+  const [kiotForm, setKiotForm] = useState({
+    retailer: "",
+    clientId: "",
+    clientSecret: "",
+    hasClientSecret: false,
+    connected: false,
+    lastSyncedAt: null,
+  });
+  const [kiotBusy, setKiotBusy] = useState(false);
+  const [kiotStatusMsg, setKiotStatusMsg] = useState(null);
+
+  const openKiotConfigModal = async () => {
+    setIsKiotModalOpen(true);
+    setKiotStatusMsg(null);
+    try {
+      const res = await fetch("/api/channels/kiotviet?action=config", { cache: "no-store" });
+      const data = await res.json();
+      if (data?.ok && data.config) {
+        setKiotForm({
+          retailer: data.config.retailer || "",
+          clientId: data.config.clientId || "",
+          clientSecret: "",
+          hasClientSecret: Boolean(data.config.hasClientSecret),
+          connected: Boolean(data.config.connected),
+          lastSyncedAt: data.config.lastSyncedAt || null,
+        });
+      }
+    } catch {}
+  };
+
+  const handleSaveKiotConfigAndSync = async (runSync = false) => {
+    if (!kiotForm.retailer.trim() || !kiotForm.clientId.trim()) {
+      setKiotStatusMsg({ type: "error", text: "Vui lòng nhập Tên gian hàng (Retailer) và Client ID." });
+      return;
+    }
+    if (!kiotForm.clientSecret.trim() && !kiotForm.hasClientSecret) {
+      setKiotStatusMsg({ type: "error", text: "Vui lòng nhập Client Secret từ KiotViet." });
+      return;
+    }
+    try {
+      setKiotBusy(true);
+      setKiotStatusMsg(null);
+      const saveRes = await fetch("/api/channels/kiotviet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SAVE_CONFIG",
+          retailer: kiotForm.retailer.trim(),
+          clientId: kiotForm.clientId.trim(),
+          clientSecret: kiotForm.clientSecret.trim() || "********",
+        }),
+      });
+      const saveData = await saveRes.json();
+      if (!saveData.ok || (saveData.tokenStatus && !saveData.tokenStatus.ok)) {
+        setKiotStatusMsg({
+          type: "error",
+          text: saveData.tokenStatus?.message || saveData.error || "Không thể xác thực tài khoản KiotViet.",
+        });
+        return;
+      }
+
+      setKiotForm((prev) => ({
+        ...prev,
+        clientSecret: "",
+        hasClientSecret: true,
+        connected: Boolean(saveData.config?.connected),
+      }));
+
+      if (!runSync) {
+        setKiotStatusMsg({
+          type: "success",
+          text: saveData.message || "Đã lưu & xác thực KiotViet OAuth2 thành công!",
+        });
+        return;
+      }
+
+      const syncRes = await fetch("/api/channels/kiotviet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "SYNC_PRODUCTS" }),
+      });
+      const syncData = await syncRes.json();
+      if (syncData.ok) {
+        const count = Number(syncData.total ?? (syncData.products || []).length);
+        setKiotStatusMsg({
+          type: "success",
+          text: `Đã kết nối KiotViet & đồng bộ ${count} mã sản phẩm vào kho!`,
+        });
+        setToast({
+          type: "success",
+          text: `Đồng bộ KiotViet thành công (${count} sản phẩm).`,
+        });
+        loadAllData();
+      } else {
+        setKiotStatusMsg({
+          type: "error",
+          text: syncData.error || "Xác thực xong nhưng chưa tải được danh mục sản phẩm KiotViet.",
+        });
+      }
+    } catch {
+      setKiotStatusMsg({ type: "error", text: "Lỗi kết nối tới máy chủ KiotViet." });
+    } finally {
+      setKiotBusy(false);
+    }
+  };
 
   // Bộ lọc nền tảng SKU
   const [platformFilter, setPlatformFilter] = useState("ALL");
@@ -177,7 +285,7 @@ export default function InventoryManager() {
       sellerSku: item.sellerSku || item.platformSkuId,
       platformProductName: item.platformProductName,
       shopName: item.shopName,
-      localItemCode: products[0]?.code || "GLUCARE-LON-800",
+      localItemCode: products[0]?.code || "",
     });
     setIsMapModalOpen(true);
   };
@@ -234,15 +342,23 @@ export default function InventoryManager() {
               Kho Combo, Hàng Đóng Sẵn & Ánh Xạ SKU
             </h1>
             <span className="rounded bg-blue-500/20 text-blue-400 text-[10px] font-semibold px-2 py-0.5 border border-blue-500/30">
-              WBS-41 & WBS-42
+              KiotViet Ready
             </span>
           </div>
           <p className="text-xs text-slate-400">
-            Kế thừa từ <code>C:\AH-Trabi\quan-ly-kho</code>: Thuật toán tách mã Combo đệ quy (<code>resolve_all_formulas</code>), quản lý hàng đóng sẵn và cảnh báo mã SKU chưa liên kết đa sàn.
+            Thuật toán tách mã Combo đệ quy (<code>resolve_all_formulas</code>), quản lý hàng đóng sẵn và đồng bộ mã hàng thật từ KiotViet Public API.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={openKiotConfigModal}
+            className="flex items-center gap-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 text-xs font-semibold px-3.5 py-2 transition border border-emerald-500/40"
+          >
+            <span>⚙️</span>
+            <span>Cấu Hình Kết Nối KiotViet</span>
+          </button>
           <button
             onClick={() => {
               setComboForm({
@@ -270,7 +386,7 @@ export default function InventoryManager() {
                 sellerSku: "",
                 platformProductName: "",
                 shopName: "Dược Phẩm ADDP Official",
-                localItemCode: products[0]?.code || "GLUCARE-LON-800",
+                localItemCode: products[0]?.code || "",
               });
               setIsMapModalOpen(true);
             }}
@@ -708,7 +824,7 @@ export default function InventoryManager() {
                   sellerSku: "",
                   platformProductName: "",
                   shopName: "Dược Phẩm ADDP Official",
-                  localItemCode: products[0]?.code || "GLUCARE-LON-800",
+                  localItemCode: products[0]?.code || "",
                 });
                 setIsMapModalOpen(true);
               }}
@@ -1024,6 +1140,119 @@ export default function InventoryManager() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cấu Hình Kết Nối KiotViet Open API */}
+      {isKiotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  ⚙️ Cấu Hình Kết Nối KiotViet Open API
+                </h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Kết nối OAuth2 KiotViet (<code>public.kiotapi.com</code>) để đồng bộ mã sản phẩm & tồn kho thực tế.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsKiotModalOpen(false)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {kiotStatusMsg && (
+              <div
+                className={`rounded-xl border px-3.5 py-2.5 text-xs ${
+                  kiotStatusMsg.type === "success"
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                    : "border-rose-500/40 bg-rose-500/10 text-rose-300"
+                }`}
+              >
+                {kiotStatusMsg.type === "success" ? "✅ " : "⚠️ "}
+                {kiotStatusMsg.text}
+              </div>
+            )}
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Tên gian hàng KiotViet (Retailer) *
+                </label>
+                <input
+                  type="text"
+                  placeholder="VD: nhathuocaddp"
+                  value={kiotForm.retailer}
+                  onChange={(e) => setKiotForm({ ...kiotForm, retailer: e.target.value })}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Client ID *</label>
+                <input
+                  type="text"
+                  placeholder="Nhập Client ID từ Cài đặt Kết nối API KiotViet"
+                  value={kiotForm.clientId}
+                  onChange={(e) => setKiotForm({ ...kiotForm, clientId: e.target.value })}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Client Secret {kiotForm.hasClientSecret ? "(Đã lưu — bỏ trống nếu giữ nguyên)" : "*"}
+                </label>
+                <input
+                  type="password"
+                  placeholder={kiotForm.hasClientSecret ? "•••••••••••• (đã cấu hình)" : "Nhập Client Secret"}
+                  value={kiotForm.clientSecret}
+                  onChange={(e) => setKiotForm({ ...kiotForm, clientSecret: e.target.value })}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white font-mono focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              {kiotForm.lastSyncedAt && (
+                <p className="text-[11px] text-slate-400">
+                  Lần đồng bộ gần nhất:{" "}
+                  <span className="text-slate-200 font-medium">
+                    {new Date(kiotForm.lastSyncedAt).toLocaleString("vi-VN")}
+                  </span>
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setIsKiotModalOpen(false)}
+                disabled={kiotBusy}
+                className="rounded-xl px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+              >
+                Đóng
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveKiotConfigAndSync(false)}
+                disabled={kiotBusy}
+                className="rounded-xl px-4 py-2 bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-blue-300 text-xs font-semibold disabled:opacity-50"
+              >
+                {kiotBusy ? "Đang xử lý..." : "Lưu Cấu Hình"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSaveKiotConfigAndSync(true)}
+                disabled={kiotBusy}
+                className="rounded-xl px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow disabled:opacity-50"
+              >
+                {kiotBusy ? "Đang đồng bộ..." : "🔄 Kiểm Tra & Đồng Bộ Mã Sản Phẩm"}
+              </button>
+            </div>
           </div>
         </div>
       )}

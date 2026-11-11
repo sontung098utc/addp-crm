@@ -61,6 +61,26 @@ export const ROLE_PERMISSIONS = {
   KE_TOAN: ["dashboard", "orders", "inventory", "reports", "guide"],
 };
 
+export const MODULE_TO_ROUTE = {
+  dashboard: "/",
+  inbox: "/inbox",
+  customers: "/customers",
+  tags: "/settings/tags",
+  "work-tracking": "/work-tracking",
+  broadcast: "/broadcast",
+  orders: "/orders",
+  inventory: "/inventory",
+  channels: "/channels",
+  reports: "/reports",
+  settings: "/settings",
+  guide: "/guide",
+};
+
+export function getDefaultAllowedTabsForRole(role = "SALE") {
+  const mods = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.SALE;
+  return mods.map((m) => MODULE_TO_ROUTE[m]).filter(Boolean);
+}
+
 export function hashPassword(plainPassword) {
   return crypto.createHmac("sha256", SECRET).update(String(plainPassword)).digest("hex");
 }
@@ -139,7 +159,14 @@ const DEFAULT_STAFF_ENTRIES = [
   ],
 ];
 
-const runtimeStaffStore = loadPersistentStaffStore();
+let runtimeStaffStore = loadPersistentStaffStore();
+
+function refreshStaffStore() {
+  if (typeof window === "undefined") {
+    runtimeStaffStore = loadPersistentStaffStore();
+  }
+  return runtimeStaffStore;
+}
 
 // Danh sách tài khoản đa kênh thuộc 7 nền tảng (phục vụ Ma trận Phân quyền Kênh WBS-08)
 const runtimeChannelAccounts = [
@@ -244,9 +271,23 @@ const runtimeChannelPermissions = new Map([
 function stripPassword(staff) {
   if (!staff) return null;
   const { passwordHash: _, ...safe } = staff;
+  const allowedTabs =
+    Array.isArray(safe.allowedTabs) && safe.allowedTabs.length > 0
+      ? safe.allowedTabs
+      : getDefaultAllowedTabsForRole(safe.role);
+  const assignedChannels = Array.isArray(safe.assignedChannels)
+    ? safe.assignedChannels.map((c) => String(c))
+    : [];
+  const customerScope =
+    safe.customerScope || (["ADMIN", "SALE_LEADER"].includes(safe.role) ? "all" : "assigned_only");
   return {
     ...safe,
+    username: safe.username || safe.code,
+    fullName: safe.fullName || safe.name,
     roleLabel: ROLE_METADATA[safe.role]?.label || safe.role,
+    allowedTabs,
+    assignedChannels,
+    customerScope,
     allowedChannelAccountIds: getAllowedChannelIdsForStaff(safe.id, safe.role),
   };
 }
@@ -266,8 +307,9 @@ export function getAllowedChannelIdsForStaff(staffId, role) {
 
 export function authenticateStaff(code, password) {
   if (!code || !password) return null;
+  const store = refreshStaffStore();
   const normalizedCode = String(code).trim().toUpperCase();
-  const staff = runtimeStaffStore.get(normalizedCode);
+  const staff = store.get(normalizedCode);
   if (!staff || !staff.isActive) return null;
 
   const inputHash = hashPassword(password);
@@ -277,8 +319,9 @@ export function authenticateStaff(code, password) {
 }
 
 export function updateStaffPassword(code, currentPassword, newPassword) {
+  const store = refreshStaffStore();
   const normalizedCode = String(code).trim().toUpperCase();
-  const staff = runtimeStaffStore.get(normalizedCode);
+  const staff = store.get(normalizedCode);
   if (!staff) {
     return { ok: false, error: "Không tìm thấy tài khoản nhân viên." };
   }
@@ -289,36 +332,38 @@ export function updateStaffPassword(code, currentPassword, newPassword) {
     return { ok: false, error: "Mật khẩu mới phải có ít nhất 6 ký tự." };
   }
   staff.passwordHash = hashPassword(newPassword);
-  runtimeStaffStore.set(normalizedCode, staff);
-  savePersistentStaffStore(runtimeStaffStore);
+  store.set(normalizedCode, staff);
+  savePersistentStaffStore(store);
   return { ok: true };
 }
 
 export function listAllStaff() {
-  return Array.from(runtimeStaffStore.values()).map(stripPassword);
+  return Array.from(refreshStaffStore().values()).map(stripPassword);
 }
 
 export function getStaffByIdOrCode(identifier) {
   if (identifier === null || identifier === undefined) return null;
-  const byCode = runtimeStaffStore.get(String(identifier).trim().toUpperCase());
+  const store = refreshStaffStore();
+  const byCode = store.get(String(identifier).trim().toUpperCase());
   if (byCode) return stripPassword(byCode);
   const numId = Number(identifier);
-  for (const staff of runtimeStaffStore.values()) {
+  for (const staff of store.values()) {
     if (staff.id === numId) return stripPassword(staff);
   }
   return null;
 }
 
 export function createStaffRecord(input) {
-  const code = String(input.code || "").trim().toUpperCase();
-  const name = String(input.name || "").trim();
+  const store = refreshStaffStore();
+  const code = String(input.code || input.username || "").trim().toUpperCase();
+  const name = String(input.name || input.fullName || "").trim();
   const role = ROLE_METADATA[input.role] ? input.role : "SALE";
 
   if (!code || !name) {
-    return { ok: false, error: "Vui lòng nhập đầy đủ Mã nhân viên và Họ tên." };
+    return { ok: false, error: "Vui lòng nhập đầy đủ Tên đăng nhập (Mã NV) và Họ tên." };
   }
-  if (runtimeStaffStore.has(code)) {
-    return { ok: false, error: `Mã nhân viên '${code}' đã tồn tại trong hệ thống.` };
+  if (store.has(code)) {
+    return { ok: false, error: `Mã nhân viên / Tên đăng nhập '${code}' đã tồn tại trong hệ thống.` };
   }
 
   const nextId = Math.max(0, ...Array.from(runtimeStaffStore.values()).map((s) => s.id)) + 1;
@@ -327,10 +372,25 @@ export function createStaffRecord(input) {
   const rawDailyMsg = Number(input.dailyMsgTarget ?? 70);
   const safeDailyMsgTarget = role === "ADMIN" ? rawDailyMsg : Math.min(70, Math.max(0, rawDailyMsg));
 
+  const allowedTabs = Array.isArray(input.allowedTabs)
+    ? input.allowedTabs.map((t) => String(t).trim()).filter(Boolean)
+    : getDefaultAllowedTabsForRole(role);
+  const assignedChannels = Array.isArray(input.assignedChannels)
+    ? input.assignedChannels.map((c) => String(c).trim()).filter(Boolean)
+    : [];
+  const customerScope =
+    input.customerScope === "all" || input.customerScope === "assigned_only"
+      ? input.customerScope
+      : role === "ADMIN" || role === "SALE_LEADER"
+        ? "all"
+        : "assigned_only";
+
   const newStaff = {
     id: nextId,
     code,
+    username: code,
     name,
+    fullName: name,
     phone: normalizedPhone || "",
     email: String(input.email || "").trim(),
     role,
@@ -342,6 +402,9 @@ export function createStaffRecord(input) {
     dailyMsgTarget: safeDailyMsgTarget,
     customerCount: 0,
     isActive: true,
+    allowedTabs,
+    assignedChannels,
+    customerScope,
     passwordHash: hashPassword(input.password || "123456"),
   };
 
@@ -351,8 +414,9 @@ export function createStaffRecord(input) {
 }
 
 export function updateStaffRecord(idOrCode, updates) {
+  const store = refreshStaffStore();
   let target = null;
-  for (const s of runtimeStaffStore.values()) {
+  for (const s of store.values()) {
     if (s.id === Number(idOrCode) || s.code === String(idOrCode).trim().toUpperCase()) {
       target = s;
       break;
@@ -368,7 +432,14 @@ export function updateStaffRecord(idOrCode, updates) {
     return { ok: false, error: "Bảo mật hệ thống: Không thể khóa tài khoản ADMIN gốc!" };
   }
 
-  if (updates.name !== undefined) target.name = String(updates.name).trim() || target.name;
+  const nextName = updates.fullName !== undefined ? updates.fullName : updates.name;
+  if (nextName !== undefined) {
+    const cleanName = String(nextName).trim();
+    if (cleanName) {
+      target.name = cleanName;
+      target.fullName = cleanName;
+    }
+  }
   if (updates.phone !== undefined) target.phone = updates.phone ? normalizePhone(updates.phone) || updates.phone : "";
   if (updates.email !== undefined) target.email = String(updates.email).trim();
   if (updates.role && ROLE_METADATA[updates.role] && target.code !== "ADMIN") {
@@ -383,6 +454,19 @@ export function updateStaffRecord(idOrCode, updates) {
     const rawMsg = Math.max(0, Number(updates.dailyMsgTarget) || 0);
     target.dailyMsgTarget = target.role === "ADMIN" ? rawMsg : Math.min(70, rawMsg);
   }
+  if (updates.allowedTabs !== undefined && target.code !== "ADMIN") {
+    target.allowedTabs = Array.isArray(updates.allowedTabs)
+      ? updates.allowedTabs.map((t) => String(t).trim()).filter(Boolean)
+      : getDefaultAllowedTabsForRole(target.role);
+  }
+  if (updates.assignedChannels !== undefined) {
+    target.assignedChannels = Array.isArray(updates.assignedChannels)
+      ? updates.assignedChannels.map((c) => String(c).trim()).filter(Boolean)
+      : [];
+  }
+  if (updates.customerScope === "all" || updates.customerScope === "assigned_only") {
+    target.customerScope = target.code === "ADMIN" ? "all" : updates.customerScope;
+  }
   if (updates.isActive !== undefined && target.code !== "ADMIN") {
     target.isActive = Boolean(updates.isActive);
   }
@@ -390,14 +474,15 @@ export function updateStaffRecord(idOrCode, updates) {
     target.passwordHash = hashPassword(updates.resetPassword);
   }
 
-  runtimeStaffStore.set(target.code, target);
-  savePersistentStaffStore(runtimeStaffStore);
+  store.set(target.code, target);
+  savePersistentStaffStore(store);
   return { ok: true, staff: stripPassword(target) };
 }
 
 export function deleteStaffRecord(idOrCode) {
+  const store = refreshStaffStore();
   let target = null;
-  for (const s of runtimeStaffStore.values()) {
+  for (const s of store.values()) {
     if (s.id === Number(idOrCode) || s.code === String(idOrCode).trim().toUpperCase()) {
       target = s;
       break;
@@ -409,8 +494,8 @@ export function deleteStaffRecord(idOrCode) {
   if (target.code === "ADMIN") {
     return { ok: false, error: "Bảo mật hệ thống: Không được phép xóa tài khoản ADMIN chính!" };
   }
-  runtimeStaffStore.delete(target.code);
-  savePersistentStaffStore(runtimeStaffStore);
+  store.delete(target.code);
+  savePersistentStaffStore(store);
   for (const key of Array.from(runtimeChannelPermissions.keys())) {
     if (key.startsWith(`${target.id}:`)) {
       runtimeChannelPermissions.delete(key);
@@ -471,15 +556,33 @@ export function createSessionToken(user) {
   };
   const safeId = safeUser?.id || safeUser?.staffId || "ADMIN";
   const safeRole = safeUser?.role || "ADMIN";
+  const allowedTabs = Array.isArray(safeUser?.allowedTabs)
+    ? safeUser.allowedTabs
+    : getDefaultAllowedTabsForRole(safeRole);
+  const assignedChannels = Array.isArray(safeUser?.assignedChannels)
+    ? safeUser.assignedChannels.map((c) => String(c))
+    : [];
+  const customerScope =
+    safeRole === "ADMIN" || safeRole === "SALE_LEADER"
+      ? safeUser?.customerScope || "all"
+      : safeUser?.customerScope === "all"
+        ? "all"
+        : "assigned_only";
+
   const payload = {
     id: safeId,
     code: safeUser?.code || safeId,
-    name: safeUser?.name || "Quản Trị Viên ADDP",
+    username: safeUser?.username || safeUser?.code || safeId,
+    name: safeUser?.fullName || safeUser?.name || "Quản Trị Viên ADDP",
+    fullName: safeUser?.fullName || safeUser?.name || "Quản Trị Viên ADDP",
     role: safeRole,
     roleLabel: safeUser?.roleLabel || ROLE_METADATA[safeRole]?.label || safeRole,
     teamName: safeUser?.teamName || "Ban Giám Đốc",
     dailyCareTarget: safeUser?.dailyCareTarget ?? 0,
     dailyMsgTarget: safeUser?.dailyMsgTarget ?? 200,
+    allowedTabs,
+    assignedChannels,
+    customerScope,
     allowedChannelAccountIds: getAllowedChannelIdsForStaff(safeId, safeRole),
     exp: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 ngày
   };
@@ -503,9 +606,24 @@ export function verifySessionToken(token) {
   }
 }
 
-export function canAccessModule(role, moduleKey) {
-  if (moduleKey === "guide" || moduleKey === "tags") return true;
-  const allowed = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.SALE;
+export function canAccessModule(roleOrUser, moduleKey) {
+  if (moduleKey === "guide") return true;
+
+  if (roleOrUser && typeof roleOrUser === "object") {
+    if (roleOrUser.role === "ADMIN") return true;
+    if (Array.isArray(roleOrUser.allowedTabs)) {
+      const route = MODULE_TO_ROUTE[moduleKey];
+      return (
+        roleOrUser.allowedTabs.includes(moduleKey) ||
+        (route ? roleOrUser.allowedTabs.includes(route) : false)
+      );
+    }
+    const allowed = ROLE_PERMISSIONS[roleOrUser.role] || ROLE_PERMISSIONS.SALE;
+    return allowed.includes(moduleKey);
+  }
+
+  if (moduleKey === "tags") return true;
+  const allowed = ROLE_PERMISSIONS[roleOrUser] || ROLE_PERMISSIONS.SALE;
   return allowed.includes(moduleKey);
 }
 
@@ -518,6 +636,7 @@ export function canAccessModule(role, moduleKey) {
 export function canAccessStaffData(staff, targetStaffId) {
   if (!staff) return false;
   if (staff.role === "ADMIN" || staff.role === "KE_TOAN" || staff.role === "KHO") return true;
+  if (staff.customerScope === "all") return true;
   if (!targetStaffId) return true;
   if (staff.role === "SALE_LEADER") {
     const teamMembers = listAllStaff().filter((s) => s.teamName === staff.teamName || s.id === staff.id);

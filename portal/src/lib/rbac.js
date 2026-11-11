@@ -130,6 +130,28 @@ export function buildDataScopeFilter(staff, resourceType = "customers") {
     };
   }
 
+  const customerScope =
+    staff.customerScope === "all" || staff.customerScope === "assigned_only"
+      ? staff.customerScope
+      : "assigned_only";
+  const assignedChannels = Array.isArray(staff.assignedChannels)
+    ? staff.assignedChannels.map((c) => String(c))
+    : [];
+  const staffFullName = String(staff.fullName || staff.name || "").trim();
+
+  if (resourceType === "customers" && customerScope === "all") {
+    return {
+      allowed: true,
+      scopeType: "COMPANY_ALL",
+      customerScope: "all",
+      description: `Được cấp quyền xem toàn bộ khách hàng (customerScope = all).`,
+      prismaWhere: {},
+      allowedChannelAccountIds: assignedChannels.length ? assignedChannels : allowedChannels,
+      canViewFinancialCost: false,
+      canExportAllCustomers: false,
+    };
+  }
+
   // 4. SALE / CSKH: Chỉ xem Khách hàng/Đơn hàng do mình phụ trách (staffId == currentUser.id) & Kênh được gán
   const prismaWhere =
     resourceType === "conversations"
@@ -144,10 +166,12 @@ export function buildDataScopeFilter(staff, resourceType = "customers") {
   return {
     allowed: true,
     scopeType: "OWN_ASSIGNED_ONLY",
-    description: `Chỉ xem dữ liệu do cá nhân phụ trách (staffId = ${staffId} / ${staff.code}) và ${allowedChannels.length} tài khoản kênh được phân quyền.`,
+    customerScope,
+    description: `Chỉ xem dữ liệu do cá nhân phụ trách (staffId = ${staffId} / ${staff.code}) và ${assignedChannels.length || allowedChannels.length} tài khoản kênh được phân quyền.`,
     prismaWhere,
     allowedStaffIds: [staffId],
-    allowedChannelAccountIds: allowedChannels,
+    allowedStaffNames: staffFullName ? [staffFullName] : [],
+    allowedChannelAccountIds: allowedChannels.length ? assignedChannels : allowedChannels,
     canViewFinancialCost: false,
     canExportAllCustomers: false,
   };
@@ -166,9 +190,10 @@ export function filterRecordsByRbac(staff, records = [], resourceType = "custome
     }
 
     if (resourceType === "conversations") {
+      const chId = String(item.channelAccountId || item.accountId || item.ownId || "");
       const channelOk =
-        !item.channelAccountId ||
-        scope.allowedChannelAccountIds.includes(Number(item.channelAccountId));
+        !chId ||
+        scope.allowedChannelAccountIds.some((c) => String(c) === chId);
       const staffTarget = item.assignedStaffId ?? item.staffId;
       const staffOk =
         !staffTarget || scope.allowedStaffIds?.includes(Number(staffTarget));
@@ -176,7 +201,30 @@ export function filterRecordsByRbac(staff, records = [], resourceType = "custome
     }
 
     const recordStaffId = Number(item.staffId ?? item.assignedStaffId ?? 0);
-    return scope.allowedStaffIds?.includes(recordStaffId);
+    if (scope.allowedStaffIds?.includes(recordStaffId)) {
+      // Nếu bản ghi được migrate có ghi rõ tên NV khác thì chỉ khớp theo tên NV, trừ khi staffId thực sự thuộc về nhân viên đó (> 1)
+      const explicitName = String(item.assignedStaff || item.staffName || "").trim();
+      if (!explicitName || recordStaffId > 1) return true;
+    }
+
+    const normalizeVi = (val) =>
+      String(val || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .trim()
+        .toLowerCase();
+
+    const recordStaffName = normalizeVi(item.assignedStaff || item.staffName || "");
+    if (recordStaffName && Array.isArray(scope.allowedStaffNames) && scope.allowedStaffNames.length > 0) {
+      return scope.allowedStaffNames.some((n) => {
+        const target = normalizeVi(n);
+        return target && (recordStaffName === target || recordStaffName.includes(target));
+      });
+    }
+
+    return false;
   });
 
   if (scope.canViewFinancialCost) {

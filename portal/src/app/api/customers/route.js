@@ -123,7 +123,13 @@ export async function GET(request) {
         purchaseLevels: Array.from(filterPurchaseLevelSet),
       },
       currentStaff: currentStaff
-        ? { id: currentStaff.id, name: currentStaff.name, role: currentStaff.role }
+        ? {
+            id: currentStaff.id,
+            name: currentStaff.fullName || currentStaff.name,
+            fullName: currentStaff.fullName || currentStaff.name,
+            role: currentStaff.role,
+            customerScope: currentStaff.customerScope || (currentStaff.role === "ADMIN" || currentStaff.role === "SALE_LEADER" ? "all" : "assigned_only"),
+          }
         : null,
     });
   } catch (error) {

@@ -352,29 +352,59 @@ export function getAllCustomers() {
 }
 
 /**
- * Lấy thông tin chi tiết một khách hàng theo ID
+ * Lấy thông tin chi tiết một khách hàng theo ID / Code / SĐT
  * @param {number|string} id
  */
 export function getCustomerById(id) {
+  const strId = String(id || "").trim();
   const numId = Number(id);
-  return getAllCustomers().find((c) => c.id === numId) || null;
+  const all = getAllCustomers();
+  return (
+    all.find(
+      (c) =>
+        (Number.isFinite(numId) && numId > 0 && Number(c.id) === numId) ||
+        String(c.id) === strId ||
+        (c.code && String(c.code) === strId)
+    ) || null
+  );
 }
 
 /**
- * Cập nhật thông tin khách hàng 360
+ * Cập nhật thông tin khách hàng
  * @param {number|string} id
  * @param {object} updates
  */
 export function updateCustomer(id, updates = {}) {
+  dynamicCustomersStore = loadPersistedCustomers();
+  const strId = String(id || "").trim();
   const numId = Number(id);
-  const index = dynamicCustomersStore.findIndex((c) => c.id === numId);
+  const index = dynamicCustomersStore.findIndex(
+    (c) =>
+      (Number.isFinite(numId) && numId > 0 && Number(c.id) === numId) ||
+      String(c.id) === strId ||
+      (c.code && String(c.code) === strId)
+  );
   if (index === -1) return null;
 
   const current = dynamicCustomersStore[index];
+  const nextPhone =
+    updates.phone !== undefined
+      ? normalizePhone(updates.phone) || String(updates.phone || "").trim()
+      : current.phone;
+
+  const nextAssignedStaff =
+    updates.assignedStaff !== undefined
+      ? String(updates.assignedStaff || "").trim()
+      : updates.staffName !== undefined
+        ? String(updates.staffName || "").trim()
+        : current.assignedStaff || current.staffName || "";
+
   const updated = {
     ...current,
     ...updates,
-    phone: updates.phone ? normalizePhone(updates.phone) : current.phone,
+    phone: nextPhone,
+    assignedStaff: nextAssignedStaff || "Chưa gán",
+    staffName: nextAssignedStaff || "Chưa gán",
     updatedAt: new Date().toISOString(),
   };
 
@@ -388,6 +418,27 @@ export function updateCustomer(id, updates = {}) {
   dynamicCustomersStore[index] = ensureCustomerTagsArray(updated);
   savePersistedCustomers(dynamicCustomersStore);
   return dynamicCustomersStore[index];
+}
+
+/**
+ * Xóa khách hàng khỏi hệ thống theo ID hoặc Code
+ * @param {number|string} id
+ */
+export function deleteCustomer(id) {
+  dynamicCustomersStore = loadPersistedCustomers();
+  const strId = String(id || "").trim();
+  const numId = Number(id);
+  const index = dynamicCustomersStore.findIndex(
+    (c) =>
+      (Number.isFinite(numId) && numId > 0 && Number(c.id) === numId) ||
+      String(c.id) === strId ||
+      (c.code && String(c.code) === strId)
+  );
+  if (index === -1) return null;
+
+  const [removed] = dynamicCustomersStore.splice(index, 1);
+  savePersistedCustomers(dynamicCustomersStore);
+  return removed;
 }
 
 /**

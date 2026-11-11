@@ -144,7 +144,12 @@ export function updateConversationTags(threadId, tags) {
   const cleanTags = Array.isArray(tags)
     ? Array.from(new Set(tags.map((t) => String(t || "").trim()).filter(Boolean)))
     : [];
-  map[threadId] = cleanTags;
+
+  if (cleanTags.length > 0) {
+    map[threadId] = cleanTags;
+  } else {
+    delete map[threadId];
+  }
 
   try {
     const file = resolveDataPath("conversation_tags.json");
@@ -154,6 +159,22 @@ export function updateConversationTags(threadId, tags) {
     console.error("[updateConversationTags ERROR]", err);
   }
   return cleanTags;
+}
+
+export function removeConversationTags(threadId) {
+  if (!threadId) return false;
+  const map = getAllConversationTags();
+  if (!(threadId in map)) return true;
+  delete map[threadId];
+  try {
+    const file = resolveDataPath("conversation_tags.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
+    return true;
+  } catch (err) {
+    console.error("[removeConversationTags ERROR]", err);
+    return false;
+  }
 }
 
 export function getTagUsageCount() {

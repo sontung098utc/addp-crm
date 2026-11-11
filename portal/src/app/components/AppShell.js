@@ -18,6 +18,7 @@ function resolveModuleKeyFromPathname(pathname) {
   if (pathname.startsWith("/inventory")) return "inventory";
   if (pathname.startsWith("/channels")) return "channels";
   if (pathname.startsWith("/reports")) return "reports";
+  if (pathname.startsWith("/settings/tags")) return "tags";
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname.startsWith("/guide")) return "guide";
   return "dashboard";
@@ -80,7 +81,7 @@ export default function AppShell({ children }) {
   }
 
   const activeModuleKey = resolveModuleKeyFromPathname(pathname);
-  const hasPermission = canAccessModule(currentUser.role, activeModuleKey);
+  const hasPermission = canAccessModule(currentUser, activeModuleKey);
 
   return (
     <div suppressHydrationWarning className="h-screen overflow-hidden flex bg-slate-950 text-slate-100">

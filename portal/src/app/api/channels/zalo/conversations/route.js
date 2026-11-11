@@ -18,6 +18,7 @@ import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.j
 import { getAllConversationTags } from "@/lib/tagStore.js";
 import { normalizePhone } from "@/lib/phone.js";
 import { guardApiRequest } from "@/lib/rbac.js";
+import { getStaffByIdOrCode } from "@/lib/auth.js";
 import fs from "fs";
 
 function attachConversationTags(conv, allThreadTags) {
@@ -189,11 +190,16 @@ export async function GET(request) {
       return guard.response;
     }
 
+    const liveStaff =
+      (guard.staff?.code || guard.staff?.id
+        ? getStaffByIdOrCode(guard.staff.code || guard.staff.id)
+        : null) || guard.staff;
+
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get("refresh") === "1";
 
     // 1. Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang active trong cấu hình Channels (đồng bộ 100% với /channels)
-    const activeChannels = listAllChannels().filter(
+    const systemActiveZaloChannels = listAllChannels().filter(
       (c) =>
         (c.platform === "ZALO_PERSONAL" ||
           c.type === "zalo_personal" ||
@@ -204,10 +210,28 @@ export async function GET(request) {
         c.status !== "INACTIVE"
     );
 
-    // 2. NẾU KHÔNG CÒN TÀI KHOẢN ZALO CÁ NHÂN NÀO ĐANG ACTIVE (0 Nick QR):
-    // Tuyệt đối không fallback quét lịch sử/tin nhắn cũ; trả về connectedZaloAccounts: [] và chỉ giữ hội thoại các kênh khác
+    const hasChannelScope =
+      liveStaff &&
+      liveStaff.role !== "ADMIN" &&
+      Array.isArray(liveStaff.assignedChannels);
+    const allowedZaloSet = new Set(
+      hasChannelScope ? liveStaff.assignedChannels.map((id) => String(id).trim()) : []
+    );
+
+    const activeChannels = hasChannelScope
+      ? systemActiveZaloChannels.filter((c) => {
+          const ownId = String(c.config?.ownId || c.externalId || "").trim();
+          const chId = String(c.id || "").trim();
+          return (ownId && allowedZaloSet.has(ownId)) || (chId && allowedZaloSet.has(chId));
+        })
+      : systemActiveZaloChannels;
+
+    // 2. NẾU KHÔNG CÒN TÀI KHOẢN ZALO CÁ NHÂN NÀO ĐANG ACTIVE / ĐƯỢC PHÂN QUYỀN CHO NHÂN VIÊN:
+    // Chỉ dừng daemon khi cả hệ thống thực sự có 0 nick Zalo đang kết nối; trả về connectedZaloAccounts: []
     if (activeChannels.length === 0) {
-      stopAllZaloMcpDaemons();
+      if (systemActiveZaloChannels.length === 0) {
+        stopAllZaloMcpDaemons();
+      }
 
       const otherConversations = await getOmnichannelConversations(forceRefresh);
       const filteredOther = (otherConversations || [])

@@ -36,6 +36,8 @@ export default function CustomersPage() {
   const [vipFilter, setVipFilter] = useState("ALL");
   const [currentPage, setCurrentPage] = useState(1);
   const [currentStaff, setCurrentStaff] = useState(null);
+  const [staffDirectory, setStaffDirectory] = useState([]);
+  const [actionMessage, setActionMessage] = useState(null);
 
   // Modal tạo khách hàng mới
   const [showAddModal, setShowAddModal] = useState(false);
@@ -49,6 +51,20 @@ export default function CustomersPage() {
     source: "ZALO_PERSONAL",
   });
   const [savingNew, setSavingNew] = useState(false);
+
+  // Modal Chỉnh sửa & Xóa khách hàng
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [editForm, setEditForm] = useState({
+    fullName: "",
+    phone: "",
+    assignedStaff: "",
+    tags: [],
+    purchasedProductsText: "",
+    notes: "",
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingCustomer, setDeletingCustomer] = useState(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
 
   const fetchCustomers = async () => {
     try {
@@ -78,8 +94,129 @@ export default function CustomersPage() {
   };
 
   useEffect(() => {
+    fetch("/api/staff", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.ok && Array.isArray(data.staff || data.staffList)) {
+          setStaffDirectory(data.staff || data.staffList);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     fetchCustomers();
   }, [tagFilter, staffFilter, productFilter, purchaseLevelFilter, vipFilter]);
+
+  const staffOptionsList = useMemo(() => {
+    const names = new Set();
+    for (const s of staffDirectory || []) {
+      const n = String(s.fullName || s.name || "").trim();
+      if (n) names.add(n);
+    }
+    for (const s of filterOptions.staffs || []) {
+      const n = String(s || "").trim();
+      if (n && n !== "Chưa gán") names.add(n);
+    }
+    if (currentStaff?.fullName) names.add(String(currentStaff.fullName).trim());
+    return Array.from(names).sort((a, b) => a.localeCompare(b, "vi"));
+  }, [staffDirectory, filterOptions.staffs, currentStaff]);
+
+  const openEditModal = (customer) => {
+    setEditingCustomer(customer);
+    setEditForm({
+      fullName: customer.fullName || "",
+      phone: customer.phone || "",
+      assignedStaff:
+        customer.assignedStaff && customer.assignedStaff !== "Chưa gán"
+          ? customer.assignedStaff
+          : "",
+      tags: Array.isArray(customer.tags) ? [...customer.tags] : [],
+      purchasedProductsText: Array.isArray(customer.purchasedProducts)
+        ? customer.purchasedProducts.join(", ")
+        : "",
+      notes: customer.notes || "",
+    });
+  };
+
+  const handleToggleEditTag = (tagName) => {
+    setEditForm((prev) => {
+      const exists = prev.tags.includes(tagName);
+      return {
+        ...prev,
+        tags: exists ? prev.tags.filter((t) => t !== tagName) : [...prev.tags, tagName],
+      };
+    });
+  };
+
+  const handleUpdateCustomer = async (e) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+    if (!editForm.fullName.trim()) {
+      alert("Vui lòng nhập họ tên khách hàng.");
+      return;
+    }
+    try {
+      setSavingEdit(true);
+      const matchedStaffObj = staffDirectory.find(
+        (s) =>
+          String(s.fullName || s.name || "").trim().toLowerCase() ===
+          editForm.assignedStaff.trim().toLowerCase()
+      );
+      const purchasedProducts = editForm.purchasedProductsText
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      const res = await fetch(`/api/customers/${encodeURIComponent(editingCustomer.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fullName: editForm.fullName.trim(),
+          phone: editForm.phone.trim(),
+          assignedStaff: editForm.assignedStaff.trim() || "Chưa gán",
+          staffId: matchedStaffObj?.id,
+          tags: editForm.tags,
+          purchasedProducts,
+          notes: editForm.notes.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setEditingCustomer(null);
+        setActionMessage({ type: "success", text: data.message || "Đã cập nhật thông tin khách hàng." });
+        fetchCustomers();
+      } else {
+        alert(data.error || "Không thể cập nhật thông tin khách hàng.");
+      }
+    } catch {
+      alert("Lỗi kết nối khi cập nhật khách hàng.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDeleteCustomer = async () => {
+    if (!deletingCustomer) return;
+    try {
+      setDeletingBusy(true);
+      const res = await fetch(`/api/customers/${encodeURIComponent(deletingCustomer.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setDeletingCustomer(null);
+        setActionMessage({ type: "success", text: data.message || "Đã xóa khách hàng." });
+        fetchCustomers();
+      } else {
+        alert(data.error || "Không thể xóa khách hàng.");
+      }
+    } catch {
+      alert("Lỗi kết nối khi xóa khách hàng.");
+    } finally {
+      setDeletingBusy(false);
+    }
+  };
 
   const tagColorMap = useMemo(() => {
     const map = new Map();
@@ -168,13 +305,18 @@ export default function CustomersPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-white">
-              Hồ Sơ Khách Hàng 360 & Lộ Trình Chăm Sóc
+              Danh Sách Khách Hàng
             </h1>
             <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
               {customers.length} khách
             </span>
+            {currentStaff?.role !== "ADMIN" && currentStaff?.customerScope === "assigned_only" && (
+              <span className="rounded-full bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-blue-300 border border-blue-500/20">
+                🔒 Phạm vi: Khách phụ trách ({currentStaff.fullName || currentStaff.name})
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-1">
             Hợp nhất dữ liệu từ khachhang.addp.vn & đa kênh theo SĐT 10 số — bấm "Chăm Sóc" để mở thẳng hội thoại Zalo tương ứng
@@ -194,10 +336,23 @@ export default function CustomersPage() {
             className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500 transition shadow-lg shadow-blue-600/30"
           >
             <span>+</span>
-            <span>Thêm Khách Hàng 360</span>
+            <span>Thêm Khách Hàng</span>
           </button>
         </div>
       </div>
+
+      {actionMessage && (
+        <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-xs text-emerald-300">
+          <span>✅ {actionMessage.text}</span>
+          <button
+            type="button"
+            onClick={() => setActionMessage(null)}
+            className="text-emerald-200 hover:text-white font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Bộ lọc thông minh đa chiều */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
@@ -331,7 +486,7 @@ export default function CustomersPage() {
         {loading ? (
           <div className="p-12 text-center text-xs text-slate-500 space-y-2">
             <div className="h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p>Đang tải danh sách Khách Hàng 360...</p>
+            <p>Đang tải danh sách Khách hàng...</p>
           </div>
         ) : customers.length === 0 ? (
           <div className="p-16 text-center space-y-3">
@@ -516,11 +671,27 @@ export default function CustomersPage() {
                             >
                               💬 Chăm Sóc
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(c)}
+                              className="rounded-lg bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 px-2.5 py-1 text-[11px] font-semibold text-blue-300 transition cursor-pointer"
+                              title="Chỉnh sửa thông tin khách hàng"
+                            >
+                              ✏️ Sửa
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingCustomer(c)}
+                              className="rounded-lg bg-rose-600/15 hover:bg-rose-600/35 border border-rose-500/35 px-2.5 py-1 text-[11px] font-semibold text-rose-300 transition cursor-pointer"
+                              title="Xóa khách hàng này"
+                            >
+                              🗑️ Xóa
+                            </button>
                             <Link
                               href={`/customers/${c.id}`}
                               className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition"
                             >
-                              Hồ Sơ 360
+                              Chi Tiết
                             </Link>
                           </div>
                         </td>
@@ -562,12 +733,12 @@ export default function CustomersPage() {
         )}
       </div>
 
-      {/* Modal Thêm Khách Hàng 360 */}
+      {/* Modal Thêm Khách Hàng */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-base font-bold text-white">Thêm Hồ Sơ Khách Hàng 360 Mới</h3>
+              <h3 className="text-base font-bold text-white">Thêm Hồ Sơ Khách Hàng Mới</h3>
               <button
                 onClick={() => setShowAddModal(false)}
                 className="text-slate-400 hover:text-white text-lg font-bold"
@@ -666,10 +837,181 @@ export default function CustomersPage() {
                   disabled={savingNew}
                   className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500 disabled:opacity-50"
                 >
-                  {savingNew ? "Đang lưu..." : "Lưu Khách Hàng 360"}
+                  {savingNew ? "Đang lưu..." : "Lưu Khách Hàng"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Chỉnh sửa Khách hàng */}
+      {editingCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">✏️ Chỉnh Sửa Thông Tin Khách Hàng</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">Mã: {editingCustomer.code || editingCustomer.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCustomer(null)}
+                className="text-slate-400 hover:text-white text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateCustomer} className="space-y-3 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Họ và tên khách hàng *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.fullName}
+                    onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Số điện thoại (10 số VN)</label>
+                  <input
+                    type="text"
+                    value={editForm.phone}
+                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    placeholder="VD: 0912345678"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white font-mono focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Nhân viên phụ trách</label>
+                <select
+                  value={editForm.assignedStaff}
+                  onChange={(e) => setEditForm({ ...editForm, assignedStaff: e.target.value })}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="">-- Chưa gán --</option>
+                  {staffOptionsList.map((staffName) => (
+                    <option key={staffName} value={staffName}>
+                      {staffName}
+                    </option>
+                  ))}
+                  {editForm.assignedStaff && !staffOptionsList.includes(editForm.assignedStaff) && (
+                    <option value={editForm.assignedStaff}>{editForm.assignedStaff}</option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1.5 font-semibold">
+                  Thẻ Tag Lộ trình / Phân loại ({editForm.tags.length} đang gắn)
+                </label>
+                {tagCatalog.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-800 bg-slate-950/70 p-2.5 max-h-36 overflow-y-auto">
+                    {tagCatalog.map((tag) => {
+                      const active = editForm.tags.includes(tag.name);
+                      return (
+                        <button
+                          key={tag.id || tag.name}
+                          type="button"
+                          onClick={() => handleToggleEditTag(tag.name)}
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                            active
+                              ? "border-blue-500 bg-blue-600/30 text-white"
+                              : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-500"
+                          }`}
+                        >
+                          {active ? "✓ " : ""}
+                          {tag.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 italic">
+                    Chưa có thẻ tag nào trong hệ thống. Tạo thẻ mới tại mục Quản lý Thẻ Tag.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">
+                  Sản phẩm đã mua (phân cách bằng dấu phẩy)
+                </label>
+                <input
+                  type="text"
+                  value={editForm.purchasedProductsText}
+                  onChange={(e) => setEditForm({ ...editForm, purchasedProductsText: e.target.value })}
+                  placeholder="VD: Sữa hạt Glucare Plus, Viên sủi Dovital"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Ghi chú chăm sóc</label>
+                <textarea
+                  rows={2}
+                  value={editForm.notes}
+                  onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
+                  placeholder="Ghi chú nội bộ về khách hàng..."
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingCustomer(null)}
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 font-semibold text-slate-300 hover:text-white"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                >
+                  {savingEdit ? "Đang lưu..." : "Lưu Thay Đổi"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xác Nhận Xóa Khách hàng */}
+      {deletingCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-rose-500/30 bg-slate-900 p-6 shadow-2xl space-y-4">
+            <h3 className="text-base font-bold text-rose-400">🗑️ Xác Nhận Xóa Khách Hàng</h3>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Bạn có chắc chắn muốn xóa hồ sơ khách hàng{" "}
+              <strong className="text-white">{deletingCustomer.fullName}</strong> (SĐT:{" "}
+              <span className="font-mono text-amber-300">{deletingCustomer.phone || "Chưa có"}</span>)?
+              Thao tác này sẽ xóa khách hàng và các thẻ tag gắn kèm khỏi hệ thống.
+            </p>
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDeletingCustomer(null)}
+                disabled={deletingBusy}
+                className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-300 hover:text-white"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteCustomer}
+                disabled={deletingBusy}
+                className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-500 disabled:opacity-50"
+              >
+                {deletingBusy ? "Đang xóa..." : "Xác Nhận Xóa"}
+              </button>
+            </div>
           </div>
         </div>
       )}
