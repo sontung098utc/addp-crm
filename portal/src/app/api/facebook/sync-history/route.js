@@ -96,6 +96,7 @@ async function handleSync(request) {
                     psid: custId,
                     pageId,
                     source: "history_sync",
+                    skipAiBot: true,
                   },
                 });
                 pageMsgCount++;

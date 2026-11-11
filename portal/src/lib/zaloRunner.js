@@ -1091,16 +1091,21 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
 
   const now = Date.now();
   const cacheAge = cached?.updatedAt ? now - cached.updatedAt : Infinity;
-  const hasAnyHistory =
-    (fs.existsSync(historyPath) && fs.statSync(historyPath).size > 20) ||
-    (fs.existsSync(groupHistoryPath) && fs.statSync(groupHistoryPath).size > 20);
+  const syncStatePath = path.join(cliDir, ".zalo-sync-state.json");
+  let syncState = null;
+  if (fs.existsSync(syncStatePath)) {
+    try {
+      syncState = JSON.parse(fs.readFileSync(syncStatePath, "utf8"));
+    } catch {}
+  }
+  const hasDmHistory = fs.existsSync(historyPath) && fs.statSync(historyPath).size > 300;
+  const wsBackfillDone = Boolean(syncState?.wsBackfillCompleted && hasDmHistory);
 
   if (forceRefresh && hasCredentials) {
-    // Chỉ chờ tối đa 3.5s khi người dùng chủ động bấm nút Làm mới; nếu tài khoản chưa có lịch sử thì bật luôn WS backfill ngầm
     await Promise.race([
       triggerDirectSyncWorker(targetHome, {
         forceFull: true,
-        runWsBackfill: !hasAnyHistory,
+        runWsBackfill: !wsBackfillDone,
       }),
       new Promise((r) => setTimeout(r, 3500)),
     ]);
@@ -1109,18 +1114,18 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
         cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
       } catch {}
     }
-  } else if (hasCredentials && !hasAnyHistory) {
-    // Nếu tài khoản đã có credentials nhưng chưa từng kéo được lịch sử nào -> chạy ngầm WS backfill + Group history
-    triggerDirectSyncWorker(targetHome, {
-      forceFull: true,
-      runWsBackfill: true,
-    }).catch(() => {});
+  } else if (hasCredentials && !wsBackfillDone) {
+    // Nếu tài khoản đã có credentials nhưng chưa hoàn thành kéo lịch sử DM + Nhóm qua WebSocket -> chạy ngầm CHỈ ĐỌC
+    ensureAccountHistorySynced(targetHome, cached?.ownId || "").catch(() => {});
   } else if ((!cached || cacheAge > 20000) && hasCredentials) {
     // Kích hoạt đồng bộ ngầm không chặn phản hồi UI để danh sách hội thoại mở tức thì (<50ms)
     triggerDirectSyncWorker(targetHome, { forceFull: false, runWsBackfill: false }).catch(() => {});
   }
 
   const friendMap = new Map();
+  for (const s of cached?.strangers || []) {
+    if (s?.userId) friendMap.set(String(s.userId), s);
+  }
   for (const f of cached?.friends || []) {
     if (f?.userId) friendMap.set(String(f.userId), f);
   }
@@ -1191,6 +1196,7 @@ export async function ensureAccountHistorySynced(zaloHomePath, accountId = "", o
 
     state = {
       initialSyncCompleted: Boolean(workerRes?.ok && msgCount > 0),
+      wsBackfillCompleted: Boolean(workerRes?.ok),
       lastSyncTime: Date.now(),
       totalSynced: msgCount,
       dmBackfilled: workerRes?.dmBackfilledCount || 0,

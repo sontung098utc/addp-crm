@@ -8,7 +8,6 @@ import {
   syncZaloGroupsAndMetadata,
   getAllZaloHistoryFiles,
   getZaloSyncStatus,
-  scanAndAutoReplyZaloHistories,
 } from "../../../../../lib/zaloRunner.js";
 import {
   getOmnichannelConversations,
@@ -99,7 +98,7 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
           let rawTs = Number(msg.timestamp) || 0;
           const ts =
             rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs > 0 && rawTs < 1e11 ? rawTs * 1000 : rawTs;
-          if (ts <= 0) continue;
+          if (ts < 0) continue;
 
           const isSelf = Boolean(msg.isSelf || (ownId && String(msg.senderId) === String(ownId)));
           const senderName = msg.senderName || "";

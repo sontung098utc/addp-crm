@@ -7,8 +7,8 @@ import {
   syncZaloGroupsAndMetadata,
   getAllZaloHistoryFiles,
   triggerDirectSyncWorker,
+  getZaloSyncStatus,
 } from "@/lib/zaloRunner.js";
-import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
 
 /**
  * ADDP Omnichannel AI CRM — API Đồng Bộ Lịch Sử Toàn Bộ Tin Nhắn Zalo Cá Nhân
@@ -92,23 +92,22 @@ async function handleZaloSync(request) {
       const seenThreadIds = new Set();
 
       try {
-        // 2.1. Kích hoạt trực tiếp Deep Backfill (WS cmd 510 DM + cmd 511 Group + Group REST 50 tin/nhóm + Danh bạ/Avatar)
-        // triggerDirectSyncWorker tự động tạm dừng MCP Daemon trong lúc kéo WS và bật lại ngay sau khi xong.
+        // 2.1. Kích hoạt trực tiếp Deep Backfill CHỈ ĐỌC (WS cmd 510 DM + cmd 511 Group + Group REST 50 tin/nhóm + Danh bạ/Avatar)
+        // Tuyệt đối không gọi AI auto-reply hay gửi bất kỳ tin nhắn nào trong lúc đồng bộ.
+        let workerRes = null;
         if (typeof triggerDirectSyncWorker === "function") {
           try {
-            await Promise.race([
+            workerRes = await Promise.race([
               triggerDirectSyncWorker(acc.homeDir, { forceFull: true, runWsBackfill: true }),
-              new Promise((r) => setTimeout(r, 15000)),
+              new Promise((r) => setTimeout(() => r(null), 25000)),
             ]);
           } catch {}
         } else {
           ensureZaloMcpDaemon(acc.homeDir);
         }
 
-        // 2.3. Lấy metadata danh bạ để map tên và avatar
+        // 2.3. Đọc metadata danh bạ & đếm toàn bộ lịch sử tin nhắn đã đồng bộ (CHỈ ĐỌC)
         const meta = await syncZaloGroupsAndMetadata(acc.homeDir, false);
-
-        // 2.4. Đọc tất cả các file history JSONL của tài khoản Zalo này
         const historyFiles = getAllZaloHistoryFiles(acc.homeDir);
         const seenMsgIds = new Set();
 
@@ -127,56 +126,10 @@ async function handleZaloSync(request) {
                 if (!tid) continue;
                 if (targetThreadId && tid !== targetThreadId) continue;
 
-                const msgId = String(msg.msgId || `${tid}_${msg.timestamp}`);
+                const msgId = String(msg.msgId || `${tid}_${msg.timestamp || accMessagesCount}`);
                 if (seenMsgIds.has(msgId)) continue;
                 seenMsgIds.add(msgId);
                 seenThreadIds.add(tid);
-
-                let rawTs = Number(msg.timestamp) || 0;
-                const ts =
-                  rawTs > 2e12
-                    ? Math.floor(rawTs / 1000)
-                    : rawTs > 0 && rawTs < 1e11
-                    ? rawTs * 1000
-                    : rawTs || Date.now();
-
-                const isSelf = Boolean(
-                  msg.isSelf || (ownId && String(msg.senderId) === String(ownId))
-                );
-
-                const isGroup = msg.threadType === "group" || meta.groupMap?.has(tid);
-                let senderName = msg.senderName || "";
-                if (!senderName) {
-                  if (isSelf) {
-                    senderName = accDisplayName;
-                  } else if (meta.friendMap?.has(tid)) {
-                    const f = meta.friendMap.get(tid);
-                    senderName = f.displayName || f.zaloName || "Khách Zalo";
-                  } else {
-                    senderName = "Khách Zalo";
-                  }
-                }
-
-                // Lưu vào Unified Message Store để tìm kiếm và truy xuất hợp nhất
-                await addUnifiedMessage({
-                  channel: "ZALO_PERSONAL",
-                  channelId: ownId,
-                  channelName: `Zalo: ${accDisplayName}`,
-                  threadId: tid,
-                  senderId: String(msg.senderId || (isSelf ? ownId : tid)),
-                  senderName,
-                  text: msg.text || "",
-                  type: msg.type || "text",
-                  mediaUrl: msg.mediaUrl || null,
-                  isMe: isSelf,
-                  timestamp: ts,
-                  metadata: {
-                    zaloHome: acc.homeDir,
-                    isGroup,
-                    msgId,
-                  },
-                });
-
                 accMessagesCount++;
               } catch {}
             }
@@ -185,6 +138,7 @@ async function handleZaloSync(request) {
           }
         }
 
+        const liveSyncStatus = getZaloSyncStatus(acc.homeDir);
         totalMessagesSynced += accMessagesCount;
         totalThreadsSynced += seenThreadIds.size;
 
@@ -193,7 +147,12 @@ async function handleZaloSync(request) {
           accountId: ownId,
           messagesCount: accMessagesCount,
           threadsCount: seenThreadIds.size,
-          status: "SUCCESS",
+          friendsCount: meta?.friendMap?.size || liveSyncStatus.friendsCount || 0,
+          groupsCount: meta?.groupMap?.size || liveSyncStatus.groupsCount || 0,
+          isSyncing: liveSyncStatus.isSyncing,
+          dmBackfilled: workerRes?.dmBackfilledCount ?? liveSyncStatus.dmBackfilled ?? 0,
+          groupBackfilled: workerRes?.groupBackfilledCount ?? liveSyncStatus.groupBackfilled ?? 0,
+          status: liveSyncStatus.isSyncing ? "SYNCING_IN_BACKGROUND" : "SUCCESS",
         });
       } catch (accErr) {
         console.error(`[Zalo Sync History] Lỗi tài khoản ${accDisplayName}:`, accErr.message);

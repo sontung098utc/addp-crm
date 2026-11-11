@@ -139,8 +139,13 @@ export async function addUnifiedMessage({
       });
     }
 
-    // Kích hoạt luồng AI Bot Dược sĩ Thảo (nếu kênh & hội thoại đang ở chế độ AI)
-    if (metadata?.skipAiBot !== true) {
+    // Kích hoạt luồng AI Bot Dược sĩ Thảo CHỈ cho tin nhắn mới thực tế (< 2 phút), tuyệt đối không chạy khi sync lịch sử
+    const isHistoricalSync =
+      metadata?.skipAiBot === true ||
+      metadata?.source === "history_sync" ||
+      Date.now() - Number(timestamp || Date.now()) > 120000;
+
+    if (!isHistoricalSync) {
       handleIncomingAiBotAutoReply({
         channel: channel || "ZALO_PERSONAL",
         channelId: channelId || channel || "DEFAULT",

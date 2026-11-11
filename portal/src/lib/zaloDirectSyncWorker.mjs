@@ -124,7 +124,7 @@ async function runWebSocketBackfill({
         hasCipherOrReady = true;
         cipherResolve?.(true);
       }
-    }, 1200);
+    }, 3500);
   };
   const onClosed = (code) => {
     closedEarly = true;
@@ -152,6 +152,7 @@ async function runWebSocketBackfill({
     if (!ready || closedEarly) {
       return { dmBackfilled, groupBackfilled, wsError: "WebSocket chưa sẵn sàng hoặc bị đóng sớm" };
     }
+    await sleep(300);
 
     async function pullThreadType(threadType, label) {
       let cursor = null;
@@ -645,10 +646,71 @@ async function main() {
       }
     }
 
+    // 7. Lấy tên & avatar thật cho các hội thoại người lạ (chưa kết bạn) xuất hiện trong history.jsonl
+    const friendIdSet = new Set(friends.map((f) => String(f.userId)));
+    const groupIdSet = new Set(groups.map((g) => String(g.threadId)));
+    const dmCandidateIds = new Set();
+    if (fs.existsSync(mainHistoryPath)) {
+      try {
+        const lines = fs.readFileSync(mainHistoryPath, "utf8").split("\n");
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line);
+            const tid = String(parsed?.threadId || "");
+            const isGroupLine = parsed?.threadType === "group" || Boolean(parsed?.isGroup);
+            if (
+              tid &&
+              tid !== "0" &&
+              tid !== ownId &&
+              !isGroupLine &&
+              !friendIdSet.has(tid) &&
+              !groupIdSet.has(tid)
+            ) {
+              dmCandidateIds.add(tid);
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
+    const strangersMap = new Map();
+    for (const prevS of prevCache?.strangers || []) {
+      if (prevS?.userId) strangersMap.set(String(prevS.userId), prevS);
+    }
+    const missingStrangerIds = Array.from(dmCandidateIds)
+      .filter((id) => !strangersMap.has(id))
+      .slice(0, 150);
+
+    if (missingStrangerIds.length > 0 && typeof api.getUserInfo === "function") {
+      for (let i = 0; i < missingStrangerIds.length; i += 40) {
+        const chunk = missingStrangerIds.slice(i, i + 40);
+        try {
+          const infoRes = await Promise.race([
+            api.getUserInfo(chunk),
+            sleep(8000).then(() => null),
+          ]);
+          const profiles = infoRes?.changed_profiles || {};
+          for (const [uid, p] of Object.entries(profiles)) {
+            if (!p) continue;
+            strangersMap.set(String(uid), {
+              userId: String(uid),
+              displayName: p.displayName || p.zaloName || "",
+              zaloName: p.zaloName || p.displayName || "",
+              avatar: p.avatar || "",
+              phoneNumber: p.phoneNumber || "",
+              isStranger: true,
+            });
+          }
+        } catch {}
+      }
+    }
+
     fs.writeFileSync(
       metaCachePath,
       JSON.stringify({
         ...initialMetaPayload,
+        strangers: Array.from(strangersMap.values()),
         groupVersions: newGroupVersions,
         updatedAt: Date.now(),
       }),

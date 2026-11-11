@@ -7,7 +7,6 @@ import {
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
   getZaloSyncStatus,
-  processIncomingZaloMessageWithBot,
 } from "../../../../../lib/zaloRunner.js";
 import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
@@ -20,8 +19,8 @@ import path from "path";
  */
 
 function formatMessageTime(timestamp) {
-  if (!timestamp) return { time: "Vừa xong", date: "Hôm nay" };
-  let rawTs = Number(timestamp) || Date.now();
+  if (!timestamp || Number(timestamp) <= 0) return { time: "", date: "Lịch sử cũ" };
+  let rawTs = Number(timestamp) || 0;
   const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
   const d = new Date(ts);
   const now = new Date();
@@ -59,8 +58,9 @@ function getThreadMessagesFromAllHistories(zaloHome, threadId, ownId = "17812873
           const msg = JSON.parse(trimmed);
           if (String(msg.threadId) !== String(threadId)) continue;
 
-          const rawTs = Number(msg.timestamp) || Date.now();
-          const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+          const rawTs = Number(msg.timestamp) || 0;
+          const ts =
+            rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs > 0 && rawTs < 1e11 ? rawTs * 1000 : rawTs;
           const id = String(msg.msgId || msg.cliMsgId || `${ts}_${messages.length}`);
           if (seenIds.has(id)) continue;
           seenIds.add(id);
