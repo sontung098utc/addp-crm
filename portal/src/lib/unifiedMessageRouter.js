@@ -21,8 +21,8 @@ import { listAllChannels, updateChannelAccount } from "./connectionHub.js";
 import {
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
+  TIKTOK_DEFAULT_SHOP_CIPHER,
   generateTikTokSignV2,
-  fetchTikTokAuthorizedShopsDetailed,
   refreshTikTokOAuthToken,
 } from "./tiktokConfig.js";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
@@ -464,17 +464,20 @@ async function persistTikTokTokens(channelId, refreshed) {
   });
 }
 
-async function resolveTikTokSession(channel, { forceVerifyCipher = false } = {}) {
+async function resolveTikTokSession(channel) {
   const appKey = channel.config?.appKey || TIKTOK_APP_KEY;
   const appSecret = channel.config?.appSecret || TIKTOK_APP_SECRET;
   let accessToken = channel.accessToken || channel.config?.accessToken || "";
   let refreshToken = channel.refreshToken || channel.config?.refreshToken || "";
-  let shopCipher =
+  // Dùng trực tiếp shop_cipher đã cấu hình (bỏ qua /authorization/202309/shops do endpoint này bị lỗi 105005)
+  const shopCipher = String(
     channel.shopCipher ||
-    channel.shop_cipher ||
-    channel.config?.shopCipher ||
-    channel.config?.shop_cipher ||
-    "";
+      channel.shop_cipher ||
+      channel.config?.shopCipher ||
+      channel.config?.shop_cipher ||
+      TIKTOK_DEFAULT_SHOP_CIPHER ||
+      "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK"
+  ).trim();
 
   if (!accessToken) {
     const rawMsg = "Thiếu accessToken trong channels.json cho gian hàng TikTok Shop.";
@@ -518,101 +521,6 @@ async function resolveTikTokSession(channel, { forceVerifyCipher = false } = {})
     }
   }
 
-  if (!shopCipher || forceVerifyCipher) {
-    let shopsRes = await fetchTikTokAuthorizedShopsDetailed({
-      accessToken,
-      appKey,
-      appSecret,
-    });
-
-    const shopErrCode = Number(shopsRes?.code ?? -1);
-    const shouldRefreshForShops =
-      !shopsRes.ok &&
-      (shopsRes.httpStatus === 401 ||
-        shopErrCode === 105001 ||
-        shopErrCode === 105002 ||
-        shopErrCode === 105003 ||
-        shopErrCode === 105004 ||
-        shopErrCode === 105005 ||
-        String(shopsRes.message || "").toLowerCase().includes("token") ||
-        String(shopsRes.message || "").toLowerCase().includes("cipher"));
-
-    if (shouldRefreshForShops && refreshToken) {
-      const refreshed = await refreshTikTokOAuthToken({
-        refreshToken,
-        appKey,
-        appSecret,
-      });
-      if (refreshed.ok && refreshed.accessToken) {
-        accessToken = refreshed.accessToken;
-        refreshToken = refreshed.refreshToken || refreshToken;
-        persistTikTokTokens(channel.id, {
-          ...refreshed,
-          refreshToken,
-        });
-        shopsRes = await fetchTikTokAuthorizedShopsDetailed({
-          accessToken,
-          appKey,
-          appSecret,
-        });
-      }
-    }
-
-    const shops = Array.isArray(shopsRes?.shops) ? shopsRes.shops : [];
-    const targetShopId = String(
-      channel.shopId || channel.config?.shopId || channel.externalId || ""
-    ).trim();
-    const matched =
-      shops.find((s) => String(s.id || "") === targetShopId) || shops[0] || null;
-
-    if (matched?.cipher) {
-      shopCipher = matched.cipher;
-      updateChannelAccount(channel.id, {
-        extraFields: {
-          shopCipher: matched.cipher,
-          shop_cipher: matched.cipher,
-          shopId: String(matched.id || targetShopId || ""),
-          externalId: String(matched.id || targetShopId || channel.externalId || ""),
-          ...(matched.code ? { shopCode: matched.code } : {}),
-          ...(matched.name ? { sellerName: matched.name } : {}),
-        },
-        config: {
-          shopCipher: matched.cipher,
-          shop_cipher: matched.cipher,
-          shopId: String(matched.id || targetShopId || ""),
-          ...(matched.code ? { shopCode: matched.code } : {}),
-        },
-      });
-    } else if (!shopCipher || forceVerifyCipher) {
-      const endpoint = "/authorization/202309/shops";
-      const rawCode =
-        shopsRes?.code !== undefined && shopsRes?.code !== null
-          ? shopsRes.code
-          : shopsRes?.httpStatus || -1;
-      const rawMessage = String(
-        shopsRes?.message ||
-          (shops.length === 0
-            ? "Authorized Shops API trả về danh sách shop rỗng hoặc token chưa được gán gian hàng."
-            : "Invalid shop_cipher")
-      ).trim();
-      const friendly = formatTikTokFriendlyError(rawCode, rawMessage, endpoint);
-      return {
-        ok: false,
-        needsTokenRefresh: friendly.needsTokenRefresh || true,
-        accessToken,
-        refreshToken,
-        shopCipher: "",
-        appKey,
-        appSecret,
-        code: rawCode,
-        rawCode,
-        rawMessage,
-        endpoint,
-        error: friendly.message,
-      };
-    }
-  }
-
   return {
     ok: true,
     accessToken,
@@ -631,17 +539,16 @@ async function callTikTokShopApi(
     queryParams = {},
     bodyObj = null,
     timeoutMs = 6000,
-    forceVerifyCipher = false,
   }
 ) {
-  let session = await resolveTikTokSession(channel, { forceVerifyCipher });
+  let session = await resolveTikTokSession(channel);
   if (!session.ok || !session.shopCipher) {
     const rawCode = session.rawCode ?? session.code ?? -1;
     const rawMessage =
       session.rawMessage ||
       session.error ||
-      "Thiếu shop_cipher hoặc phiên ủy quyền TikTok Shop chưa hợp lệ.";
-    const endpoint = session.endpoint || "/authorization/202309/shops";
+      "Thiếu accessToken hoặc shop_cipher TikTok Shop chưa hợp lệ.";
+    const endpoint = session.endpoint || "resolveTikTokSession";
     return {
       status: 400,
       needsTokenRefresh: true,
@@ -712,27 +619,12 @@ async function callTikTokShopApi(
         ...refreshed,
         refreshToken: refreshed.refreshToken || session.refreshToken,
       });
-      const updatedChannel = {
-        ...channel,
+      session = {
+        ...session,
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken || session.refreshToken,
-        shopCipher: "",
-        shop_cipher: "",
-        config: {
-          ...(channel.config || {}),
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken || session.refreshToken,
-          shopCipher: "",
-          shop_cipher: "",
-        },
       };
-      const reVerified = await resolveTikTokSession(updatedChannel, {
-        forceVerifyCipher: true,
-      });
-      if (reVerified.ok && reVerified.shopCipher) {
-        session = reVerified;
-        attempt = await sendOnce(reVerified.accessToken, reVerified.shopCipher);
-      }
+      attempt = await sendOnce(session.accessToken, session.shopCipher);
     }
   }
 
@@ -875,7 +767,6 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
         reqPath: "/customer_service/202309/conversations",
         queryParams: { page_size: "20" },
         timeoutMs: 8000,
-        forceVerifyCipher: true,
       });
       const { json } = apiRes;
 
