@@ -88,7 +88,18 @@ function getStore() {
  */
 export function getChannelBotMode(channelOrAccountId = "") {
   const query = String(channelOrAccountId || "").trim().toLowerCase();
-  if (!query || query === "default") return "AI";
+  if (!query || query === "default") return "HUMAN";
+
+  const store = getStore();
+  const explicitStoreEntry =
+    store.channels[query] ||
+    store.channels[channelOrAccountId] ||
+    store.channels[`zalo_${query}`] ||
+    (query.includes("zalo") ? store.channels["ZALO_PERSONAL"] : null);
+
+  if (explicitStoreEntry && typeof explicitStoreEntry.enabled === "boolean") {
+    if (!explicitStoreEntry.enabled) return "HUMAN";
+  }
 
   try {
     const dataDir = resolveDataDir();
@@ -121,7 +132,7 @@ export function getChannelBotMode(channelOrAccountId = "") {
                 query.includes(label)));
 
           if (isMatch) {
-            return ch.botMode === "HUMAN" ? "HUMAN" : "AI";
+            return ch.botMode === "AI" ? "AI" : "HUMAN";
           }
         }
       }
@@ -130,18 +141,11 @@ export function getChannelBotMode(channelOrAccountId = "") {
     console.error("[GET_CHANNEL_BOT_MODE_ERR]", err.message);
   }
 
-  // Fallback kiểm tra trong store.channels của bot_states.json
-  const store = getStore();
-  const entry =
-    store.channels[query] ||
-    store.channels[`zalo_${query}`] ||
-    (query.includes("zalo") ? store.channels["ZALO_PERSONAL"] : null);
-
-  if (entry && typeof entry.enabled === "boolean" && !entry.enabled) {
-    return "HUMAN";
+  if (explicitStoreEntry && explicitStoreEntry.enabled === true) {
+    return "AI";
   }
 
-  return "AI";
+  return "HUMAN";
 }
 
 /**

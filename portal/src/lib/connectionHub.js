@@ -245,7 +245,7 @@ function getLiveZaloAccounts() {
         externalId: extKey,
         status: "CONNECTED",
         statusLabel: "Đã kết nối trực tiếp (Quét QR)",
-        botMode: existingRecord?.botMode || "AI",
+        botMode: existingRecord?.botMode || "HUMAN",
         assignedStaff: existingRecord?.assignedStaff || {
           id: "ADMIN",
           name: "Quản Trị Viên ADDP",
@@ -308,7 +308,7 @@ function getLiveZaloAccounts() {
                   externalId: extKey,
                   status: "CONNECTED",
                   statusLabel: "Đã kết nối trực tiếp (Quét QR)",
-                  botMode: existingRecord?.botMode || "AI",
+                  botMode: existingRecord?.botMode || "HUMAN",
                   assignedStaff: existingRecord?.assignedStaff || {
                     id: "ADMIN",
                     name: "Quản Trị Viên ADDP",
@@ -390,7 +390,7 @@ export function listAllChannels() {
         changed = true;
       }
       if (!existing.botMode) {
-        existing.botMode = z.botMode || "AI";
+        existing.botMode = z.botMode || "HUMAN";
         changed = true;
       }
       if (!existing.assignedStaff) {
@@ -524,7 +524,7 @@ export function createChannelAccount(input) {
         ? "Đã kết nối trực tiếp (Quét QR)"
         : "Đã kết nối trực tiếp"
       : "Vừa khởi tạo, sẵn sàng kết nối",
-    botMode: input.botMode === "HUMAN" ? "HUMAN" : "AI",
+    botMode: input.botMode === "AI" ? "AI" : "HUMAN",
     assignedStaff: input.assignedStaff || { id: "ADMIN", name: "Quản Trị Viên ADDP" },
     config: {
       ...input.config,

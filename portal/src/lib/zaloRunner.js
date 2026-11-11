@@ -157,8 +157,10 @@ export function ensureZaloMcpDaemon(homeDir) {
       } catch {}
     }
 
-    // 0. Luôn kích hoạt trình theo dõi history.jsonl thời gian thực (Realtime AI Watcher)
-    startZaloRealtimeAiWatcher(targetHome);
+    // 0. Không tự động kích hoạt vòng lặp auto-reply nền nếu chưa bật cờ ZALO_ENABLE_AUTO_REPLY_WATCHER=1
+    if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER === "1") {
+      startZaloRealtimeAiWatcher(targetHome);
+    }
 
     const targetOwnId = getOwnIdForHome(targetHome);
 
@@ -1289,6 +1291,56 @@ if (!globalThis.__zaloBotLastReplyByThread) {
 if (!globalThis.__zaloBotLoggedHumanSkipIds) {
   globalThis.__zaloBotLoggedHumanSkipIds = new Set();
 }
+if (!globalThis.__zaloAutoReplyBootAt) {
+  globalThis.__zaloAutoReplyBootAt = Date.now();
+}
+if (!globalThis.__zaloPersistedRepliedLoadedHomes) {
+  globalThis.__zaloPersistedRepliedLoadedHomes = new Set();
+}
+
+function getRepliedIdsFilePath(targetHome) {
+  return path.join(targetHome, ".zalo-agent-cli", ".crm-replied-ids.json");
+}
+
+function loadPersistedRepliedIds(targetHome) {
+  if (!targetHome) return;
+  const resolved = path.resolve(targetHome);
+  if (globalThis.__zaloPersistedRepliedLoadedHomes.has(resolved)) return;
+  globalThis.__zaloPersistedRepliedLoadedHomes.add(resolved);
+  try {
+    const filePath = getRepliedIdsFilePath(targetHome);
+    if (!fs.existsSync(filePath)) return;
+    const arr = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (Array.isArray(arr)) {
+      for (const k of arr) {
+        if (k) globalThis.__zaloBotRepliedMsgIds.add(String(k));
+      }
+    }
+  } catch {}
+}
+
+function persistRepliedId(targetHome, dedupKey) {
+  if (!targetHome || !dedupKey) return;
+  try {
+    globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+    const filePath = getRepliedIdsFilePath(targetHome);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    let arr = [];
+    if (fs.existsSync(filePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+        if (Array.isArray(parsed)) arr = parsed;
+      } catch {}
+    }
+    if (!arr.includes(dedupKey)) {
+      arr.push(dedupKey);
+      if (arr.length > 10000) {
+        arr = arr.slice(-10000);
+      }
+      fs.writeFileSync(filePath, JSON.stringify(arr), "utf8");
+    }
+  } catch {}
+}
 
 /**
  * Xử lý tự động tin nhắn mới từ khách hàng trên Zalo Cá Nhân (Module 5 - Realtime Auto-Reply):
@@ -1326,7 +1378,9 @@ export async function processIncomingZaloMessageWithBot({
     return { skipped: true, reason: "GROUP_OR_EMPTY_OR_SYSTEM" };
   }
 
-  // 1. Cơ chế Dedup: Bắt buộc kết hợp threadId + msgId (hoặc timestamp), TUYỆT ĐỐI KHÔNG chặn theo nội dung văn bản text
+  // 1. Cơ chế Dedup bền vững (RAM + Disk .crm-replied-ids.json)
+  const targetHomePrecheck = homeDir || getActiveZaloHome();
+  loadPersistedRepliedIds(targetHomePrecheck);
   const msgToken = String(msgId || timestamp || Date.now());
   const dedupKey = `${threadId}_${msgToken}`;
   if (!forceReply) {
@@ -1489,7 +1543,7 @@ export async function processIncomingZaloMessageWithBot({
     );
 
     if (sendRes.ok) {
-      globalThis.__zaloBotRepliedMsgIds.add(dedupKey);
+      persistRepliedId(targetHome, dedupKey);
       globalThis.__zaloBotLastReplyByThread.set(String(threadId), String(aiResult.replyText));
       console.log(`[Zalo AI Bot] Trả lời RAG thành công: ${aiResult.replyText}`);
     }
@@ -1519,10 +1573,31 @@ export async function processIncomingZaloMessageWithBot({
  */
 export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "") {
   try {
+    if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER !== "1") {
+      return;
+    }
     const targetHome = homeDir || getActiveZaloHome();
     const ownId = String(ownIdOverride || getOwnIdForHome(targetHome));
+    const specificChannelId = ownId ? `zalo_${ownId}` : "ZALO_PERSONAL";
+    const accountCheck = isBotActiveForThread("", specificChannelId);
+    if (accountCheck.accountMode !== "AI") {
+      return;
+    }
+
     const activeAccountName = getActiveZaloAccountName(targetHome);
     const cliDir = path.join(targetHome, ".zalo-agent-cli");
+    loadPersistedRepliedIds(targetHome);
+
+    // Tuyệt đối không quét auto-reply trong lúc đang đồng bộ lịch sử cũ (backfill)
+    const syncProgressPath = path.join(cliDir, ".crm-sync-progress.json");
+    if (fs.existsSync(syncProgressPath)) {
+      try {
+        const sp = JSON.parse(fs.readFileSync(syncProgressPath, "utf8"));
+        if (sp?.status === "syncing") {
+          return;
+        }
+      } catch {}
+    }
 
     if (!globalThis.__zaloBotInitialSeedHomes) {
       globalThis.__zaloBotInitialSeedHomes = new Set();
@@ -1561,8 +1636,9 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
           if (!trimmed) continue;
           try {
             const msg = JSON.parse(trimmed);
+            if (msg.isBackfill) continue;
             const tid = String(msg.threadId || "");
-            if (!tid) continue;
+            if (!tid || tid === "0") continue;
 
             const rawTs = Number(msg.timestamp) || 0;
             const ts =
@@ -1582,9 +1658,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
             );
             const text = String(msg.text || "").trim();
 
-            // Khi khởi động server lần đầu: chỉ đánh dấu theo `${tid}_${msgId}` cho tin nhắn cũ (> 3 phút trước),
-            // TUYỆT ĐỐI KHÔNG chặn theo nội dung văn bản text
-            if (isInitialSeed && now - ts > 180000) {
+            if (isInitialSeed || ts < globalThis.__zaloAutoReplyBootAt) {
               globalThis.__zaloBotRepliedMsgIds.add(`${tid}_${msgId}`);
             }
 
@@ -1609,27 +1683,22 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
 
     globalThis.__zaloBotInitialSeedHomes.add(homeSeedKey);
 
-    // Kiểm tra tin nhắn cuối cùng của từng hội thoại DM
+    // Kiểm tra tin nhắn cuối cùng thực sự (theo timestamp) của từng hội thoại DM
     for (const [tid, msgs] of threadsHistory.entries()) {
       if (!msgs || msgs.length === 0) continue;
-      // Không tự trả lời vào Cloud của tôi (threadId === ownId)
       if (ownId && tid === ownId) continue;
 
-      // Ưu tiên tin nhắn nằm ở dòng cuối cùng trong file history.jsonl của hội thoại (tránh lệch múi giờ/clock skew giữa VPS và Zalo)
-      const lastAppendedMsg = msgs[msgs.length - 1];
       const sortedMsgs = [...msgs].sort((a, b) => a.timestamp - b.timestamp || a.seq - b.seq);
-      const lastMsg =
-        lastAppendedMsg && !lastAppendedMsg.isMe
-          ? lastAppendedMsg
-          : sortedMsgs[sortedMsgs.length - 1];
+      const lastMsg = sortedMsgs[sortedMsgs.length - 1];
 
-      // Nếu tin nhắn cuối cùng trong hội thoại là của khách (!isMe), thuộc loại văn bản và gửi trong vòng 15 phút gần đây
+      // Chỉ phản hồi tin nhắn MỚI THẬT từ khách trong 2 phút gần đây và sau thời điểm boot
       if (
         lastMsg &&
         !lastMsg.isMe &&
         lastMsg.text &&
         lastMsg.type === "text" &&
-        now - lastMsg.timestamp < 15 * 60 * 1000
+        lastMsg.timestamp >= globalThis.__zaloAutoReplyBootAt &&
+        now - lastMsg.timestamp < 2 * 60 * 1000
       ) {
         const friendInfo = friendMap.get(tid);
         const resolvedCustomerName =
@@ -1649,7 +1718,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
           text: lastMsg.text,
           isMe: false,
           type: "DIRECT",
-          channelId: ownId ? `zalo_${ownId}` : "ZALO_PERSONAL",
+          channelId: specificChannelId,
           conversationHistory: sortedMsgs.slice(-10),
           homeDir: targetHome,
         }).catch((err) => {
@@ -1663,10 +1732,12 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
 }
 
 /**
- * Khởi động vòng lặp theo dõi ngầm history.jsonl mỗi 3 giây trên TẤT CẢ các tài khoản Zalo đang kết nối
- * để phản hồi khách hàng 24/7 theo thời gian thực (khách nhắn vào nick nào -> nick đó trả lời & xưng tên nick đó)
+ * Khởi động vòng lặp theo dõi ngầm history.jsonl (chỉ chạy khi ZALO_ENABLE_AUTO_REPLY_WATCHER=1).
  */
 export function startZaloRealtimeAiWatcher() {
+  if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER !== "1") {
+    return;
+  }
   if (
     process.env.NEXT_PHASE === "phase-production-build" ||
     process.env.NEXT_PHASE?.includes("build") ||
@@ -1677,17 +1748,6 @@ export function startZaloRealtimeAiWatcher() {
   }
   if (globalThis.__zaloAiWatcherTimer) {
     return;
-  }
-
-  // Tự động kiểm tra và chạy Universal Initial Sync ngầm MỘT LẦN DUY NHẤT khi runtime server khởi động
-  if (!globalThis.__zaloInitialSyncTriggered) {
-    globalThis.__zaloInitialSyncTriggered = true;
-    try {
-      const initAccounts = getAllActiveZaloHomes();
-      for (const acc of initAccounts) {
-        ensureAccountHistorySynced(acc.homeDir, acc.ownId).catch(() => {});
-      }
-    } catch {}
   }
 
   globalThis.__zaloAiWatcherTimer = setInterval(() => {
@@ -1708,9 +1768,6 @@ export function startZaloRealtimeAiWatcher() {
     globalThis.__zaloAiWatcherTimer.unref();
   }
 }
-
-// Khởi động ngay khi module zaloRunner.js được load để chạy độc lập không phụ thuộc vào request từ giao diện
-startZaloRealtimeAiWatcher();
 
 /**
  * Kiểm tra khách hàng đã từng có kết nối / tin nhắn Zalo từ trước hay chưa trên bất kỳ tài khoản Zalo nào

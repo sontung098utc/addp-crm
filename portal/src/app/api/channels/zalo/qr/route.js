@@ -121,7 +121,7 @@ function registerZaloConnection({ id, label, homeDir, ownId }) {
       name: `Zalo Cá Nhân (${label})`,
       externalId: ownId || id,
       status: "CONNECTED",
-      botMode: "AI",
+      botMode: "HUMAN",
       assignedStaff: { id: "ADMIN", name: "Quản Trị Viên ADDP" },
       config: {
         homeDir,

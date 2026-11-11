@@ -20,7 +20,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function normalizeTs(raw, fallback = Date.now()) {
+function normalizeTs(raw, fallback = 0) {
   const num = Number(raw);
   if (!Number.isFinite(num) || num <= 0) return fallback;
   return num > 2e12 ? Math.floor(num / 1000) : num < 1e11 ? num * 1000 : num;
@@ -39,13 +39,13 @@ function writeProgress(progressPath, data) {
 }
 
 function normalizeRawZaloMessage(rawMsg, toHistoryMessage, ownId, ownAccountName, userNamesMap, seenMsgIds) {
-  const hm = toHistoryMessage(rawMsg);
+  const hm = toHistoryMessage(rawMsg, 0);
   if (!hm || !hm.msgId) return null;
 
   const msgIdStr = String(hm.msgId);
   if (seenMsgIds.has(msgIdStr)) return null;
 
-  const ts = normalizeTs(hm.timestamp);
+  const ts = normalizeTs(hm.timestamp, 0);
   const rawSenderId = String(hm.senderId || rawMsg?.data?.uidFrom || "");
   const isSelf = Boolean(hm.isSelf || rawSenderId === "0" || (ownId && rawSenderId === ownId));
   const effectiveSenderId = isSelf && ownId ? ownId : rawSenderId;
@@ -64,6 +64,7 @@ function normalizeRawZaloMessage(rawMsg, toHistoryMessage, ownId, ownAccountName
     senderId: effectiveSenderId,
     senderName,
     isSelf,
+    isBackfill: true,
     timestamp: ts,
   };
 }

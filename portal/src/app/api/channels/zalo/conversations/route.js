@@ -292,11 +292,6 @@ export async function GET(request) {
           const effectiveOwnId = String(acc.ownId || meta.ownId || "");
           const threadsMap = getLatestThreadsFromAllHistories(acc.homeDir, effectiveOwnId);
 
-          // Kích hoạt kiểm tra và tự động trả lời ngay lập tức cho tài khoản Zalo này nếu có tin nhắn mới từ khách (!isSelf)
-          scanAndAutoReplyZaloHistories(acc.homeDir, effectiveOwnId).catch((err) => {
-            console.error(`[Zalo AI Bot] Lỗi scan từ conversations API (${acc.displayName}):`, err.message);
-          });
-
           const syncStatus = getZaloSyncStatus(acc.homeDir);
 
           return {

@@ -167,32 +167,6 @@ export async function GET(request) {
     if (localMessages.length > 0) {
       localMessages.sort((a, b) => a.timestamp - b.timestamp);
 
-      // Nếu tin nhắn mới nhất là của khách hàng (!isMe) vừa gửi đến trong 15 phút gần đây -> Chạy luồng AI Bot Dược sĩ Thảo
-      const lastMsg = localMessages[localMessages.length - 1];
-      if (
-        lastMsg &&
-        !lastMsg.isMe &&
-        searchParams.get("type") !== "GROUP" &&
-        String(threadId) !== String(ownId) &&
-        Date.now() - Number(lastMsg.timestamp || 0) < 15 * 60 * 1000
-      ) {
-        processIncomingZaloMessageWithBot({
-          msgId: lastMsg.id,
-          timestamp: lastMsg.timestamp,
-          threadId,
-          senderName: lastMsg.senderName && lastMsg.senderName !== "Khách" ? lastMsg.senderName : "",
-          accountName: selfName,
-          text: lastMsg.text,
-          isMe: false,
-          type: "DIRECT",
-          channelId: channel || "ZALO_PERSONAL",
-          conversationHistory: localMessages.slice(-10),
-          homeDir: targetHome,
-        }).catch((err) => {
-          console.error("[Zalo AI Bot] Lỗi xử lý tại messages API:", err.message);
-        });
-      }
-
       return NextResponse.json({
         ok: true,
         source: "realtime_history",
