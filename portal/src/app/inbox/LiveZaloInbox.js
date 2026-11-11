@@ -1478,22 +1478,40 @@ export default function LiveZaloInbox() {
               ? `Đồng bộ TikTok Shop thành công! Đã nạp ${convCount} hội thoại (${msgCount} tin nhắn).`
               : "Đã đồng bộ TikTok Shop. Hiện chưa có hội thoại mới từ người mua.",
         });
-      } else if (data?.needsTokenRefresh) {
-        setToast({
-          type: "warning",
-          text:
-            data?.message ||
-            "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
-          actionHref: "/channels",
-          actionLabel: "Làm mới Token",
-        });
+        setTimeout(() => setToast(null), 6500);
       } else {
+        const rawCode =
+          data?.rawCode ??
+          data?.errorCode ??
+          data?.shopResults?.[0]?.rawCode ??
+          data?.shopResults?.[0]?.code ??
+          (res.ok ? "UNKNOWN" : `HTTP_${res.status}`);
+        const rawMessage =
+          data?.rawMessage ||
+          data?.shopResults?.[0]?.rawMessage ||
+          data?.message ||
+          "Chưa thể đồng bộ tin nhắn từ TikTok Shop Open API.";
+        const endpoint = data?.endpoint || data?.shopResults?.[0]?.endpoint || "";
+
+        let errorText = `Lỗi TikTok [Code: ${rawCode}]: ${rawMessage}`;
+        if (Number(rawCode) === 105005) {
+          errorText +=
+            " — Quyền Customer Service (Chat) chưa được duyệt trên Partner Center hoặc Shop chưa bấm ủy quyền lại.";
+        }
+        if (endpoint) {
+          errorText += ` (${endpoint})`;
+        }
+
+        const canRefresh = Boolean(data?.needsTokenRefresh || Number(rawCode) === 105005);
         setToast({
-          type: "error",
-          text: data?.message || "Chưa thể đồng bộ tin nhắn từ TikTok Shop Open API.",
+          type: canRefresh ? "warning" : "error",
+          text: errorText,
+          ...(canRefresh
+            ? { actionHref: "/channels", actionLabel: "Làm mới Token" }
+            : {}),
         });
+        setTimeout(() => setToast(null), 12000);
       }
-      setTimeout(() => setToast(null), 6500);
     } catch (err) {
       console.error("Lỗi sync TikTok messages:", err);
       setToast({

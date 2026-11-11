@@ -409,9 +409,13 @@ function getActiveTikTokChannels(shopIdFilter = "") {
   return matched.length > 0 ? matched : active;
 }
 
-function formatTikTokFriendlyError(code, rawMessage = "") {
-  const numCode = Number(code ?? -1);
-  const msgLower = String(rawMessage || "").toLowerCase();
+function formatTikTokFriendlyError(code, rawMessage = "", endpoint = "") {
+  const rawCode = code !== undefined && code !== null ? code : -1;
+  const numCode = Number(rawCode);
+  const cleanRawMessage = String(
+    rawMessage || "Không thể kết nối TikTok Shop Open API."
+  ).trim();
+  const msgLower = cleanRawMessage.toLowerCase();
   const isCipherOrScopeOrTokenIssue =
     numCode === 105005 ||
     numCode === 105001 ||
@@ -425,17 +429,21 @@ function formatTikTokFriendlyError(code, rawMessage = "") {
     msgLower.includes("token") ||
     msgLower.includes("unauthorized");
 
-  if (isCipherOrScopeOrTokenIssue) {
-    return {
-      needsTokenRefresh: true,
-      message:
-        "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
-    };
+  let message = `Lỗi TikTok [Code: ${rawCode}]: ${cleanRawMessage}`;
+  if (numCode === 105005) {
+    message +=
+      " — Quyền Customer Service (Chat) chưa được duyệt trên Partner Center hoặc Shop chưa bấm ủy quyền lại.";
+  }
+  if (endpoint) {
+    message += ` (${endpoint})`;
   }
 
   return {
-    needsTokenRefresh: false,
-    message: rawMessage || "Không thể kết nối TikTok Shop Open API.",
+    needsTokenRefresh: isCipherOrScopeOrTokenIssue,
+    rawCode,
+    rawMessage: cleanRawMessage,
+    endpoint: endpoint || "",
+    message,
   };
 }
 
@@ -469,6 +477,12 @@ async function resolveTikTokSession(channel, { forceVerifyCipher = false } = {})
     "";
 
   if (!accessToken) {
+    const rawMsg = "Thiếu accessToken trong channels.json cho gian hàng TikTok Shop.";
+    const formatted = formatTikTokFriendlyError(
+      "MISSING_ACCESS_TOKEN",
+      rawMsg,
+      "resolveTikTokSession"
+    );
     return {
       ok: false,
       needsTokenRefresh: true,
@@ -477,8 +491,11 @@ async function resolveTikTokSession(channel, { forceVerifyCipher = false } = {})
       shopCipher: "",
       appKey,
       appSecret,
-      error:
-        "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
+      code: "MISSING_ACCESS_TOKEN",
+      rawCode: "MISSING_ACCESS_TOKEN",
+      rawMessage: rawMsg,
+      endpoint: "resolveTikTokSession",
+      error: formatted.message,
     };
   }
 
@@ -567,19 +584,30 @@ async function resolveTikTokSession(channel, { forceVerifyCipher = false } = {})
         },
       });
     } else if (!shopCipher || forceVerifyCipher) {
-      const friendly = formatTikTokFriendlyError(
-        shopsRes?.code,
-        shopsRes?.message || "Invalid shop_cipher"
-      );
+      const endpoint = "/authorization/202309/shops";
+      const rawCode =
+        shopsRes?.code !== undefined && shopsRes?.code !== null
+          ? shopsRes.code
+          : shopsRes?.httpStatus || -1;
+      const rawMessage = String(
+        shopsRes?.message ||
+          (shops.length === 0
+            ? "Authorized Shops API trả về danh sách shop rỗng hoặc token chưa được gán gian hàng."
+            : "Invalid shop_cipher")
+      ).trim();
+      const friendly = formatTikTokFriendlyError(rawCode, rawMessage, endpoint);
       return {
         ok: false,
-        needsTokenRefresh: true,
+        needsTokenRefresh: friendly.needsTokenRefresh || true,
         accessToken,
         refreshToken,
         shopCipher: "",
         appKey,
         appSecret,
-        code: shopsRes?.code ?? -1,
+        code: rawCode,
+        rawCode,
+        rawMessage,
+        endpoint,
         error: friendly.message,
       };
     }
@@ -608,14 +636,21 @@ async function callTikTokShopApi(
 ) {
   let session = await resolveTikTokSession(channel, { forceVerifyCipher });
   if (!session.ok || !session.shopCipher) {
+    const rawCode = session.rawCode ?? session.code ?? -1;
+    const rawMessage =
+      session.rawMessage ||
+      session.error ||
+      "Thiếu shop_cipher hoặc phiên ủy quyền TikTok Shop chưa hợp lệ.";
+    const endpoint = session.endpoint || "/authorization/202309/shops";
     return {
       status: 400,
       needsTokenRefresh: true,
+      endpoint,
+      rawCode,
+      rawMessage,
       json: {
-        code: session.code ?? -1,
-        message:
-          session.error ||
-          "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
+        code: rawCode,
+        message: rawMessage,
       },
     };
   }
@@ -647,7 +682,7 @@ async function callTikTokShopApi(
         }
       );
       const json = await res.json().catch(() => null);
-      return { status: res.status, json };
+      return { status: res.status, endpoint: reqPath, json };
     } finally {
       clearTimeout(timer);
     }
@@ -701,7 +736,12 @@ async function callTikTokShopApi(
     }
   }
 
-  return attempt;
+  return {
+    ...attempt,
+    endpoint: attempt?.endpoint || reqPath,
+    rawCode: attempt?.json?.code ?? attempt?.status ?? -1,
+    rawMessage: attempt?.json?.message || "",
+  };
 }
 
 function mergeSyncedMessagesBatch(newMsgs = []) {
@@ -840,12 +880,21 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
       const { json } = apiRes;
 
       if (!json || (json.code !== undefined && Number(json.code) !== 0)) {
-        const friendly = formatTikTokFriendlyError(json?.code, json?.message);
+        const endpoint = apiRes?.endpoint || "/customer_service/202309/conversations";
+        const rawCode = json?.code ?? apiRes?.rawCode ?? apiRes?.status ?? -1;
+        const rawMessage =
+          json?.message ||
+          apiRes?.rawMessage ||
+          "Không nhận được phản hồi hợp lệ từ TikTok Shop Open API.";
+        const friendly = formatTikTokFriendlyError(rawCode, rawMessage, endpoint);
         shopResults.push({
           shopId: chShopId,
           shopName,
           ok: false,
-          code: json?.code ?? null,
+          code: rawCode,
+          rawCode,
+          rawMessage,
+          endpoint,
           needsTokenRefresh: Boolean(apiRes.needsTokenRefresh || friendly.needsTokenRefresh),
           error: friendly.message,
         });
@@ -934,11 +983,16 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
         messages: shopMsgCount,
       });
     } catch (err) {
+      const rawMessage = err?.message || "Lỗi kết nối TikTok Shop Open API.";
       shopResults.push({
         shopId: chShopId,
         shopName,
         ok: false,
-        error: err?.message || "Lỗi kết nối TikTok Shop Open API.",
+        code: "NETWORK_ERROR",
+        rawCode: "NETWORK_ERROR",
+        rawMessage,
+        endpoint: "/customer_service/202309/conversations",
+        error: `Lỗi TikTok [Code: NETWORK_ERROR]: ${rawMessage} (/customer_service/202309/conversations)`,
       });
     }
   }
@@ -958,6 +1012,9 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
     syncedCount: syncedConversations,
     needsTokenRefresh: Boolean(!anySuccess && firstFailed?.needsTokenRefresh),
     errorCode: !anySuccess ? firstFailed?.code ?? null : null,
+    rawCode: !anySuccess ? firstFailed?.rawCode ?? firstFailed?.code ?? null : null,
+    rawMessage: !anySuccess ? firstFailed?.rawMessage ?? null : null,
+    endpoint: !anySuccess ? firstFailed?.endpoint ?? null : null,
     shopResults,
     conversations: collectedConvs,
     message: anySuccess
