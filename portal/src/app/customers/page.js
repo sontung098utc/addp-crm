@@ -509,16 +509,16 @@ export default function CustomersPage() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full table-fixed min-w-[900px] xl:min-w-0 text-left border-collapse text-xs">
                 <thead>
                   <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Khách Hàng</th>
-                    <th className="py-3 px-4">SĐT & Kênh</th>
-                    <th className="py-3 px-4">Sản Phẩm Đã Mua / Bệnh Lý</th>
-                    <th className="py-3 px-4">Tổng Chi Tiêu / Mức Độ</th>
-                    <th className="py-3 px-4">Thẻ Tag Lộ Trình</th>
-                    <th className="py-3 px-4">NV Phụ Trách</th>
-                    <th className="py-3 px-4 text-right">Thao Tác</th>
+                    <th className="py-2.5 pl-3.5 pr-2 w-[15%]">Khách Hàng</th>
+                    <th className="py-2.5 px-2 w-[12%]">SĐT & Kênh</th>
+                    <th className="py-2.5 px-2 w-[17%]">Sản Phẩm / Bệnh Lý</th>
+                    <th className="py-2.5 px-2 w-[12%]">Chi Tiêu / Mức Độ</th>
+                    <th className="py-2.5 px-2 w-[17%]">Thẻ Tag Lộ Trình</th>
+                    <th className="py-2.5 px-2 w-[11%]">NV Phụ Trách</th>
+                    <th className="py-2.5 pl-2 pr-3.5 text-right w-[16%]">Thao Tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-slate-300">
@@ -536,17 +536,17 @@ export default function CustomersPage() {
                     const hasPhoneForCare = Boolean(String(c.phone || "").replace(/\D/g, "").length >= 9);
 
                     return (
-                      <tr key={c.id || c.code} className="hover:bg-slate-800/30 transition">
+                      <tr key={c.id || c.code} className="hover:bg-slate-800/30 transition align-middle">
                         {/* Cột Tên & Mã */}
-                        <td className="py-3.5 px-4 max-w-[230px]">
-                          <div className="font-bold text-white hover:text-blue-400 truncate">
+                        <td className="py-2.5 pl-3.5 pr-2">
+                          <div className="font-bold text-white hover:text-blue-400 truncate" title={c.fullName}>
                             <Link href={`/customers/${c.id}`}>{c.fullName}</Link>
                           </div>
-                          <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
-                            <span>{c.code}</span>
-                            {c.age && <span>• {c.age} tuổi</span>}
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                            <span className="shrink-0">{c.code}</span>
+                            {c.age && <span className="shrink-0">• {c.age}t</span>}
                             {(c.province || c.address) && (
-                              <span className="truncate max-w-[160px]" title={c.address || c.province}>
+                              <span className="truncate" title={c.address || c.province}>
                                 • {c.province || c.address}
                               </span>
                             )}
@@ -554,32 +554,35 @@ export default function CustomersPage() {
                         </td>
 
                         {/* Cột SĐT & Kênh */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="font-mono font-semibold text-emerald-400">
+                        <td className="py-2.5 px-2">
+                          <div className="font-mono font-semibold text-emerald-400 truncate text-[11px]">
                             {c.phone || <span className="text-slate-500 font-sans">Chưa có SĐT</span>}
                           </div>
-                          <span className="mt-1 inline-flex items-center gap-1 rounded bg-slate-800/90 text-slate-300 px-1.5 py-0.5 text-[10px] font-medium border border-slate-700/60">
-                            <span>{ch.icon}</span>
-                            <span>{channelDisplay}</span>
+                          <span
+                            className="mt-0.5 inline-flex items-center gap-1 rounded bg-slate-800/90 text-slate-300 px-1.5 py-0.5 text-[10px] font-medium border border-slate-700/60 max-w-full truncate"
+                            title={channelDisplay}
+                          >
+                            <span className="shrink-0">{ch.icon}</span>
+                            <span className="truncate">{channelDisplay}</span>
                           </span>
                         </td>
 
                         {/* Cột Sản phẩm đã mua & Bệnh lý */}
-                        <td className="py-3.5 px-4 max-w-[260px]">
+                        <td className="py-2.5 px-2">
                           {productsList.length > 0 ? (
-                            <div className="flex flex-wrap gap-1 mb-1">
-                              {productsList.slice(0, 3).map((prod) => (
+                            <div className="flex flex-wrap gap-1 mb-0.5">
+                              {productsList.slice(0, 2).map((prod) => (
                                 <span
                                   key={prod}
-                                  className="inline-block rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-medium text-cyan-300 truncate max-w-[180px]"
+                                  className="inline-block rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-medium text-cyan-300 truncate max-w-full"
                                   title={prod}
                                 >
                                   {prod}
                                 </span>
                               ))}
-                              {productsList.length > 3 && (
+                              {productsList.length > 2 && (
                                 <span className="text-[10px] text-slate-400">
-                                  +{productsList.length - 3}
+                                  +{productsList.length - 2}
                                 </span>
                               )}
                             </div>
@@ -591,13 +594,13 @@ export default function CustomersPage() {
                             {c.pathology || (productsList.length === 0 ? "Chưa ghi nhận" : "")}
                           </div>
                           {(c.initialGlucose || c.currentGlucose) && (
-                            <div className="flex items-center gap-2 text-[10px] mt-0.5">
+                            <div className="flex items-center gap-1.5 text-[10px] mt-0.5 truncate">
                               {c.initialGlucose && (
-                                <span className="text-rose-400">ĐH: {c.initialGlucose} mmol/L</span>
+                                <span className="text-rose-400">ĐH: {c.initialGlucose}</span>
                               )}
                               {c.currentGlucose && (
                                 <span className="text-emerald-400 font-bold">
-                                  Hiện tại: {c.currentGlucose}
+                                  → {c.currentGlucose}
                                 </span>
                               )}
                             </div>
@@ -605,40 +608,44 @@ export default function CustomersPage() {
                         </td>
 
                         {/* Cột Tổng Chi Tiêu / Mức Độ */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-2.5 px-2">
                           <span
-                            className={`inline-block rounded-md border px-2 py-0.5 text-[10px] font-bold ${vipInfo.badgeColor}`}
+                            className={`inline-block rounded-md border px-1.5 py-0.5 text-[10px] font-bold truncate max-w-full ${vipInfo.badgeColor}`}
                           >
                             {c.purchaseLevel && c.purchaseLevel !== "Chưa mua"
                               ? c.purchaseLevel
                               : vipInfo.label}
                           </span>
-                          <div className="text-[11px] font-semibold text-white mt-1 tabular-nums">
+                          <div className="text-[11px] font-semibold text-white mt-0.5 tabular-nums truncate">
                             {Number(c.totalSpent || 0).toLocaleString("vi-VN")} đ
                           </div>
-                          <div className="text-[10px] text-slate-500">{c.totalOrders || 0} đơn hàng</div>
+                          <div className="text-[10px] text-slate-500 truncate">{c.totalOrders || 0} đơn</div>
                         </td>
 
                         {/* Cột Thẻ Tag Lộ Trình */}
-                        <td className="py-3.5 px-4 max-w-[200px]">
+                        <td className="py-2.5 px-2">
                           {tagsList.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {tagsList.slice(0, 3).map((tagName) => {
+                            <div className="flex flex-wrap gap-1 items-center">
+                              {tagsList.slice(0, 2).map((tagName) => {
                                 const cls =
                                   tagColorMap.get(tagName) ||
                                   "bg-amber-500/15 text-amber-300 border-amber-500/30";
                                 return (
                                   <span
                                     key={tagName}
-                                    className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}
+                                    title={tagName}
+                                    className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold truncate max-w-[110px] ${cls}`}
                                   >
-                                    🏷️ {tagName}
+                                    {tagName}
                                   </span>
                                 );
                               })}
-                              {tagsList.length > 3 && (
-                                <span className="text-[10px] text-slate-400">
-                                  +{tagsList.length - 3}
+                              {tagsList.length > 2 && (
+                                <span
+                                  title={tagsList.slice(2).join(", ")}
+                                  className="inline-flex items-center rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400"
+                                >
+                                  +{tagsList.length - 2}
                                 </span>
                               )}
                             </div>
@@ -648,33 +655,42 @@ export default function CustomersPage() {
                         </td>
 
                         {/* Cột NV Phụ Trách */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
-                          <span className="font-semibold text-slate-200">{staffDisplay}</span>
+                        <td className="py-2.5 px-2">
+                          <div className="font-semibold text-slate-200 truncate text-[11px]" title={staffDisplay}>
+                            {staffDisplay}
+                          </div>
                           {c.staffCode && (
-                            <span className="block text-[10px] text-slate-500">{c.staffCode}</span>
+                            <span className="block text-[10px] text-slate-500 truncate">{c.staffCode}</span>
                           )}
                         </td>
 
-                        {/* Thao tác */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
+                        {/* Thao tác (Xếp gọn 2x2 vừa khít 1 khung hình) */}
+                        <td className="py-2.5 pl-2 pr-3.5 text-right">
+                          <div className="grid grid-cols-2 gap-1 ml-auto w-full max-w-[146px]">
                             <button
                               type="button"
                               onClick={() => handleOpenInboxCare(c)}
                               disabled={!hasPhoneForCare}
-                              className="rounded-lg bg-emerald-600/20 hover:bg-emerald-600/40 disabled:opacity-40 disabled:cursor-not-allowed border border-emerald-500/40 px-2.5 py-1 text-[11px] font-bold text-emerald-300 transition cursor-pointer"
+                              className="rounded-md bg-emerald-600/20 hover:bg-emerald-600/40 disabled:opacity-40 disabled:cursor-not-allowed border border-emerald-500/40 px-1.5 py-1 text-[10px] font-bold text-emerald-300 transition cursor-pointer truncate text-center"
                               title={
                                 hasPhoneForCare
                                   ? `Mở hộp thoại Zalo chăm sóc (${c.phone} - NV: ${staffDisplay})`
                                   : "Khách chưa có SĐT hợp lệ để mở hội thoại"
                               }
                             >
-                              💬 Chăm Sóc
+                              💬 Zalo
                             </button>
+                            <Link
+                              href={`/customers/${c.id}`}
+                              className="rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 px-1.5 py-1 text-[10px] font-semibold text-slate-200 transition truncate text-center"
+                              title="Xem chi tiết hồ sơ"
+                            >
+                              Chi Tiết
+                            </Link>
                             <button
                               type="button"
                               onClick={() => openEditModal(c)}
-                              className="rounded-lg bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 px-2.5 py-1 text-[11px] font-semibold text-blue-300 transition cursor-pointer"
+                              className="rounded-md bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/40 px-1.5 py-1 text-[10px] font-semibold text-blue-300 transition cursor-pointer truncate text-center"
                               title="Chỉnh sửa thông tin khách hàng"
                             >
                               ✏️ Sửa
@@ -682,17 +698,11 @@ export default function CustomersPage() {
                             <button
                               type="button"
                               onClick={() => setDeletingCustomer(c)}
-                              className="rounded-lg bg-rose-600/15 hover:bg-rose-600/35 border border-rose-500/35 px-2.5 py-1 text-[11px] font-semibold text-rose-300 transition cursor-pointer"
+                              className="rounded-md bg-rose-600/15 hover:bg-rose-600/35 border border-rose-500/35 px-1.5 py-1 text-[10px] font-semibold text-rose-300 transition cursor-pointer truncate text-center"
                               title="Xóa khách hàng này"
                             >
                               🗑️ Xóa
                             </button>
-                            <Link
-                              href={`/customers/${c.id}`}
-                              className="rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-200 transition"
-                            >
-                              Chi Tiết
-                            </Link>
                           </div>
                         </td>
                       </tr>
