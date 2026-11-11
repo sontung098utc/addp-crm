@@ -4,6 +4,8 @@ import {
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
   TIKTOK_SERVICE_ID,
+  TIKTOK_DEFAULT_SHOP_ID,
+  TIKTOK_DEFAULT_SHOP_CIPHER,
   exchangeTikTokAuthCode,
   fetchTikTokAuthorizedShops,
 } from "@/lib/tiktokConfig.js";
@@ -95,7 +97,8 @@ async function processTikTokOAuthCode(authCode) {
           channel_type: "tiktok_shop",
           shopId,
           shopCode: shop.code || "",
-          shopCipher: shop.cipher || shop.shop_cipher || "",
+          shopCipher: shop.cipher || shop.shop_cipher || TIKTOK_DEFAULT_SHOP_CIPHER || "",
+          shop_cipher: shop.cipher || shop.shop_cipher || TIKTOK_DEFAULT_SHOP_CIPHER || "",
           region: shop.region || seller_base_region || "VN",
           sellerName: shopName,
           openId: cleanOpenId,
@@ -111,7 +114,8 @@ async function processTikTokOAuthCode(authCode) {
           appSecret: TIKTOK_APP_SECRET,
           shopId,
           shopCode: shop.code || "",
-          shopCipher: shop.cipher || shop.shop_cipher || "",
+          shopCipher: shop.cipher || shop.shop_cipher || TIKTOK_DEFAULT_SHOP_CIPHER || "",
+          shop_cipher: shop.cipher || shop.shop_cipher || TIKTOK_DEFAULT_SHOP_CIPHER || "",
           region: shop.region || seller_base_region || "VN",
           sellerName: shopName,
           openId: cleanOpenId,
@@ -127,7 +131,7 @@ async function processTikTokOAuthCode(authCode) {
       }
     }
   } else {
-    const fallbackShopId = cleanOpenId || String(Date.now());
+    const fallbackShopId = TIKTOK_DEFAULT_SHOP_ID || cleanOpenId || String(Date.now());
     const channelId = `tiktok_shop_${fallbackShopId}`;
 
     const res = createChannelAccount({
@@ -141,6 +145,8 @@ async function processTikTokOAuthCode(authCode) {
         type: "tiktok_shop",
         channel_type: "tiktok_shop",
         shopId: fallbackShopId,
+        shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+        shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
         region: seller_base_region || "VN",
         sellerName: defaultSellerName,
         openId: cleanOpenId,
@@ -155,6 +161,8 @@ async function processTikTokOAuthCode(authCode) {
         appKey: TIKTOK_APP_KEY,
         appSecret: TIKTOK_APP_SECRET,
         shopId: fallbackShopId,
+        shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+        shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
         region: seller_base_region || "VN",
         sellerName: defaultSellerName,
         openId: cleanOpenId,

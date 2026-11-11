@@ -3,6 +3,11 @@ import fs from "fs";
 import path from "path";
 import { getAllActiveZaloHomes, stopZaloMcpDaemon, stopAllZaloMcpDaemons } from "./zaloRunner.js";
 import { setChannelBotStatus } from "./botControlStore.js";
+import {
+  TIKTOK_APP_KEY,
+  TIKTOK_DEFAULT_SHOP_ID,
+  TIKTOK_DEFAULT_SHOP_CIPHER,
+} from "./tiktokConfig.js";
 
 /**
  * ADDP Omnichannel AI CRM — ConnectionHub (WBS-11)
@@ -174,6 +179,32 @@ function loadPersistedChannels() {
           if (isLegacyMockPlaceholder(item)) {
             needsRewrite = true;
             continue;
+          }
+          // Tự động bổ sung shopId & shopCipher thực tế cho kênh TikTok Shop nếu bản ghi cũ còn thiếu
+          const isTikTok =
+            item.platform === "TIKTOK_SHOP" ||
+            item.type === "tiktok_shop" ||
+            item.channel_type === "tiktok_shop";
+          const itemAppKey = item.config?.appKey || TIKTOK_APP_KEY;
+          const existingCipher =
+            item.shopCipher ||
+            item.shop_cipher ||
+            item.config?.shopCipher ||
+            item.config?.shop_cipher ||
+            "";
+          if (isTikTok && !existingCipher && itemAppKey === TIKTOK_APP_KEY && TIKTOK_DEFAULT_SHOP_CIPHER) {
+            item.shopId = TIKTOK_DEFAULT_SHOP_ID;
+            item.externalId = TIKTOK_DEFAULT_SHOP_ID;
+            item.shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+            item.shop_cipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+            item.config = {
+              ...(item.config || {}),
+              appKey: itemAppKey,
+              shopId: TIKTOK_DEFAULT_SHOP_ID,
+              shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+              shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+            };
+            needsRewrite = true;
           }
           runtimeChannelsStore.set(String(item.id), item);
         }

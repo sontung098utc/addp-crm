@@ -21,6 +21,8 @@ import { listAllChannels, updateChannelAccount } from "./connectionHub.js";
 import {
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
+  TIKTOK_DEFAULT_SHOP_ID,
+  TIKTOK_DEFAULT_SHOP_CIPHER,
   generateTikTokSignV2,
   fetchTikTokAuthorizedShopsDetailed,
   refreshTikTokOAuthToken,
@@ -419,7 +421,7 @@ async function resolveTikTokSession(channel) {
     channel.shop_cipher ||
     channel.config?.shopCipher ||
     channel.config?.shop_cipher ||
-    process.env.TIKTOK_SHOP_CIPHER ||
+    (appKey === TIKTOK_APP_KEY ? TIKTOK_DEFAULT_SHOP_CIPHER : "") ||
     "";
 
   if (!accessToken) {
@@ -523,14 +525,31 @@ async function resolveTikTokSession(channel) {
       updateChannelAccount(channel.id, {
         extraFields: {
           shopCipher: matched.cipher,
-          shopId: String(matched.id || targetShopId || ""),
+          shop_cipher: matched.cipher,
+          shopId: String(matched.id || targetShopId || TIKTOK_DEFAULT_SHOP_ID || ""),
           ...(matched.code ? { shopCode: matched.code } : {}),
           ...(matched.name ? { sellerName: matched.name } : {}),
         },
         config: {
           shopCipher: matched.cipher,
-          shopId: String(matched.id || targetShopId || ""),
+          shop_cipher: matched.cipher,
+          shopId: String(matched.id || targetShopId || TIKTOK_DEFAULT_SHOP_ID || ""),
           ...(matched.code ? { shopCode: matched.code } : {}),
+        },
+      });
+    } else if (appKey === TIKTOK_APP_KEY && TIKTOK_DEFAULT_SHOP_CIPHER) {
+      shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+      updateChannelAccount(channel.id, {
+        extraFields: {
+          shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+          shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+          shopId: TIKTOK_DEFAULT_SHOP_ID,
+          externalId: TIKTOK_DEFAULT_SHOP_ID,
+        },
+        config: {
+          shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+          shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
+          shopId: TIKTOK_DEFAULT_SHOP_ID,
         },
       });
     } else {

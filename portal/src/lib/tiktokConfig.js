@@ -11,6 +11,10 @@ export const TIKTOK_APP_KEY =
   process.env.TIKTOK_APP_KEY || "6ls9j0lb830he";
 export const TIKTOK_APP_SECRET =
   process.env.TIKTOK_APP_SECRET || "b32f208f743dda776a98432d9c8ac714372fda61";
+export const TIKTOK_DEFAULT_SHOP_ID =
+  process.env.TIKTOK_SHOP_ID || "7495657895504611503";
+export const TIKTOK_DEFAULT_SHOP_CIPHER =
+  process.env.TIKTOK_SHOP_CIPHER || "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
 
 export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?service_id=${TIKTOK_SERVICE_ID}`;
 
