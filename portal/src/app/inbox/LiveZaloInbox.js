@@ -440,62 +440,76 @@ export default function LiveZaloInbox() {
       const resConv = await fetch(url);
       const dataConv = await resConv.json();
 
-      if (Array.isArray(dataConv.connectedPages) && dataConv.connectedPages.length > 0) {
+      if (Array.isArray(dataConv.connectedPages)) {
         setConnectedPages(dataConv.connectedPages);
       }
-      if (Array.isArray(dataConv.connectedZaloAccounts) && dataConv.connectedZaloAccounts.length > 0) {
+      if (Array.isArray(dataConv.connectedZaloAccounts)) {
         setConnectedZaloAccounts(dataConv.connectedZaloAccounts);
-      }
-
-      let list = [];
-      if (dataConv.ok && Array.isArray(dataConv.conversations) && dataConv.conversations.length > 0) {
-        list = dataConv.conversations;
-      }
-
-      if (list.length > 0) {
-        const activeTopSignature = list
-          .filter((c) => !c.isContactOnly)
-          .slice(0, 80)
-          .map(
-            (c) =>
-              `${c.channel}:${c.accountId || ""}:${c.id}:${c.timestamp}:${c.lastMessage}:${c.unreadCount || 0}`
-          )
-          .join("|");
-
-        const hasChanged = forceRefresh || showLoading || activeTopSignature !== convSignatureRef.current;
-        if (hasChanged) {
-          convSignatureRef.current = activeTopSignature;
-          setConversations(list);
-          try {
-            sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
-          } catch {}
-        } else {
-          setConversations((prev) => {
-            if ((prev || []).length !== list.length) return list;
-            const byKey = new Map(
-              list.map((item) => [`${item.channel}_${item.accountId || ""}_${item.id}`, item])
-            );
-            return (prev || []).map((oldItem) => {
-              const updated = byKey.get(
-                `${oldItem.channel}_${oldItem.accountId || ""}_${oldItem.id}`
-              );
-              return updated ? { ...oldItem, lastActive: updated.lastActive } : oldItem;
-            });
-          });
+        if (dataConv.connectedZaloAccounts.length === 0) {
+          setSelectedAccountFilter((prev) =>
+            prev === "ZALO_ALL" || String(prev).startsWith("ZALO_ACCOUNT:") ? "ALL" : prev
+          );
+          setChannelFilter((prev) => (prev === "ZALO_PERSONAL" ? "ALL" : prev));
+          setSelectedZaloAccountId("ALL");
         }
+      }
 
-        setActiveConv((prev) => {
-          if (prev) {
-            const matched = list.find(
+      if (dataConv.ok && Array.isArray(dataConv.conversations)) {
+        const list = dataConv.conversations;
+
+        if (list.length > 0) {
+          const activeTopSignature = list
+            .filter((c) => !c.isContactOnly)
+            .slice(0, 80)
+            .map(
               (c) =>
-                String(c.id) === String(prev.id) &&
-                c.channel === prev.channel &&
-                String(c.accountId || "") === String(prev.accountId || "")
-            );
-            if (matched) return matched;
+                `${c.channel}:${c.accountId || ""}:${c.id}:${c.timestamp}:${c.lastMessage}:${c.unreadCount || 0}`
+            )
+            .join("|");
+
+          const hasChanged = forceRefresh || showLoading || activeTopSignature !== convSignatureRef.current;
+          if (hasChanged) {
+            convSignatureRef.current = activeTopSignature;
+            setConversations(list);
+            try {
+              sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
+            } catch {}
+          } else {
+            setConversations((prev) => {
+              if ((prev || []).length !== list.length) return list;
+              const byKey = new Map(
+                list.map((item) => [`${item.channel}_${item.accountId || ""}_${item.id}`, item])
+              );
+              return (prev || []).map((oldItem) => {
+                const updated = byKey.get(
+                  `${oldItem.channel}_${oldItem.accountId || ""}_${oldItem.id}`
+                );
+                return updated ? { ...oldItem, lastActive: updated.lastActive } : oldItem;
+              });
+            });
           }
-          return list.find((c) => !c.isContactOnly) || list[0];
-        });
+
+          setActiveConv((prev) => {
+            if (prev) {
+              const matched = list.find(
+                (c) =>
+                  String(c.id) === String(prev.id) &&
+                  c.channel === prev.channel &&
+                  String(c.accountId || "") === String(prev.accountId || "")
+              );
+              if (matched) return matched;
+            }
+            return list.find((c) => !c.isContactOnly) || list[0];
+          });
+        } else {
+          convSignatureRef.current = "";
+          setConversations([]);
+          setActiveConv(null);
+          setMessages([]);
+          try {
+            sessionStorage.setItem("addp_inbox_conversations", "[]");
+          } catch {}
+        }
       }
     } catch (err) {
       console.error("Lỗi tải hội thoại:", err);
@@ -965,42 +979,15 @@ export default function LiveZaloInbox() {
     return Array.from(map.values());
   }, [connectedPages, conversations]);
 
-  // Danh sách tài khoản Zalo cá nhân (tự động loại bỏ tài khoản đã xóa hoặc 0 hội thoại)
+  // Danh sách tài khoản Zalo cá nhân (đồng bộ 100% theo trạng thái cấu hình từ /channels)
   const effectiveZaloAccounts = useMemo(() => {
-    let list = [];
-    if (connectedZaloAccounts && connectedZaloAccounts.length > 0) {
-      list = connectedZaloAccounts.filter(
-        (a) => (a.totalCount || 0) > 0 || (a.activeCount || 0) > 0
-      );
+    if (!Array.isArray(connectedZaloAccounts) || connectedZaloAccounts.length === 0) {
+      return [];
     }
-    if (list.length === 0) {
-      const map = new Map();
-      for (const c of conversations || []) {
-        if (c.channel === "ZALO_PERSONAL") {
-          const accId = String(c.accountId || c.accountDisplayName || "default");
-          const disp =
-            c.accountDisplayName ||
-            (c.accountName ? c.accountName.replace(/^Zalo:\s*/i, "") : "Sơn Tùng");
-          if (!map.has(accId)) {
-            map.set(accId, {
-              accountId: accId,
-              name: disp,
-              displayName: `Zalo ${disp}`,
-              label: `Zalo: ${disp}`,
-              activeCount: 0,
-              totalCount: 0,
-              colorIndex: map.size,
-            });
-          }
-          const entry = map.get(accId);
-          entry.totalCount += 1;
-          if (!c.isContactOnly) entry.activeCount += 1;
-        }
-      }
-      list = Array.from(map.values()).filter((a) => a.totalCount > 0);
-    }
-    return list.filter((a) => (a.totalCount || 0) > 0 || (a.activeCount || 0) > 0);
-  }, [connectedZaloAccounts, conversations]);
+    return connectedZaloAccounts.filter(
+      (a) => (a.totalCount || 0) > 0 || (a.activeCount || 0) > 0
+    );
+  }, [connectedZaloAccounts]);
 
   // Xử lý khi đổi lựa chọn trong Dropdown Gom Kênh ở Cột 1
   const handleAccountDropdownChange = (val) => {
@@ -1659,59 +1646,61 @@ export default function LiveZaloInbox() {
                     </button>
                   </div>
 
-                  {/* Nhóm 2: Zalo Cá Nhân Multi-QR */}
-                  <div className="border-t border-slate-800 pt-1.5">
-                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
-                      <span>Zalo Cá Nhân (Multi-QR)</span>
-                      <span className="text-[10px] text-slate-500 font-normal">
-                        {effectiveZaloAccounts.length} nick
-                      </span>
-                    </div>
-                    <div className="space-y-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleAccountDropdownChange("ZALO_ALL");
-                          setChannelPopoverOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
-                          selectedAccountFilter === "ZALO_ALL"
-                            ? "bg-cyan-600 text-white font-bold"
-                            : "text-slate-200 hover:bg-slate-800"
-                        }`}
-                      >
-                        <span className="flex items-center gap-2 truncate">
-                          <MessageSquare className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                          <span className="truncate">Tất cả Zalo ({pillCounts.all})</span>
+                  {/* Nhóm 2: Zalo Cá Nhân Multi-QR — CHỈ HIỂN THỊ KHI CÒN ÍT NHẤT 1 NICK ACTIVE TRONG /channels */}
+                  {effectiveZaloAccounts && effectiveZaloAccounts.length > 0 && (
+                    <div className="border-t border-slate-800 pt-1.5">
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center justify-between">
+                        <span>Zalo Cá Nhân (Multi-QR)</span>
+                        <span className="text-[10px] text-slate-500 font-normal">
+                          {effectiveZaloAccounts.length} nick
                         </span>
-                        {selectedAccountFilter === "ZALO_ALL" && <Check className="w-3.5 h-3.5 shrink-0" />}
-                      </button>
-
-                      {effectiveZaloAccounts.map((acc) => (
+                      </div>
+                      <div className="space-y-0.5">
                         <button
-                          key={acc.accountId}
                           type="button"
                           onClick={() => {
-                            handleAccountDropdownChange(`ZALO_ACCOUNT:${acc.accountId}`);
+                            handleAccountDropdownChange("ZALO_ALL");
                             setChannelPopoverOpen(false);
                           }}
-                          className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
-                            selectedAccountFilter === `ZALO_ACCOUNT:${acc.accountId}`
-                              ? "bg-teal-600 text-white font-bold"
-                              : "text-slate-300 hover:bg-slate-800"
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                            selectedAccountFilter === "ZALO_ALL"
+                              ? "bg-cyan-600 text-white font-bold"
+                              : "text-slate-200 hover:bg-slate-800"
                           }`}
                         >
                           <span className="flex items-center gap-2 truncate">
-                            <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0" />
-                            <span className="truncate">Zalo: {acc.name}</span>
+                            <MessageSquare className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                            <span className="truncate">Tất cả Zalo ({pillCounts.all})</span>
                           </span>
-                          <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
-                            {acc.totalCount || 0}
-                          </span>
+                          {selectedAccountFilter === "ZALO_ALL" && <Check className="w-3.5 h-3.5 shrink-0" />}
                         </button>
-                      ))}
+
+                        {effectiveZaloAccounts.map((acc) => (
+                          <button
+                            key={acc.accountId}
+                            type="button"
+                            onClick={() => {
+                              handleAccountDropdownChange(`ZALO_ACCOUNT:${acc.accountId}`);
+                              setChannelPopoverOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
+                              selectedAccountFilter === `ZALO_ACCOUNT:${acc.accountId}`
+                                ? "bg-teal-600 text-white font-bold"
+                                : "text-slate-300 hover:bg-slate-800"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2 truncate">
+                              <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0" />
+                              <span className="truncate">Zalo: {acc.name}</span>
+                            </span>
+                            <span className="text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                              {acc.totalCount || 0}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Nhóm 3: Fanpage Facebook */}
                   <div className="border-t border-slate-800 pt-1.5">

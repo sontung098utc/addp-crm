@@ -289,6 +289,86 @@ export function ensureAllZaloMcpDaemons() {
 }
 
 /**
+ * Dừng tiến trình MCP daemon của một thư mục Zalo cụ thể khi xóa tài khoản khỏi Channels
+ */
+export function stopZaloMcpDaemon(homeDir) {
+  if (!homeDir) return false;
+  let stopped = false;
+  try {
+    const resolvedTarget = path.resolve(homeDir);
+    if (globalThis.__zaloMcpDaemons instanceof Map) {
+      for (const [k, info] of globalThis.__zaloMcpDaemons.entries()) {
+        if (path.resolve(k) === resolvedTarget) {
+          if (info?.pid && isPidAlive(info.pid)) {
+            try {
+              process.kill(info.pid);
+              stopped = true;
+            } catch {}
+          }
+          globalThis.__zaloMcpDaemons.delete(k);
+        }
+      }
+    }
+
+    const pidFile = path.join(homeDir, ".zalo-agent-cli", "mcp.pid");
+    if (fs.existsSync(pidFile)) {
+      try {
+        const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+        if (pid && isPidAlive(pid)) {
+          process.kill(pid);
+          stopped = true;
+        }
+        fs.unlinkSync(pidFile);
+      } catch {}
+    }
+  } catch (err) {
+    console.error("[STOP_ZALO_MCP_DAEMON_ERR]", err.message);
+  }
+  return stopped;
+}
+
+/**
+ * Dừng toàn bộ tiến trình daemon & watcher Zalo khi không còn tài khoản Zalo nào active trong Channels
+ */
+export function stopAllZaloMcpDaemons() {
+  try {
+    if (globalThis.__zaloAiWatcherTimer) {
+      clearInterval(globalThis.__zaloAiWatcherTimer);
+      globalThis.__zaloAiWatcherTimer = null;
+    }
+
+    if (globalThis.__zaloMcpDaemons instanceof Map) {
+      for (const [homeDir, info] of globalThis.__zaloMcpDaemons.entries()) {
+        if (info?.pid && isPidAlive(info.pid)) {
+          try {
+            process.kill(info.pid);
+          } catch {}
+        }
+        globalThis.__zaloMcpDaemons.delete(homeDir);
+      }
+    }
+
+    const allHomes = getAllZaloHomes();
+    for (const dir of allHomes) {
+      const pidFile = path.join(dir, ".zalo-agent-cli", "mcp.pid");
+      if (fs.existsSync(pidFile)) {
+        try {
+          const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+          if (pid && isPidAlive(pid)) {
+            process.kill(pid);
+          }
+          fs.unlinkSync(pidFile);
+        } catch {}
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error("[STOP_ALL_ZALO_DAEMONS_ERR]", err.message);
+    return false;
+  }
+}
+
+/**
  * Tìm tất cả thư mục phiên Zalo trong connector-home và sắp xếp theo thời gian sửa đổi (mtime)
  * mới nhất của file `.zalo-agent-cli/history.jsonl` hoặc `credentials`.
  */

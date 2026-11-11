@@ -4,6 +4,7 @@ import {
   getActiveZaloHome,
   getAllActiveZaloHomes,
   ensureZaloMcpDaemon,
+  stopAllZaloMcpDaemons,
   syncZaloGroupsAndMetadata,
   getAllZaloHistoryFiles,
   scanAndAutoReplyZaloHistories,
@@ -178,23 +179,64 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const forceRefresh = searchParams.get("refresh") === "1";
 
-    // Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang kết nối (đã lọc bỏ tài khoản đã xóa khỏi Channels)
+    // 1. Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang active trong cấu hình Channels (đồng bộ 100% với /channels)
     const activeChannels = listAllChannels().filter(
-      (c) => c.platform === "ZALO_PERSONAL" && c.status !== "DISCONNECTED"
+      (c) =>
+        (c.platform === "ZALO_PERSONAL" ||
+          c.type === "zalo_personal" ||
+          c.channel_type === "zalo_personal" ||
+          c.type === "zalo") &&
+        c.status !== "DISCONNECTED" &&
+        c.status !== "deleted" &&
+        c.status !== "INACTIVE"
     );
+
+    // 2. NẾU KHÔNG CÒN TÀI KHOẢN ZALO CÁ NHÂN NÀO ĐANG ACTIVE (0 Nick QR):
+    // Tuyệt đối không fallback quét lịch sử/tin nhắn cũ; trả về connectedZaloAccounts: [] và chỉ giữ hội thoại các kênh khác
+    if (activeChannels.length === 0) {
+      stopAllZaloMcpDaemons();
+
+      const otherConversations = await getOmnichannelConversations(forceRefresh);
+      const filteredOther = (otherConversations || [])
+        .filter(
+          (c) =>
+            c.channel !== "ZALO_PERSONAL" &&
+            c.channel !== "zalo" &&
+            c.type !== "zalo_personal"
+        )
+        .sort(
+          (a, b) => (b.timestamp || 0) - (a.timestamp || 0) || String(a.id).localeCompare(String(b.id))
+        );
+
+      const allThreadTags = getAllConversationTags();
+      const combinedWithTags = filteredOther.map((conv) => ({
+        ...conv,
+        tags: allThreadTags[conv.id] || (Array.isArray(conv.tags) ? conv.tags : []),
+      }));
+
+      return NextResponse.json({
+        ok: true,
+        total: combinedWithTags.length,
+        activeCount: combinedWithTags.length,
+        connectedZaloAccounts: [],
+        connectedPages: getConnectedFacebookPages(),
+        conversations: combinedWithTags,
+      });
+    }
+
     const activeZaloOwnIds = new Set(
       activeChannels.map((c) => String(c.config?.ownId || c.externalId || "")).filter(Boolean)
     );
     const activeZaloNames = new Set(
-      activeChannels.map((c) => String(c.config?.accountName || c.config?.label || c.name || "").toLowerCase())
+      activeChannels
+        .map((c) => String(c.config?.accountName || c.config?.label || c.name || "").toLowerCase())
+        .filter(Boolean)
     );
 
     const discoveredAccounts = getAllActiveZaloHomes();
-    let zaloAccountsToSync = discoveredAccounts.filter((acc) => {
-      if (activeChannels.length === 0) return true;
+    const zaloAccountsToSync = discoveredAccounts.filter((acc) => {
       const own = String(acc.ownId || acc.accountId || "");
       const name = String(acc.displayName || acc.name || "").toLowerCase();
-      // Loại bỏ hoàn toàn nick đã xóa (ví dụ "Lê Quyên")
       if (activeZaloOwnIds.size > 0 && activeZaloOwnIds.has(own)) return true;
       for (const an of activeZaloNames) {
         if (an && (name.includes(an) || an.includes(name))) return true;
@@ -202,22 +244,7 @@ export async function GET(request) {
       return false;
     });
 
-    if (zaloAccountsToSync.length === 0) {
-      zaloAccountsToSync = [
-        {
-          accountId: "1781287338457243967",
-          ownId: "1781287338457243967",
-          slug: "default",
-          name: "Sơn Tùng",
-          displayName: "Sơn Tùng",
-          accountName: "Zalo: Sơn Tùng",
-          channelLabel: "Zalo Cá Nhân (Sơn Tùng)",
-          homeDir: getActiveZaloHome(),
-        },
-      ];
-    }
-
-    // 1. Đảm bảo daemon `mcp start --http` luôn chạy ngầm 24/7 cho mọi tài khoản Zalo đang kết nối
+    // 3. Đảm bảo daemon `mcp start --http` chỉ chạy cho tài khoản Zalo đang thực sự active
     for (const acc of zaloAccountsToSync) {
       ensureZaloMcpDaemon(acc.homeDir);
     }

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { getAllActiveZaloHomes } from "./zaloRunner.js";
+import { getAllActiveZaloHomes, stopZaloMcpDaemon, stopAllZaloMcpDaemons } from "./zaloRunner.js";
 import { setChannelBotStatus } from "./botControlStore.js";
 
 /**
@@ -224,7 +224,15 @@ function getLiveZaloAccounts() {
     for (const h of activeHomes) {
       const extKey = String(h.ownId || h.accountId || h.slug);
       const chId = `zalo_${extKey}`;
-      if (seenKeys.has(extKey) || deletedSet.has(chId) || deletedSet.has(extKey)) continue;
+      if (
+        seenKeys.has(extKey) ||
+        deletedSet.has(chId) ||
+        deletedSet.has(extKey) ||
+        (h.slug && (deletedSet.has(h.slug) || deletedSet.has(`zalo_${h.slug}`))) ||
+        (h.homeDir && deletedSet.has(h.homeDir))
+      ) {
+        continue;
+      }
       seenKeys.add(extKey);
 
       const existingRecord = runtimeChannelsStore.get(chId);
@@ -285,7 +293,10 @@ function getLiveZaloAccounts() {
                 extKey &&
                 !seenKeys.has(extKey) &&
                 !deletedSet.has(chId) &&
-                !deletedSet.has(`zalo_${conn.id}`)
+                !deletedSet.has(extKey) &&
+                !deletedSet.has(`zalo_${conn.id}`) &&
+                !deletedSet.has(conn.id) &&
+                !deletedSet.has(conn.config.home_dir)
               ) {
                 seenKeys.add(extKey);
                 const existingRecord = runtimeChannelsStore.get(chId);
@@ -456,9 +467,22 @@ export function createChannelAccount(input) {
 
   // Nếu tạo lại một kênh từng bị xóa trước đó -> gỡ khỏi danh sách deleted_channels.json
   const deletedSet = loadDeletedChannelIds();
-  if (extId && deletedSet.has(extId)) {
-    deletedSet.delete(extId);
-    deletedSet.delete(`zalo_${extId}`);
+  let deletedUpdated = false;
+  const keysToRevive = [
+    extId,
+    extId ? `zalo_${extId}` : "",
+    input.connectionId,
+    input.config?.ownId,
+    input.config?.ownId ? `zalo_${input.config.ownId}` : "",
+    input.config?.homeDir,
+  ].filter(Boolean);
+  for (const k of keysToRevive) {
+    if (deletedSet.has(String(k))) {
+      deletedSet.delete(String(k));
+      deletedUpdated = true;
+    }
+  }
+  if (deletedUpdated) {
     saveDeletedChannelIds(deletedSet);
   }
 
@@ -560,19 +584,60 @@ export function deleteChannelAccount(id) {
 
   const deletedSet = loadDeletedChannelIds();
   deletedSet.add(targetId);
+  if (existing?.id) deletedSet.add(String(existing.id));
   if (existing?.externalId) {
     deletedSet.add(String(existing.externalId));
+    deletedSet.add(`zalo_${existing.externalId}`);
+  }
+  if (existing?.connectionId) {
+    deletedSet.add(String(existing.connectionId));
+    deletedSet.add(`zalo_${existing.connectionId}`);
+  }
+  if (existing?.config?.ownId) {
+    deletedSet.add(String(existing.config.ownId));
+    deletedSet.add(`zalo_${existing.config.ownId}`);
+  }
+  if (existing?.config?.homeDir) {
+    deletedSet.add(String(existing.config.homeDir));
   }
   saveDeletedChannelIds(deletedSet);
 
-  if (runtimeChannelsStore.has(targetId)) {
-    runtimeChannelsStore.delete(targetId);
-    savePersistedChannels();
-    return { ok: true };
+  // Dừng tiến trình daemon Zalo nếu kênh bị xóa là Zalo cá nhân
+  if (existing?.platform === "ZALO_PERSONAL" || targetId.startsWith("zalo_")) {
+    if (existing?.config?.homeDir) {
+      stopZaloMcpDaemon(existing.config.homeDir);
+    }
+    try {
+      const homes = getAllActiveZaloHomes();
+      for (const h of homes) {
+        if (
+          (existing?.externalId && String(h.ownId) === String(existing.externalId)) ||
+          (existing?.config?.ownId && String(h.ownId) === String(existing.config.ownId))
+        ) {
+          for (const d of h.allHomeDirs || [h.homeDir]) {
+            stopZaloMcpDaemon(d);
+          }
+        }
+      }
+    } catch {}
   }
 
-  if (existing) {
-    savePersistedChannels();
+  let removed = false;
+  if (runtimeChannelsStore.has(targetId)) {
+    runtimeChannelsStore.delete(targetId);
+    removed = true;
+  }
+  savePersistedChannels();
+
+  // Nếu không còn tài khoản Zalo cá nhân nào active -> dừng toàn bộ daemon & watcher Zalo
+  const remainingZalo = Array.from(runtimeChannelsStore.values()).filter(
+    (c) => c.platform === "ZALO_PERSONAL" && c.status !== "DISCONNECTED" && c.status !== "deleted"
+  );
+  if (remainingZalo.length === 0) {
+    stopAllZaloMcpDaemons();
+  }
+
+  if (removed || existing) {
     return { ok: true };
   }
 
