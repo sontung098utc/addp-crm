@@ -21,8 +21,6 @@ import { listAllChannels, updateChannelAccount } from "./connectionHub.js";
 import {
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
-  TIKTOK_DEFAULT_SHOP_ID,
-  TIKTOK_DEFAULT_SHOP_CIPHER,
   generateTikTokSignV2,
   fetchTikTokAuthorizedShopsDetailed,
   refreshTikTokOAuthToken,
@@ -411,7 +409,54 @@ function getActiveTikTokChannels(shopIdFilter = "") {
   return matched.length > 0 ? matched : active;
 }
 
-async function resolveTikTokSession(channel) {
+function formatTikTokFriendlyError(code, rawMessage = "") {
+  const numCode = Number(code ?? -1);
+  const msgLower = String(rawMessage || "").toLowerCase();
+  const isCipherOrScopeOrTokenIssue =
+    numCode === 105005 ||
+    numCode === 105001 ||
+    numCode === 105002 ||
+    numCode === 105003 ||
+    numCode === 105004 ||
+    msgLower.includes("invalid shop_cipher") ||
+    msgLower.includes("shop_cipher") ||
+    msgLower.includes("access denied") ||
+    msgLower.includes("permission") ||
+    msgLower.includes("token") ||
+    msgLower.includes("unauthorized");
+
+  if (isCipherOrScopeOrTokenIssue) {
+    return {
+      needsTokenRefresh: true,
+      message:
+        "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
+    };
+  }
+
+  return {
+    needsTokenRefresh: false,
+    message: rawMessage || "Không thể kết nối TikTok Shop Open API.",
+  };
+}
+
+async function persistTikTokTokens(channelId, refreshed) {
+  updateChannelAccount(channelId, {
+    status: "CONNECTED",
+    extraFields: {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      tokenExpiresAt: refreshed.tokenExpiresAt,
+      oauthStatus: "active",
+    },
+    config: {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      tokenExpiresAt: refreshed.tokenExpiresAt,
+    },
+  });
+}
+
+async function resolveTikTokSession(channel, { forceVerifyCipher = false } = {}) {
   const appKey = channel.config?.appKey || TIKTOK_APP_KEY;
   const appSecret = channel.config?.appSecret || TIKTOK_APP_SECRET;
   let accessToken = channel.accessToken || channel.config?.accessToken || "";
@@ -421,18 +466,19 @@ async function resolveTikTokSession(channel) {
     channel.shop_cipher ||
     channel.config?.shopCipher ||
     channel.config?.shop_cipher ||
-    (appKey === TIKTOK_APP_KEY ? TIKTOK_DEFAULT_SHOP_CIPHER : "") ||
     "";
 
   if (!accessToken) {
     return {
       ok: false,
+      needsTokenRefresh: true,
       accessToken: "",
       refreshToken,
       shopCipher: "",
       appKey,
       appSecret,
-      error: "Gian hàng chưa có Access Token. Vui lòng ủy quyền lại TikTok Shop.",
+      error:
+        "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
     };
   }
 
@@ -448,24 +494,14 @@ async function resolveTikTokSession(channel) {
     if (refreshed.ok && refreshed.accessToken) {
       accessToken = refreshed.accessToken;
       refreshToken = refreshed.refreshToken || refreshToken;
-      updateChannelAccount(channel.id, {
-        status: "CONNECTED",
-        extraFields: {
-          accessToken,
-          refreshToken,
-          tokenExpiresAt: refreshed.tokenExpiresAt,
-          oauthStatus: "active",
-        },
-        config: {
-          accessToken,
-          refreshToken,
-          tokenExpiresAt: refreshed.tokenExpiresAt,
-        },
+      persistTikTokTokens(channel.id, {
+        ...refreshed,
+        refreshToken,
       });
     }
   }
 
-  if (!shopCipher) {
+  if (!shopCipher || forceVerifyCipher) {
     let shopsRes = await fetchTikTokAuthorizedShopsDetailed({
       accessToken,
       appKey,
@@ -480,7 +516,9 @@ async function resolveTikTokSession(channel) {
         shopErrCode === 105002 ||
         shopErrCode === 105003 ||
         shopErrCode === 105004 ||
-        String(shopsRes.message || "").toLowerCase().includes("token"));
+        shopErrCode === 105005 ||
+        String(shopsRes.message || "").toLowerCase().includes("token") ||
+        String(shopsRes.message || "").toLowerCase().includes("cipher"));
 
     if (shouldRefreshForShops && refreshToken) {
       const refreshed = await refreshTikTokOAuthToken({
@@ -491,19 +529,9 @@ async function resolveTikTokSession(channel) {
       if (refreshed.ok && refreshed.accessToken) {
         accessToken = refreshed.accessToken;
         refreshToken = refreshed.refreshToken || refreshToken;
-        updateChannelAccount(channel.id, {
-          status: "CONNECTED",
-          extraFields: {
-            accessToken,
-            refreshToken,
-            tokenExpiresAt: refreshed.tokenExpiresAt,
-            oauthStatus: "active",
-          },
-          config: {
-            accessToken,
-            refreshToken,
-            tokenExpiresAt: refreshed.tokenExpiresAt,
-          },
+        persistTikTokTokens(channel.id, {
+          ...refreshed,
+          refreshToken,
         });
         shopsRes = await fetchTikTokAuthorizedShopsDetailed({
           accessToken,
@@ -526,45 +554,33 @@ async function resolveTikTokSession(channel) {
         extraFields: {
           shopCipher: matched.cipher,
           shop_cipher: matched.cipher,
-          shopId: String(matched.id || targetShopId || TIKTOK_DEFAULT_SHOP_ID || ""),
+          shopId: String(matched.id || targetShopId || ""),
+          externalId: String(matched.id || targetShopId || channel.externalId || ""),
           ...(matched.code ? { shopCode: matched.code } : {}),
           ...(matched.name ? { sellerName: matched.name } : {}),
         },
         config: {
           shopCipher: matched.cipher,
           shop_cipher: matched.cipher,
-          shopId: String(matched.id || targetShopId || TIKTOK_DEFAULT_SHOP_ID || ""),
+          shopId: String(matched.id || targetShopId || ""),
           ...(matched.code ? { shopCode: matched.code } : {}),
         },
       });
-    } else if (appKey === TIKTOK_APP_KEY && TIKTOK_DEFAULT_SHOP_CIPHER) {
-      shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
-      updateChannelAccount(channel.id, {
-        extraFields: {
-          shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
-          shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
-          shopId: TIKTOK_DEFAULT_SHOP_ID,
-          externalId: TIKTOK_DEFAULT_SHOP_ID,
-        },
-        config: {
-          shopCipher: TIKTOK_DEFAULT_SHOP_CIPHER,
-          shop_cipher: TIKTOK_DEFAULT_SHOP_CIPHER,
-          shopId: TIKTOK_DEFAULT_SHOP_ID,
-        },
-      });
-    } else {
-      const errDetail = !shopsRes.ok
-        ? `${shopsRes.code ? `mã ${shopsRes.code}: ` : ""}${shopsRes.message}`
-        : "Danh sách gian hàng ủy quyền trống (0 shop)";
+    } else if (!shopCipher || forceVerifyCipher) {
+      const friendly = formatTikTokFriendlyError(
+        shopsRes?.code,
+        shopsRes?.message || "Invalid shop_cipher"
+      );
       return {
         ok: false,
+        needsTokenRefresh: true,
         accessToken,
         refreshToken,
         shopCipher: "",
         appKey,
         appSecret,
         code: shopsRes?.code ?? -1,
-        error: `Không lấy được shop_cipher từ TikTok Shop (${errDetail}). Vui lòng vào Kết nối 7 Kênh -> bấm 'Kết Nối TikTok Shop 1-Click' để ủy quyền lại.`,
+        error: friendly.message,
       };
     }
   }
@@ -581,31 +597,39 @@ async function resolveTikTokSession(channel) {
 
 async function callTikTokShopApi(
   channel,
-  { method = "GET", reqPath, queryParams = {}, bodyObj = null, timeoutMs = 6000 }
+  {
+    method = "GET",
+    reqPath,
+    queryParams = {},
+    bodyObj = null,
+    timeoutMs = 6000,
+    forceVerifyCipher = false,
+  }
 ) {
-  const session = await resolveTikTokSession(channel);
+  let session = await resolveTikTokSession(channel, { forceVerifyCipher });
   if (!session.ok || !session.shopCipher) {
     return {
       status: 400,
+      needsTokenRefresh: true,
       json: {
         code: session.code ?? -1,
-        message: session.error || "Thiếu shop_cipher cho gian hàng TikTok Shop.",
+        message:
+          session.error ||
+          "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
       },
     };
   }
 
-  const { appKey, appSecret, shopCipher } = session;
-  let { accessToken, refreshToken } = session;
   const bodyStr = bodyObj ? JSON.stringify(bodyObj) : "";
 
-  const sendOnce = async (token) => {
+  const sendOnce = async (token, cipher) => {
     const params = {
-      app_key: appKey,
+      app_key: session.appKey,
+      shop_cipher: cipher,
       timestamp: String(Math.floor(Date.now() / 1000)),
-      shop_cipher: shopCipher,
       ...queryParams,
     };
-    const sign = generateTikTokSignV2(reqPath, params, appSecret, bodyStr);
+    const sign = generateTikTokSignV2(reqPath, params, session.appSecret, bodyStr);
     const qs = new URLSearchParams({ ...params, sign });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -629,39 +653,51 @@ async function callTikTokShopApi(
     }
   };
 
-  let attempt = await sendOnce(accessToken);
+  let attempt = await sendOnce(session.accessToken, session.shopCipher);
   const code = Number(attempt?.json?.code ?? -1);
-  const isTokenExpired =
+  const msgLower = String(attempt?.json?.message || "").toLowerCase();
+  const isAuthOrCipherMismatch =
     attempt.status === 401 ||
     code === 105001 ||
     code === 105002 ||
     code === 105003 ||
-    code === 105004;
+    code === 105004 ||
+    code === 105005 ||
+    msgLower.includes("invalid shop_cipher") ||
+    msgLower.includes("shop_cipher");
 
-  if (isTokenExpired && refreshToken) {
+  if (isAuthOrCipherMismatch && session.refreshToken) {
     const refreshed = await refreshTikTokOAuthToken({
-      refreshToken,
-      appKey,
-      appSecret,
+      refreshToken: session.refreshToken,
+      appKey: session.appKey,
+      appSecret: session.appSecret,
     });
     if (refreshed.ok && refreshed.accessToken) {
-      accessToken = refreshed.accessToken;
-      refreshToken = refreshed.refreshToken || refreshToken;
-      updateChannelAccount(channel.id, {
-        status: "CONNECTED",
-        extraFields: {
-          accessToken,
-          refreshToken,
-          tokenExpiresAt: refreshed.tokenExpiresAt,
-          oauthStatus: "active",
-        },
-        config: {
-          accessToken,
-          refreshToken,
-          tokenExpiresAt: refreshed.tokenExpiresAt,
-        },
+      persistTikTokTokens(channel.id, {
+        ...refreshed,
+        refreshToken: refreshed.refreshToken || session.refreshToken,
       });
-      attempt = await sendOnce(accessToken);
+      const updatedChannel = {
+        ...channel,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken || session.refreshToken,
+        shopCipher: "",
+        shop_cipher: "",
+        config: {
+          ...(channel.config || {}),
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken || session.refreshToken,
+          shopCipher: "",
+          shop_cipher: "",
+        },
+      };
+      const reVerified = await resolveTikTokSession(updatedChannel, {
+        forceVerifyCipher: true,
+      });
+      if (reVerified.ok && reVerified.shopCipher) {
+        session = reVerified;
+        attempt = await sendOnce(reVerified.accessToken, reVerified.shopCipher);
+      }
     }
   }
 
@@ -794,20 +830,24 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
     const shopName = String(ch.name || ch.sellerName || "TikTok Shop").trim();
 
     try {
-      const { json } = await callTikTokShopApi(ch, {
+      const apiRes = await callTikTokShopApi(ch, {
         method: "GET",
         reqPath: "/customer_service/202309/conversations",
         queryParams: { page_size: "20" },
         timeoutMs: 8000,
+        forceVerifyCipher: true,
       });
+      const { json } = apiRes;
 
       if (!json || (json.code !== undefined && Number(json.code) !== 0)) {
+        const friendly = formatTikTokFriendlyError(json?.code, json?.message);
         shopResults.push({
           shopId: chShopId,
           shopName,
           ok: false,
           code: json?.code ?? null,
-          error: json?.message || "TikTok Shop API không trả về danh sách hội thoại.",
+          needsTokenRefresh: Boolean(apiRes.needsTokenRefresh || friendly.needsTokenRefresh),
+          error: friendly.message,
         });
         continue;
       }
@@ -908,13 +948,16 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
   lastTikTokFetchTime = 0;
 
   const anySuccess = shopResults.some((r) => r.ok);
-  const firstErr = shopResults.find((r) => !r.ok)?.error || "";
+  const firstFailed = shopResults.find((r) => !r.ok) || null;
+  const firstErr = firstFailed?.error || "";
 
   return {
     ok: anySuccess,
     syncedConversations,
     syncedMessages,
     syncedCount: syncedConversations,
+    needsTokenRefresh: Boolean(!anySuccess && firstFailed?.needsTokenRefresh),
+    errorCode: !anySuccess ? firstFailed?.code ?? null : null,
     shopResults,
     conversations: collectedConvs,
     message: anySuccess

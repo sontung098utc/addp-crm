@@ -1478,13 +1478,22 @@ export default function LiveZaloInbox() {
               ? `Đồng bộ TikTok Shop thành công! Đã nạp ${convCount} hội thoại (${msgCount} tin nhắn).`
               : "Đã đồng bộ TikTok Shop. Hiện chưa có hội thoại mới từ người mua.",
         });
+      } else if (data?.needsTokenRefresh) {
+        setToast({
+          type: "warning",
+          text:
+            data?.message ||
+            "Phiên ủy quyền của TikTok Shop cần làm mới. Vui lòng bấm [Làm mới Token] tại trang Quản lý Kênh.",
+          actionHref: "/channels",
+          actionLabel: "Làm mới Token",
+        });
       } else {
         setToast({
           type: "error",
           text: data?.message || "Chưa thể đồng bộ tin nhắn từ TikTok Shop Open API.",
         });
       }
-      setTimeout(() => setToast(null), 5000);
+      setTimeout(() => setToast(null), 6500);
     } catch (err) {
       console.error("Lỗi sync TikTok messages:", err);
       setToast({
@@ -1904,19 +1913,30 @@ export default function LiveZaloInbox() {
       {toast && (
         <div
           role="alert"
-          className={`fixed top-4 right-4 z-50 rounded-xl border px-4 py-2.5 text-xs backdrop-blur-md shadow-xl flex items-center gap-2 ${
+          className={`fixed top-4 right-4 z-50 rounded-xl border px-4 py-2.5 text-xs backdrop-blur-md shadow-xl flex items-center gap-2.5 max-w-md ${
             toast.type === "success"
               ? "border-emerald-500/40 bg-emerald-950/90 text-emerald-200"
+              : toast.type === "warning"
+              ? "border-amber-500/50 bg-amber-950/95 text-amber-100"
               : "border-rose-500/40 bg-rose-950/90 text-rose-200"
           }`}
         >
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          <span>{toast.text}</span>
+          <span className="leading-relaxed">{toast.text}</span>
+          {toast.actionHref && toast.actionLabel && (
+            <Link
+              href={toast.actionHref}
+              onClick={() => setToast(null)}
+              className="shrink-0 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 text-[11px] font-bold transition-colors"
+            >
+              {toast.actionLabel}
+            </Link>
+          )}
           <button
             type="button"
             onClick={() => setToast(null)}
             aria-label="Đóng thông báo"
-            className="ml-2 p-0.5 rounded hover:bg-white/10 cursor-pointer"
+            className="ml-1 p-0.5 rounded hover:bg-white/10 cursor-pointer shrink-0"
           >
             <X className="w-3.5 h-3.5" />
           </button>
