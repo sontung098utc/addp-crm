@@ -80,6 +80,7 @@ async function processTikTokOAuthCode(authCode) {
   if (Array.isArray(authorizedShops) && authorizedShops.length > 0) {
     for (const shop of authorizedShops) {
       const shopId = String(shop.id || shop.shop_id || cleanOpenId || Date.now()).trim();
+      const shopCipher = String(shop.cipher || shop.shop_cipher || "").trim();
       const shopName = String(shop.name || shop.shop_name || defaultSellerName).trim();
       const channelId = `tiktok_shop_${shopId}`;
 
@@ -94,9 +95,10 @@ async function processTikTokOAuthCode(authCode) {
           type: "tiktok_shop",
           channel_type: "tiktok_shop",
           shopId,
+          accountId: shopCipher || shopId,
           shopCode: shop.code || "",
-          shopCipher: shop.cipher || shop.shop_cipher || "",
-          shop_cipher: shop.cipher || shop.shop_cipher || "",
+          shopCipher,
+          shop_cipher: shopCipher,
           region: shop.region || seller_base_region || "VN",
           sellerName: shopName,
           openId: cleanOpenId,
@@ -111,9 +113,10 @@ async function processTikTokOAuthCode(authCode) {
           appKey: TIKTOK_APP_KEY,
           appSecret: TIKTOK_APP_SECRET,
           shopId,
+          accountId: shopCipher || shopId,
           shopCode: shop.code || "",
-          shopCipher: shop.cipher || shop.shop_cipher || "",
-          shop_cipher: shop.cipher || shop.shop_cipher || "",
+          shopCipher,
+          shop_cipher: shopCipher,
           region: shop.region || seller_base_region || "VN",
           sellerName: shopName,
           openId: cleanOpenId,

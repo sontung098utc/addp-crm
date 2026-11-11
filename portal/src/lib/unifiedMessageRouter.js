@@ -23,7 +23,10 @@ import {
   TIKTOK_APP_SECRET,
   TIKTOK_DEFAULT_SHOP_CIPHER,
   generateTikTokSignV2,
+  fetchTikTokAuthorizedShopsDetailed,
   refreshTikTokOAuthToken,
+  isUsableTikTokCipher,
+  extractRealTikTokCipherFromChannel,
 } from "./tiktokConfig.js";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
@@ -469,15 +472,6 @@ async function resolveTikTokSession(channel) {
   const appSecret = channel.config?.appSecret || TIKTOK_APP_SECRET;
   let accessToken = channel.accessToken || channel.config?.accessToken || "";
   let refreshToken = channel.refreshToken || channel.config?.refreshToken || "";
-  // Dùng trực tiếp shop_cipher đã cấu hình (bỏ qua /authorization/202309/shops do endpoint này bị lỗi 105005)
-  const shopCipher = String(
-    channel.shopCipher ||
-      channel.shop_cipher ||
-      channel.config?.shopCipher ||
-      channel.config?.shop_cipher ||
-      TIKTOK_DEFAULT_SHOP_CIPHER ||
-      "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK"
-  ).trim();
 
   if (!accessToken) {
     const rawMsg = "Thiếu accessToken trong channels.json cho gian hàng TikTok Shop.";
@@ -521,13 +515,141 @@ async function resolveTikTokSession(channel) {
     }
   }
 
-  return {
-    ok: true,
+  // Bước 1: Thử gọi GET /authorization/202309/shops để lấy shop_cipher chính thức từ access_token hiện tại
+  let shopsRes = await fetchTikTokAuthorizedShopsDetailed({
     accessToken,
-    refreshToken,
-    shopCipher,
     appKey,
     appSecret,
+  });
+
+  const shopErrCode = Number(shopsRes?.code ?? -1);
+  const shouldRefreshForShops =
+    !shopsRes.ok &&
+    shopErrCode !== 105005 &&
+    (shopsRes.httpStatus === 401 ||
+      shopErrCode === 105001 ||
+      shopErrCode === 105002 ||
+      shopErrCode === 105003 ||
+      shopErrCode === 105004 ||
+      String(shopsRes.message || "").toLowerCase().includes("token"));
+
+  if (shouldRefreshForShops && refreshToken) {
+    const refreshed = await refreshTikTokOAuthToken({
+      refreshToken,
+      appKey,
+      appSecret,
+    });
+    if (refreshed.ok && refreshed.accessToken) {
+      accessToken = refreshed.accessToken;
+      refreshToken = refreshed.refreshToken || refreshToken;
+      persistTikTokTokens(channel.id, {
+        ...refreshed,
+        refreshToken,
+      });
+      shopsRes = await fetchTikTokAuthorizedShopsDetailed({
+        accessToken,
+        appKey,
+        appSecret,
+      });
+    }
+  }
+
+  const shops = Array.isArray(shopsRes?.shops) ? shopsRes.shops : [];
+  const targetShopId = String(
+    channel.shopId || channel.config?.shopId || channel.externalId || ""
+  ).trim();
+  const matched =
+    shops.find((s) => String(s.id || "") === targetShopId) || shops[0] || null;
+  const authorizedCipher = String(matched?.cipher || matched?.shop_cipher || "").trim();
+
+  if (shopsRes?.ok && isUsableTikTokCipher(authorizedCipher)) {
+    updateChannelAccount(channel.id, {
+      extraFields: {
+        shopCipher: authorizedCipher,
+        shop_cipher: authorizedCipher,
+        accountId: authorizedCipher,
+        shopId: String(matched?.id || targetShopId || ""),
+        externalId: String(matched?.id || targetShopId || channel.externalId || ""),
+        ...(matched?.code ? { shopCode: matched.code } : {}),
+        ...(matched?.name ? { sellerName: matched.name } : {}),
+      },
+      config: {
+        shopCipher: authorizedCipher,
+        shop_cipher: authorizedCipher,
+        accountId: authorizedCipher,
+        shopId: String(matched?.id || targetShopId || ""),
+        ...(matched?.code ? { shopCode: matched.code } : {}),
+      },
+    });
+
+    return {
+      ok: true,
+      accessToken,
+      refreshToken,
+      shopCipher: authorizedCipher,
+      appKey,
+      appSecret,
+    };
+  }
+
+  // Bước 2: Nếu /authorization/202309/shops thất bại (VD: lỗi 105005 thiếu scope Shop Info),
+  // fallback trực tiếp từ các trường định danh thật của bản ghi kênh (bỏ qua mọi chuỗi test cũ)
+  const fallbackCipher =
+    extractRealTikTokCipherFromChannel(channel) ||
+    (isUsableTikTokCipher(TIKTOK_DEFAULT_SHOP_CIPHER)
+      ? String(TIKTOK_DEFAULT_SHOP_CIPHER).trim()
+      : "");
+
+  if (isUsableTikTokCipher(fallbackCipher)) {
+    if (
+      channel.shopCipher !== fallbackCipher ||
+      channel.shop_cipher !== fallbackCipher
+    ) {
+      updateChannelAccount(channel.id, {
+        extraFields: {
+          shopCipher: fallbackCipher,
+          shop_cipher: fallbackCipher,
+        },
+        config: {
+          shopCipher: fallbackCipher,
+          shop_cipher: fallbackCipher,
+        },
+      });
+    }
+
+    return {
+      ok: true,
+      accessToken,
+      refreshToken,
+      shopCipher: fallbackCipher,
+      appKey,
+      appSecret,
+    };
+  }
+
+  const endpoint = "/authorization/202309/shops";
+  const rawCode =
+    shopsRes?.code !== undefined && shopsRes?.code !== null
+      ? shopsRes.code
+      : "MISSING_SHOP_CIPHER";
+  const rawMessage = String(
+    shopsRes?.message ||
+      "Không tìm thấy shop_cipher hợp lệ cho gian hàng TikTok Shop trong channels.json."
+  ).trim();
+  const friendly = formatTikTokFriendlyError(rawCode, rawMessage, endpoint);
+  return {
+    ok: false,
+    needsTokenRefresh: true,
+    accessToken,
+    refreshToken,
+    shopCipher: "",
+    appKey,
+    appSecret,
+    code: rawCode,
+    rawCode,
+    rawMessage,
+    endpoint,
+    error: friendly.message,
   };
 }
 

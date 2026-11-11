@@ -13,8 +13,62 @@ export const TIKTOK_APP_SECRET =
   process.env.TIKTOK_APP_SECRET || "b32f208f743dda776a98432d9c8ac714372fda61";
 export const TIKTOK_DEFAULT_SHOP_ID =
   process.env.TIKTOK_SHOP_ID || "7495657895504611503";
-export const TIKTOK_DEFAULT_SHOP_CIPHER =
-  process.env.TIKTOK_SHOP_CIPHER || "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
+export const TIKTOK_DEFAULT_SHOP_CIPHER = process.env.TIKTOK_SHOP_CIPHER || "";
+
+const LEGACY_TEST_TIKTOK_CIPHER = "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
+
+export function isUsableTikTokCipher(value) {
+  const v = String(value || "").trim();
+  return Boolean(v && v !== LEGACY_TEST_TIKTOK_CIPHER);
+}
+
+export function isLikelyTikTokCipher(value) {
+  const v = String(value || "").trim();
+  if (!isUsableTikTokCipher(v)) return false;
+  return v.startsWith("9STk") || v.startsWith("ROW_");
+}
+
+/**
+ * Trích xuất shop_cipher thật từ bản ghi kênh TikTok Shop trong channels.json,
+ * bỏ qua chuỗi cipher test cũ.
+ */
+export function extractRealTikTokCipherFromChannel(channel) {
+  if (!channel || typeof channel !== "object") return "";
+  const explicitCandidates = [
+    channel.cipher,
+    channel.shopCipher,
+    channel.shop_cipher,
+    channel.config?.cipher,
+    channel.config?.shopCipher,
+    channel.config?.shop_cipher,
+  ];
+  for (const cand of explicitCandidates) {
+    const v = String(cand || "").trim();
+    if (isUsableTikTokCipher(v) && !/^\d+$/.test(v) && !v.startsWith("tiktok_shop_")) {
+      return v;
+    }
+  }
+
+  const rawId = String(channel.id || "").trim();
+  const strippedId = rawId.startsWith("tiktok_shop_")
+    ? rawId.slice("tiktok_shop_".length)
+    : rawId;
+  const idCandidates = [
+    channel.externalId,
+    channel.accountId,
+    channel.config?.externalId,
+    channel.config?.accountId,
+    rawId,
+    strippedId,
+  ];
+  for (const cand of idCandidates) {
+    const v = String(cand || "").trim();
+    if (isLikelyTikTokCipher(v)) {
+      return v;
+    }
+  }
+  return "";
+}
 
 export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?service_id=${TIKTOK_SERVICE_ID}`;
 

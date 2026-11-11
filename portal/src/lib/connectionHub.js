@@ -3,6 +3,10 @@ import fs from "fs";
 import path from "path";
 import { getAllActiveZaloHomes, stopZaloMcpDaemon, stopAllZaloMcpDaemons } from "./zaloRunner.js";
 import { setChannelBotStatus } from "./botControlStore.js";
+import {
+  isUsableTikTokCipher,
+  extractRealTikTokCipherFromChannel,
+} from "./tiktokConfig.js";
 
 /**
  * ADDP Omnichannel AI CRM — ConnectionHub (WBS-11)
@@ -158,6 +162,60 @@ function saveDeletedChannelIds(setObj) {
 let runtimeChannelsStore = new Map();
 
 /**
+ * Làm sạch shopCipher/shop_cipher sai (cipher test) trong bản ghi kênh TikTok Shop
+ * và thay thế bằng cipher thật từ id/accountId/externalId (nếu có).
+ */
+function sanitizeTikTokChannelRecord(item) {
+  if (!item || typeof item !== "object") return false;
+  const isTikTok =
+    item.platform === "TIKTOK_SHOP" ||
+    item.type === "tiktok_shop" ||
+    item.channel_type === "tiktok_shop";
+  if (!isTikTok) return false;
+
+  let changed = false;
+  const fields = ["shopCipher", "shop_cipher"];
+  for (const f of fields) {
+    if (item[f] !== undefined && item[f] !== "" && !isUsableTikTokCipher(item[f])) {
+      delete item[f];
+      changed = true;
+    }
+    if (
+      item.config &&
+      item.config[f] !== undefined &&
+      item.config[f] !== "" &&
+      !isUsableTikTokCipher(item.config[f])
+    ) {
+      delete item.config[f];
+      changed = true;
+    }
+  }
+
+  const realCipher = extractRealTikTokCipherFromChannel(item);
+  if (realCipher) {
+    if (item.shopCipher !== realCipher) {
+      item.shopCipher = realCipher;
+      changed = true;
+    }
+    if (item.shop_cipher !== realCipher) {
+      item.shop_cipher = realCipher;
+      changed = true;
+    }
+    if (item.config && typeof item.config === "object") {
+      if (item.config.shopCipher !== realCipher) {
+        item.config.shopCipher = realCipher;
+        changed = true;
+      }
+      if (item.config.shop_cipher !== realCipher) {
+        item.config.shop_cipher = realCipher;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+/**
  * Đọc danh sách kênh từ `portal/.data/channels.json`.
  * TUYỆT ĐỐI KHÔNG tự động seed kênh rác mặc định (TikTok, Shopee, KiotViet, Fanpage...) khi file đã tồn tại hoặc rỗng.
  */
@@ -174,6 +232,9 @@ function loadPersistedChannels() {
           if (isLegacyMockPlaceholder(item)) {
             needsRewrite = true;
             continue;
+          }
+          if (sanitizeTikTokChannelRecord(item)) {
+            needsRewrite = true;
           }
           runtimeChannelsStore.set(String(item.id), item);
         }
@@ -513,6 +574,7 @@ export function createChannelAccount(input) {
           lastCheckedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
+        sanitizeTikTokChannelRecord(updated);
         runtimeChannelsStore.set(k, updated);
         savePersistedChannels();
         return { ok: true, channel: updated };
@@ -549,6 +611,7 @@ export function createChannelAccount(input) {
     assignedStaffCodes: input.assignedStaffCodes || ["ADMIN", "S001", "S002", "CS01"],
   };
 
+  sanitizeTikTokChannelRecord(newAccount);
   runtimeChannelsStore.set(String(nextId), newAccount);
   savePersistedChannels();
   return { ok: true, channel: newAccount };
@@ -587,6 +650,7 @@ export function updateChannelAccount(id, updates) {
   }
   existing.lastCheckedAt = new Date().toISOString();
 
+  sanitizeTikTokChannelRecord(existing);
   runtimeChannelsStore.set(String(id), existing);
   savePersistedChannels();
   return { ok: true, channel: existing };
