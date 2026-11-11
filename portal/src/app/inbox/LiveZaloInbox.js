@@ -178,6 +178,7 @@ export default function LiveZaloInbox() {
   const [selectedTikTokShopId, setSelectedTikTokShopId] = useState("ALL");
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
+  const [isSyncingTikTok, setIsSyncingTikTok] = useState(false);
   const [zaloSyncStatus, setZaloSyncStatus] = useState(null);
   const [refreshMsgCount, setRefreshMsgCount] = useState(0);
   const channelPopoverRef = useRef(null);
@@ -1445,6 +1446,57 @@ export default function LiveZaloInbox() {
     }
   };
 
+  // Đồng bộ hội thoại & lịch sử tin nhắn từ TikTok Shop Open API
+  const handleSyncTikTokMessages = async () => {
+    if (isSyncingTikTok) return;
+    try {
+      setIsSyncingTikTok(true);
+      setToast({
+        type: "info",
+        text: "Đang đồng bộ tin nhắn TikTok Shop...",
+      });
+
+      const res = await fetch("/api/channels/tiktok/sync-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shopId: selectedTikTokShopId !== "ALL" ? selectedTikTokShopId : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      await loadConversations(false, true);
+      setRefreshMsgCount((c) => c + 1);
+
+      if (res.ok && data?.ok) {
+        const convCount = data.syncedConversations ?? data.syncedCount ?? 0;
+        const msgCount = data.syncedMessages ?? 0;
+        setToast({
+          type: "success",
+          text:
+            convCount > 0 || msgCount > 0
+              ? `Đồng bộ TikTok Shop thành công! Đã nạp ${convCount} hội thoại (${msgCount} tin nhắn).`
+              : "Đã đồng bộ TikTok Shop. Hiện chưa có hội thoại mới từ người mua.",
+        });
+      } else {
+        setToast({
+          type: "error",
+          text: data?.message || "Chưa thể đồng bộ tin nhắn từ TikTok Shop Open API.",
+        });
+      }
+      setTimeout(() => setToast(null), 5000);
+    } catch (err) {
+      console.error("Lỗi sync TikTok messages:", err);
+      setToast({
+        type: "error",
+        text: "Lỗi kết nối khi đồng bộ tin nhắn TikTok Shop.",
+      });
+      setTimeout(() => setToast(null), 4000);
+    } finally {
+      setIsSyncingTikTok(false);
+    }
+  };
+
   // Kích hoạt cuộc gọi thoại (tel: protocol & copy SĐT)
   const handleVoiceCall = () => {
     const rawPhone = activeConv?.phone || matchedCustomer?.phone || detectedChatPhone || "";
@@ -1902,6 +1954,22 @@ export default function LiveZaloInbox() {
                   <Send className="w-3 h-3" />
                   <span className="hidden sm:inline">Gửi Loạt</span>
                 </button>
+
+                {(effectiveTikTokShops.length > 0 || channelFilter === "TIKTOK_SHOP") && (
+                  <button
+                    type="button"
+                    onClick={handleSyncTikTokMessages}
+                    disabled={isSyncingTikTok}
+                    aria-label="Đồng bộ tin nhắn TikTok Shop"
+                    title="Kéo hội thoại và tin nhắn từ TikTok Shop Open API về CRM"
+                    className="rounded-lg border border-pink-500/40 bg-pink-600/15 px-2 py-1 text-pink-600 dark:text-pink-300 hover:bg-pink-600 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isSyncingTikTok ? "animate-spin" : ""}`} />
+                    <span className="hidden sm:inline">
+                      {isSyncingTikTok ? "Đang kéo..." : "Đồng bộ TikTok"}
+                    </span>
+                  </button>
+                )}
 
                 <button
                   type="button"
@@ -2492,18 +2560,47 @@ export default function LiveZaloInbox() {
                 <p>Đang đồng bộ hội thoại thực tế...</p>
               </div>
             ) : displayedActiveChats.length === 0 && contactOnlyList.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-500 space-y-2">
-                <p>Không tìm thấy cuộc trò chuyện nào trong mục này.</p>
-                {selectedAccountFilter !== "ALL" && (
+              channelFilter === "TIKTOK_SHOP" ? (
+                <div className="p-6 text-center space-y-3 flex flex-col items-center justify-center">
+                  <div className="h-11 w-11 rounded-2xl bg-slate-900 border border-pink-500/40 flex items-center justify-center text-lg font-black text-white shadow-sm">
+                    ♪
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-[240px]">
+                    Chưa có dữ liệu tin nhắn từ TikTok Shop. Bấm{" "}
+                    <span className="font-bold text-pink-600 dark:text-pink-400">[ Đồng Bộ Ngay ]</span>{" "}
+                    để kéo toàn bộ tin nhắn từ sàn về.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSyncTikTokMessages}
+                    disabled={isSyncingTikTok}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm cursor-pointer inline-flex items-center gap-2 transition-all disabled:opacity-60 badge-solid-white"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingTikTok ? "animate-spin" : ""}`} />
+                    <span>{isSyncingTikTok ? "Đang đồng bộ TikTok Shop..." : "Đồng Bộ Ngay"}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleAccountDropdownChange("ALL")}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer badge-solid-white"
+                    className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-medium cursor-pointer border border-slate-300 dark:border-slate-700"
                   >
-                    Xem tất cả tài khoản
+                    Xem tất cả kênh
                   </button>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center text-xs text-slate-500 space-y-2">
+                  <p>Không tìm thấy cuộc trò chuyện nào trong mục này.</p>
+                  {selectedAccountFilter !== "ALL" && (
+                    <button
+                      type="button"
+                      onClick={() => handleAccountDropdownChange("ALL")}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold cursor-pointer badge-solid-white"
+                    >
+                      Xem tất cả tài khoản
+                    </button>
+                  )}
+                </div>
+              )
             ) : (
               <>
                 {/* 1. Danh sách hội thoại có tin nhắn */}

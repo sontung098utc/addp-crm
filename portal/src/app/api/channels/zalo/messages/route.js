@@ -133,6 +133,39 @@ export async function GET(request) {
       });
     }
 
+    // 1b. Nếu là hội thoại TikTok Shop -> Lấy từ TikTok Customer Service Open API + lịch sử đã đồng bộ
+    if (
+      channel === "TIKTOK_SHOP" ||
+      channel === "TIKTOK" ||
+      String(threadId).startsWith("tiktok_")
+    ) {
+      const ttMsgs = await getThreadMessages(threadId, "TIKTOK_SHOP", accountId || pageId);
+      const formatted = ttMsgs.map((m) => {
+        const { time, date } = formatMessageTime(m.timestamp);
+        return {
+          id: m.id,
+          text: m.text,
+          senderId: m.senderId,
+          senderName: m.senderName,
+          isMe: m.isMe,
+          timestamp: m.timestamp,
+          time,
+          date,
+          type: m.type || "text",
+          mediaUrl: m.mediaUrl || null,
+          status: "sent",
+        };
+      });
+
+      return NextResponse.json({
+        ok: true,
+        source: "tiktok_shop",
+        threadId,
+        count: formatted.length,
+        messages: formatted,
+      });
+    }
+
     const resolvedAcc = resolveZaloHomeForThread(threadId, homeDirParam, accountId);
     const targetHome = resolvedAcc.homeDir;
     const ownId = resolvedAcc.ownId || getOwnIdForHome(targetHome);

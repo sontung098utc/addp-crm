@@ -61,12 +61,18 @@ export async function POST(request) {
       recipient = normalizePhone(recipient);
     }
 
-    // Nếu gửi qua Facebook hoặc Zalo OA
-    if (channel === "FACEBOOK" || channel === "ZALO_OA") {
+    // Nếu gửi qua Facebook, Zalo OA hoặc TikTok Shop
+    if (
+      channel === "FACEBOOK" ||
+      channel === "ZALO_OA" ||
+      channel === "TIKTOK_SHOP" ||
+      channel === "TIKTOK"
+    ) {
       const result = await sendUnifiedMessage({
         channel,
         recipientId: recipientId || recipient,
         pageId,
+        channelId: accountId || pageId,
         text: message,
       });
 
