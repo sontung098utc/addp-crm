@@ -175,6 +175,22 @@ function sanitizeTikTokChannelRecord(item) {
   if (!isTikTok) return false;
 
   let changed = false;
+  const OLD_OCR_CIPHER = "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
+  if (
+    item.shopCipher === OLD_OCR_CIPHER ||
+    item.shop_cipher === OLD_OCR_CIPHER ||
+    item.config?.shopCipher === OLD_OCR_CIPHER ||
+    item.config?.shop_cipher === OLD_OCR_CIPHER
+  ) {
+    item.shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+    item.shop_cipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+    if (item.config) {
+      item.config.shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+      item.config.shop_cipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+    }
+    changed = true;
+  }
+
   const realCipher =
     extractRealTikTokCipherFromChannel(item) || TIKTOK_DEFAULT_SHOP_CIPHER;
   const realShopId =

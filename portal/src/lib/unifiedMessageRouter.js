@@ -23,6 +23,7 @@ import {
   TIKTOK_APP_SECRET,
   TIKTOK_DEFAULT_SHOP_ID,
   TIKTOK_DEFAULT_SHOP_CIPHER,
+  OLD_OCR_TIKTOK_CIPHER,
   generateTikTokSignV2,
   fetchTikTokAuthorizedShopsDetailed,
   refreshTikTokOAuthToken,
@@ -616,6 +617,20 @@ async function resolveTikTokSession(channel) {
   }
 
   // Bước 1: Ưu tiên dùng trực tiếp shop_cipher thật của shop đã cấu hình hoặc mặc định
+  if (
+    channel.shopCipher === OLD_OCR_TIKTOK_CIPHER ||
+    channel.shop_cipher === OLD_OCR_TIKTOK_CIPHER ||
+    channel.config?.shopCipher === OLD_OCR_TIKTOK_CIPHER ||
+    channel.config?.shop_cipher === OLD_OCR_TIKTOK_CIPHER
+  ) {
+    channel.shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+    channel.shop_cipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+    if (channel.config) {
+      channel.config.shopCipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+      channel.config.shop_cipher = TIKTOK_DEFAULT_SHOP_CIPHER;
+    }
+  }
+
   const knownCipher =
     extractRealTikTokCipherFromChannel(channel) ||
     (isUsableTikTokCipher(channel.shopCipher) ? String(channel.shopCipher).trim() : "") ||
@@ -835,10 +850,15 @@ async function callTikTokShopApi(
       session.shopCipher ||
       queryParams.shop_cipher ||
       TIKTOK_DEFAULT_SHOP_CIPHER;
+    const sanitizedQueryParams = { ...queryParams };
+    if (sanitizedQueryParams.page_size !== undefined && sanitizedQueryParams.page_size !== null) {
+      const rawSize = Number(sanitizedQueryParams.page_size) || 20;
+      sanitizedQueryParams.page_size = String(Math.min(Math.max(rawSize, 1), 20));
+    }
     const params = {
       app_key: session.appKey,
       timestamp: String(Math.floor(Date.now() / 1000)),
-      ...queryParams,
+      ...sanitizedQueryParams,
       shop_cipher: activeCipher,
     };
     const sign = generateTikTokSignV2(reqPath, params, session.appSecret, bodyStr);
@@ -966,7 +986,7 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
       const { json } = await callTikTokShopApi(ch, {
         method: "GET",
         reqPath: "/customer_service/202309/conversations",
-        queryParams: { page_size: "30" },
+        queryParams: { page_size: "20" },
         timeoutMs: 8000,
       });
       const convList = Array.isArray(json?.data?.conversations)
@@ -1061,7 +1081,7 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
       const apiRes = await callTikTokShopApi(ch, {
         method: "GET",
         reqPath: "/customer_service/202309/conversations",
-        queryParams: { page_size: "30" },
+        queryParams: { page_size: "20" },
         timeoutMs: 8000,
       });
       const { json } = apiRes;
@@ -1120,7 +1140,7 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
             reqPath: `/customer_service/202309/conversations/${encodeURIComponent(
               convId
             )}/messages`,
-            queryParams: { page_size: "30" },
+            queryParams: { page_size: "20" },
             timeoutMs: 8000,
           });
           const rawMsgs =
@@ -1441,7 +1461,7 @@ export async function getThreadMessages(
         const apiRes = await callTikTokShopApi(ch, {
           method: "GET",
           reqPath: `/customer_service/202309/conversations/${encodeURIComponent(rawTid)}/messages`,
-          queryParams: { page_size: "30" },
+          queryParams: { page_size: "20" },
           timeoutMs: 8000,
         });
         const resData = apiRes?.json;

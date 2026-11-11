@@ -14,11 +14,21 @@ export const TIKTOK_APP_SECRET =
 export const TIKTOK_DEFAULT_SHOP_ID =
   process.env.TIKTOK_SHOP_ID || "7495657895504611503";
 export const TIKTOK_DEFAULT_SHOP_CIPHER =
-  process.env.TIKTOK_SHOP_CIPHER || "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
+  process.env.TIKTOK_SHOP_CIPHER || "ROW_ZYiTiAAAAAAKQIKT19iz-hy3D_kGFVJk";
+
+export const OLD_OCR_TIKTOK_CIPHER = "ROW_ZYlTfAAAAAAKQlKl19lz-hy5D_kGf-VJK";
 
 export function isUsableTikTokCipher(value) {
   const v = String(value || "").trim();
-  if (!v || v === "tts_pending" || v === "null" || v === "undefined") return false;
+  if (
+    !v ||
+    v === "tts_pending" ||
+    v === "null" ||
+    v === "undefined" ||
+    v === OLD_OCR_TIKTOK_CIPHER
+  ) {
+    return false;
+  }
   // Cipher hợp lệ của TikTok Shop có tiền tố ROW_ hoặc là chuỗi mã hóa ký tự đặc biệt
   return v.length >= 6 && !/^\d+$/.test(v);
 }
