@@ -68,13 +68,25 @@ export function findJavisZaloRoot(targetHome = "") {
     }
   }
 
-  // Quét các thư mục _npx cache trên Linux / Windows
-  const npxBaseDirs = [
-    path.join(SHARED_NPM_CACHE, "_npx"),
-    path.join(os.homedir(), ".npm", "_npx"),
-    "/root/.npm/_npx",
-    targetHome ? path.join(targetHome, ".npm", "_npx") : "",
-  ].filter(Boolean);
+  // Quét các thư mục _npx cache trên Linux / Windows (kể cả các homeDir khác đã từng quét QR)
+  const extraHomeNpxDirs = [];
+  try {
+    for (const hDir of getAllZaloHomes()) {
+      extraHomeNpxDirs.push(path.join(hDir, ".npm", "_npx"));
+    }
+  } catch {}
+
+  const npxBaseDirs = Array.from(
+    new Set(
+      [
+        path.join(SHARED_NPM_CACHE, "_npx"),
+        path.join(os.homedir(), ".npm", "_npx"),
+        "/root/.npm/_npx",
+        targetHome ? path.join(targetHome, ".npm", "_npx") : "",
+        ...extraHomeNpxDirs,
+      ].filter(Boolean)
+    )
+  );
 
   for (const npxDir of npxBaseDirs) {
     if (!fs.existsSync(npxDir)) continue;
@@ -108,19 +120,33 @@ export function ensureZaloMcpDaemon(homeDir) {
     const credPath = path.join(cliDir, "credentials");
     if (!fs.existsSync(credPath)) return false;
 
-    // Đảm bảo cấu hình backfill sâu (20 trang DM + 20 trang Group)
+    // Đảm bảo cấu hình backfill sâu tối đa (150 trang DM + 150 trang Group, giữ 10 năm lịch sử)
     const configPath = path.join(cliDir, "mcp-config.json");
-    if (!fs.existsSync(configPath)) {
+    let needWriteConfig = !fs.existsSync(configPath);
+    if (!needWriteConfig) {
+      try {
+        const curCfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+        if (
+          Number(curCfg?.limits?.historyBackfillPages || 0) < 120 ||
+          Number(curCfg?.limits?.historyKeepDays || 0) < 3650
+        ) {
+          needWriteConfig = true;
+        }
+      } catch {
+        needWriteConfig = true;
+      }
+    }
+    if (needWriteConfig) {
       try {
         fs.writeFileSync(
           configPath,
           JSON.stringify(
             {
               limits: {
-                historyBackfillPages: 20,
-                historyBackfillPageTimeout: "10s",
-                historyMaxPerThread: 2000,
-                historyKeepDays: 30,
+                historyBackfillPages: 150,
+                historyBackfillPageTimeout: "12s",
+                historyMaxPerThread: 5000,
+                historyKeepDays: 3650,
               },
             },
             null,
@@ -905,62 +931,128 @@ export function getAllZaloHistoryFiles(primaryHome) {
 }
 
 /**
- * Thực thi worker đồng bộ trực tiếp Danh bạ + Nhóm (kèm Avatar) + Ghim + Lịch sử tin nhắn Nhóm qua HTTP REST
+ * Đọc trạng thái tiến trình đồng bộ lịch sử Zalo (.crm-sync-progress.json & .zalo-sync-state.json)
  */
-export function triggerDirectSyncWorker(targetHome, forceFull = false) {
+export function getZaloSyncStatus(homeDir) {
+  const targetHome = homeDir || getActiveZaloHome();
+  if (!targetHome) return { isSyncing: false };
+  const cliDir = path.join(targetHome, ".zalo-agent-cli");
+  const progressPath = path.join(cliDir, ".crm-sync-progress.json");
+  const syncStatePath = path.join(cliDir, ".zalo-sync-state.json");
+
+  let progress = null;
+  if (fs.existsSync(progressPath)) {
+    try {
+      progress = JSON.parse(fs.readFileSync(progressPath, "utf8"));
+    } catch {}
+  }
+
+  let state = null;
+  if (fs.existsSync(syncStatePath)) {
+    try {
+      state = JSON.parse(fs.readFileSync(syncStatePath, "utf8"));
+    } catch {}
+  }
+
+  const inMemory = globalThis.__zaloSyncInFlight?.has(targetHome);
+  const ageMs = progress?.updatedAt ? Date.now() - Number(progress.updatedAt) : Infinity;
+  const pidRunning = progress?.pid ? isPidAlive(progress.pid) : false;
+  const fileSyncing =
+    progress?.status === "syncing" && (pidRunning || ageMs < 4 * 60 * 1000);
+
+  return {
+    isSyncing: Boolean(inMemory || fileSyncing),
+    phase: progress?.phase || (state?.initialSyncCompleted ? "done" : "idle"),
+    friendsCount: progress?.friendsCount || 0,
+    groupsCount: progress?.groupsCount || 0,
+    dmBackfilled: progress?.dmBackfilled || 0,
+    groupBackfilled: progress?.groupBackfilled || 0,
+    groupRestFetched: progress?.groupRestFetched || 0,
+    initialSyncCompleted: Boolean(state?.initialSyncCompleted),
+    totalSynced: state?.totalSynced || 0,
+    errors: Array.isArray(progress?.errors) ? progress.errors : [],
+  };
+}
+
+/**
+ * Thực thi worker đồng bộ toàn diện: Danh bạ + Nhóm (kèm Avatar) + Ghim + WS Cloud Backfill (DM & Group) + Group REST History
+ */
+export function triggerDirectSyncWorker(targetHome, optionsOrForceFull = false) {
+  if (!targetHome) return Promise.resolve({ ok: false, error: "Missing targetHome" });
   if (globalThis.__zaloSyncInFlight.has(targetHome)) {
     return globalThis.__zaloSyncInFlight.get(targetHome);
   }
 
-  const promise = new Promise((resolve) => {
-    const workerCandidates = [
-      path.resolve(process.cwd(), "src", "lib", "zaloDirectSyncWorker.mjs"),
-      path.resolve(process.cwd(), "portal", "src", "lib", "zaloDirectSyncWorker.mjs"),
-    ];
-    const workerPath = workerCandidates.find((p) => fs.existsSync(p));
-    let javisRoot = findJavisZaloRoot(targetHome);
+  const opts =
+    typeof optionsOrForceFull === "object" && optionsOrForceFull !== null
+      ? optionsOrForceFull
+      : { forceFull: Boolean(optionsOrForceFull), runWsBackfill: false };
 
-    const runWorkerWithRoot = (rootDir) => {
-      if (!workerPath || !rootDir) {
-        return resolve({ ok: false });
-      }
-      const env = {
-        ...process.env,
-        HOME: targetHome,
-        USERPROFILE: targetHome,
-        JAVIS_ZALO_ROOT: rootDir,
-        FORCE_FULL_SYNC: forceFull ? "1" : "0",
-        ZALO_JSON_MODE: "1",
-      };
-      execFile(
-        process.execPath,
-        [workerPath],
-        { env, timeout: 22000, maxBuffer: 20 * 1024 * 1024 },
-        (err, stdout) => {
-          if (err) {
-            return resolve({ ok: false, error: err.message });
-          }
-          try {
-            return resolve(JSON.parse(stdout.trim()));
-          } catch {
-            return resolve({ ok: true });
-          }
-        }
-      );
-    };
+  const forceFull = Boolean(opts.forceFull);
+  const runWsBackfill = Boolean(opts.runWsBackfill);
+  const timeoutMs = Number(opts.timeoutMs) || (runWsBackfill ? 180000 : 75000);
 
-    if (javisRoot) {
-      runWorkerWithRoot(javisRoot);
-    } else {
-      // Cài đặt ấm cache npx lần đầu rồi chạy worker
-      runZaloCommand(["--version"], { homeDir: targetHome, timeout: 15000 }).then(() => {
+  const promise = (async () => {
+    let stoppedDaemonForWs = false;
+    try {
+      const workerCandidates = [
+        path.resolve(process.cwd(), "src", "lib", "zaloDirectSyncWorker.mjs"),
+        path.resolve(process.cwd(), "portal", "src", "lib", "zaloDirectSyncWorker.mjs"),
+      ];
+      const workerPath = workerCandidates.find((p) => fs.existsSync(p));
+      let javisRoot = findJavisZaloRoot(targetHome);
+
+      if (!javisRoot) {
+        await runZaloCommand(["--version"], { homeDir: targetHome, timeout: 20000 });
         javisRoot = findJavisZaloRoot(targetHome);
-        runWorkerWithRoot(javisRoot);
+      }
+
+      if (!workerPath || !javisRoot) {
+        return { ok: false, error: "Không tìm thấy worker hoặc javis-zalo" };
+      }
+
+      // Khi chạy WebSocket Backfill chủ động, tạm dừng daemon để tránh xung đột 2 WebSocket (code 3000)
+      if (runWsBackfill) {
+        stoppedDaemonForWs = stopZaloMcpDaemon(targetHome);
+        await new Promise((r) => setTimeout(r, 350));
+      }
+
+      return await new Promise((resolve) => {
+        const env = {
+          ...process.env,
+          HOME: targetHome,
+          USERPROFILE: targetHome,
+          JAVIS_ZALO_ROOT: javisRoot,
+          FORCE_FULL_SYNC: forceFull ? "1" : "0",
+          RUN_WS_BACKFILL: runWsBackfill ? "1" : "0",
+          ZALO_JSON_MODE: "1",
+        };
+        execFile(
+          process.execPath,
+          [workerPath],
+          { env, timeout: timeoutMs, maxBuffer: 25 * 1024 * 1024 },
+          (err, stdout) => {
+            if (err) {
+              return resolve({ ok: false, error: err.message });
+            }
+            try {
+              const lastLine = stdout.trim().split("\n").pop() || "{}";
+              return resolve(JSON.parse(lastLine));
+            } catch {
+              return resolve({ ok: true });
+            }
+          }
+        );
       });
+    } finally {
+      if (runWsBackfill || stoppedDaemonForWs) {
+        try {
+          ensureZaloMcpDaemon(targetHome);
+        } catch {}
+      }
+      globalThis.__zaloSyncInFlight.delete(targetHome);
     }
-  }).finally(() => {
-    globalThis.__zaloSyncInFlight.delete(targetHome);
-  });
+  })();
 
   globalThis.__zaloSyncInFlight.set(targetHome, promise);
   return promise;
@@ -975,6 +1067,8 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
   const credPath = path.join(cliDir, "credentials");
   const hasCredentials = fs.existsSync(credPath);
   const metaCachePath = path.join(cliDir, "crm-meta-cache.json");
+  const historyPath = path.join(cliDir, "history.jsonl");
+  const groupHistoryPath = path.join(cliDir, "crm-group-history.jsonl");
 
   let cached = null;
   if (fs.existsSync(metaCachePath)) {
@@ -995,21 +1089,33 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
 
   const now = Date.now();
   const cacheAge = cached?.updatedAt ? now - cached.updatedAt : Infinity;
+  const hasAnyHistory =
+    (fs.existsSync(historyPath) && fs.statSync(historyPath).size > 20) ||
+    (fs.existsSync(groupHistoryPath) && fs.statSync(groupHistoryPath).size > 20);
 
   if (forceRefresh && hasCredentials) {
-    // Chỉ chờ tối đa 2.5s khi người dùng chủ động bấm nút Làm mới (refresh=1)
+    // Chỉ chờ tối đa 3.5s khi người dùng chủ động bấm nút Làm mới; nếu tài khoản chưa có lịch sử thì bật luôn WS backfill ngầm
     await Promise.race([
-      triggerDirectSyncWorker(targetHome, true),
-      new Promise((r) => setTimeout(r, 2500)),
+      triggerDirectSyncWorker(targetHome, {
+        forceFull: true,
+        runWsBackfill: !hasAnyHistory,
+      }),
+      new Promise((r) => setTimeout(r, 3500)),
     ]);
     if (fs.existsSync(metaCachePath)) {
       try {
         cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
       } catch {}
     }
+  } else if (hasCredentials && !hasAnyHistory) {
+    // Nếu tài khoản đã có credentials nhưng chưa từng kéo được lịch sử nào -> chạy ngầm WS backfill + Group history
+    triggerDirectSyncWorker(targetHome, {
+      forceFull: true,
+      runWsBackfill: true,
+    }).catch(() => {});
   } else if ((!cached || cacheAge > 20000) && hasCredentials) {
     // Kích hoạt đồng bộ ngầm không chặn phản hồi UI để danh sách hội thoại mở tức thì (<50ms)
-    triggerDirectSyncWorker(targetHome, false).catch(() => {});
+    triggerDirectSyncWorker(targetHome, { forceFull: false, runWsBackfill: false }).catch(() => {});
   }
 
   const friendMap = new Map();
@@ -1033,16 +1139,17 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
 }
 
 /**
- * Đảm bảo tài khoản Zalo đã được kéo lịch sử hội thoại ban đầu (Universal Initial Sync on Connect)
- * - Kiểm tra cờ trong `.zalo-sync-state.json` inside targetHome: { initialSyncCompleted: boolean, lastSyncTime: number, totalSynced: number }
- * - Nếu chưa đồng bộ: khởi động Zalo Daemon (kéo 20 trang WebSocket) và DirectSyncWorker (kéo danh bạ, nhóm, avatar, ghim).
- * - Cập nhật trạng thái vào `.zalo-sync-state.json`.
+ * Đảm bảo tài khoản Zalo đã được kéo lịch sử hội thoại ban đầu tối đa khi vừa đăng nhập (Universal Initial Sync on Connect)
+ * - Chạy đồng bộ sâu: WebSocket Cloud Backfill (cmd 510 DM & cmd 511 Group tối đa 150 trang) + HTTP getGroupChatHistory (50 tin/nhóm).
+ * - Sau đó tự động khởi động lại MCP Daemon 24/7 để nghe tin nhắn mới realtime.
  */
-export async function ensureAccountHistorySynced(zaloHomePath, accountId = "") {
+export async function ensureAccountHistorySynced(zaloHomePath, accountId = "", options = {}) {
   const targetHome = zaloHomePath || getActiveZaloHome();
   const cliDir = path.join(targetHome, ".zalo-agent-cli");
   const syncStatePath = path.join(cliDir, ".zalo-sync-state.json");
   const historyPath = path.join(cliDir, "history.jsonl");
+  const groupHistoryPath = path.join(cliDir, "crm-group-history.jsonl");
+  const force = Boolean(options?.force);
 
   let state = { initialSyncCompleted: false, lastSyncTime: 0, totalSynced: 0 };
   if (fs.existsSync(syncStatePath)) {
@@ -1051,43 +1158,50 @@ export async function ensureAccountHistorySynced(zaloHomePath, accountId = "") {
     } catch {}
   }
 
-  const hasHistory = fs.existsSync(historyPath) && fs.statSync(historyPath).size > 50;
-  if (state.initialSyncCompleted && hasHistory && Date.now() - state.lastSyncTime < 24 * 3600 * 1000) {
+  const countLines = (p) => {
+    if (!fs.existsSync(p)) return 0;
+    try {
+      return fs.readFileSync(p, "utf8").split("\n").filter((l) => l.trim().length > 0).length;
+    } catch {
+      return 0;
+    }
+  };
+
+  const existingCount = countLines(historyPath) + countLines(groupHistoryPath);
+  if (!force && state.initialSyncCompleted && existingCount > 0 && Date.now() - state.lastSyncTime < 24 * 3600 * 1000) {
     return { ok: true, alreadySynced: true, state };
   }
 
   console.log(
-    `[Zalo Sync] Khởi tạo đồng bộ lịch sử hội thoại ban đầu cho tài khoản (${accountId || path.basename(targetHome)})...`
+    `[Zalo Sync] Bắt đầu kéo toàn bộ lịch sử hội thoại (DM + Nhóm) cho tài khoản (${accountId || path.basename(targetHome)})...`
   );
 
   try {
-    // 1. Khởi chạy Zalo Daemon để tải 20 trang tin nhắn tự động (cmd 510/511)
-    ensureZaloMcpDaemon(targetHome);
+    // 1. Chạy DirectSyncWorker kèm RUN_WS_BACKFILL=1 (tạm dừng daemon, kéo 150 trang cmd 510/511 + 50 tin/nhóm HTTP, rồi bật lại daemon)
+    const workerRes = await triggerDirectSyncWorker(targetHome, {
+      forceFull: true,
+      runWsBackfill: true,
+      timeoutMs: 180000,
+    });
 
-    // 2. Kích hoạt trực tiếp DirectSyncWorker để đồng bộ Danh bạ bạn bè, Nhóm chat, Ghim & Avatar
-    await triggerDirectSyncWorker(targetHome, true);
-
-    // 3. Đếm số lượng tin nhắn trong history.jsonl
-    let msgCount = 0;
-    if (fs.existsSync(historyPath)) {
-      try {
-        const content = fs.readFileSync(historyPath, "utf8");
-        msgCount = content.split("\n").filter((l) => l.trim().length > 0).length;
-      } catch {}
-    }
+    // 2. Đếm tổng số tin nhắn thực tế từ cả history.jsonl và crm-group-history.jsonl
+    const msgCount = countLines(historyPath) + countLines(groupHistoryPath);
 
     state = {
-      initialSyncCompleted: true,
+      initialSyncCompleted: Boolean(workerRes?.ok && msgCount > 0),
       lastSyncTime: Date.now(),
       totalSynced: msgCount,
+      dmBackfilled: workerRes?.dmBackfilledCount || 0,
+      groupBackfilled: workerRes?.groupBackfilledCount || 0,
+      groupRestFetched: workerRes?.newGroupMessagesCount || 0,
     };
 
     fs.mkdirSync(cliDir, { recursive: true });
     fs.writeFileSync(syncStatePath, JSON.stringify(state, null, 2), "utf8");
     console.log(
-      `[Zalo Sync] Hoàn thành đồng bộ ban đầu cho ${accountId || path.basename(targetHome)} (${msgCount} tin nhắn).`
+      `[Zalo Sync] Hoàn thành kéo lịch sử cho ${accountId || path.basename(targetHome)}: ${msgCount} tin nhắn (DM WS: ${state.dmBackfilled}, Group WS: ${state.groupBackfilled}, Group REST: ${state.groupRestFetched}).`
     );
-    return { ok: true, synced: true, state };
+    return { ok: Boolean(workerRes?.ok), synced: true, state, workerRes };
   } catch (err) {
     console.error(
       `[Zalo Sync] Lỗi đồng bộ ban đầu cho ${accountId || path.basename(targetHome)}:`,

@@ -6,10 +6,12 @@ import {
   resolveZaloHomeForThread,
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
+  getZaloSyncStatus,
   processIncomingZaloMessageWithBot,
 } from "../../../../../lib/zaloRunner.js";
 import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
+import path from "path";
 
 /**
  * ADDP Omnichannel AI CRM — API Lịch Sử Tin Nhắn Đa Kênh Thật 100% (WBS-21 -> WBS-25)
@@ -197,25 +199,64 @@ export async function GET(request) {
         threadId,
         count: localMessages.length,
         messages: localMessages,
+        syncStatus: getZaloSyncStatus(targetHome),
       });
     }
 
-    // 4. Nếu là Nhóm Zalo mà chưa kịp đồng bộ -> Gọi `group history` qua HTTP REST (không chạm WebSocket)
+    const syncStatus = getZaloSyncStatus(targetHome);
+
+    // 4. Nếu là Nhóm Zalo mà chưa kịp đồng bộ -> Gọi `group history` qua HTTP REST (không chạm WebSocket) và lưu luôn vào crm-group-history.jsonl
     if (searchParams.get("type") === "GROUP") {
-      const gRes = await runZaloCommand(["group", "history", threadId, "-n", "30", "--json"], {
+      const gRes = await runZaloCommand(["group", "history", threadId, "-n", "50", "--json"], {
         homeDir: targetHome,
-        timeout: 10000,
+        timeout: 20000,
       });
-      if (gRes.ok && Array.isArray(gRes.data?.messages)) {
+      if (gRes.ok && Array.isArray(gRes.data?.messages) && gRes.data.messages.length > 0) {
+        const friendNames = new Map();
+        try {
+          const metaPath = path.join(targetHome, ".zalo-agent-cli", "crm-meta-cache.json");
+          if (fs.existsSync(metaPath)) {
+            const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+            for (const f of meta?.friends || []) {
+              if (f?.userId) friendNames.set(String(f.userId), f.displayName || f.zaloName || "");
+            }
+          }
+        } catch {}
+
+        const toPersist = [];
         const formatted = gRes.data.messages.map((m) => {
-          const ts = Number(m.timestamp) || Date.now();
+          const rawTs = Number(m.timestamp) || Date.now();
+          const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
           const { time, date } = formatMessageTime(ts);
-          const isMe = Boolean(m.isSelf);
+          const fromUid = String(m.fromUid || "");
+          const isMe = Boolean(m.isSelf || (ownId && fromUid === String(ownId)));
+          const senderName = isMe
+            ? selfName
+            : friendNames.get(fromUid) || `Thành viên (${fromUid.slice(-4)})`;
+          const text =
+            typeof m.content === "string"
+              ? m.content
+              : m.content?.title || m.content?.href || "[Tệp đính kèm]";
+          const id = String(m.msgId || m.cliMsgId || ts);
+
+          toPersist.push({
+            msgId: id,
+            cliMsgId: m.cliMsgId ? String(m.cliMsgId) : null,
+            threadId: String(threadId),
+            threadType: "group",
+            senderId: isMe && ownId ? String(ownId) : fromUid,
+            senderName,
+            isSelf: isMe,
+            text,
+            timestamp: ts,
+            type: m.msgType || (typeof m.content === "string" ? "text" : "attachment"),
+          });
+
           return {
-            id: String(m.msgId || m.cliMsgId || ts),
-            text: typeof m.content === "string" ? m.content : "[Tệp đính kèm]",
-            senderId: String(m.fromUid || ""),
-            senderName: isMe ? selfName : `Thành viên (${String(m.fromUid || "").slice(-4)})`,
+            id,
+            text,
+            senderId: fromUid,
+            senderName,
             isMe,
             timestamp: ts,
             time,
@@ -224,6 +265,17 @@ export async function GET(request) {
             status: "sent",
           };
         });
+
+        try {
+          const groupHistoryPath = path.join(targetHome, ".zalo-agent-cli", "crm-group-history.jsonl");
+          fs.mkdirSync(path.dirname(groupHistoryPath), { recursive: true });
+          const persistLines = toPersist
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .map((item) => JSON.stringify(item))
+            .join("\n") + "\n";
+          fs.appendFileSync(groupHistoryPath, persistLines, "utf8");
+        } catch {}
+
         formatted.sort((a, b) => a.timestamp - b.timestamp);
         return NextResponse.json({
           ok: true,
@@ -231,11 +283,12 @@ export async function GET(request) {
           threadId,
           count: formatted.length,
           messages: formatted,
+          syncStatus,
         });
       }
     }
 
-    return NextResponse.json({ ok: true, threadId, count: 0, messages: [] });
+    return NextResponse.json({ ok: true, threadId, count: 0, messages: [], syncStatus });
   } catch (error) {
     console.error("[ZALO_MESSAGES_EXCEPTION]", error);
     return NextResponse.json({ error: "Lỗi khi tải lịch sử tin nhắn." }, { status: 500 });

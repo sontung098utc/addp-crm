@@ -129,14 +129,14 @@ function registerZaloConnection({ id, label, homeDir, ownId }) {
         ownId,
       },
     });
-    // Khởi động ngay Universal Initial Sync ngầm để tải lịch sử hội thoại 20 trang & danh bạ
+    // Khởi động ngay Universal Initial Sync ngầm để tải toàn bộ lịch sử hội thoại (DM + Nhóm) & danh bạ
     setTimeout(() => {
       try {
-        ensureAccountHistorySynced(homeDir, ownId || id).catch((syncErr) => {
+        ensureAccountHistorySynced(homeDir, ownId || id, { force: true }).catch((syncErr) => {
           console.error("[Zalo QR] Initial sync error:", syncErr?.message);
         });
       } catch {}
-    }, 800);
+    }, 400);
   } catch (err) {
     console.error("[REGISTER_CRM_CHANNEL_ERROR]", err);
   }

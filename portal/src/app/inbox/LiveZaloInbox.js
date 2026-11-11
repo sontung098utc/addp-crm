@@ -165,6 +165,7 @@ export default function LiveZaloInbox() {
   const [selectedZaloAccountId, setSelectedZaloAccountId] = useState("ALL");
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
+  const [zaloSyncStatus, setZaloSyncStatus] = useState(null);
   const [refreshMsgCount, setRefreshMsgCount] = useState(0);
   const channelPopoverRef = useRef(null);
 
@@ -445,6 +446,9 @@ export default function LiveZaloInbox() {
       if (Array.isArray(dataConv.connectedPages)) {
         setConnectedPages(dataConv.connectedPages);
       }
+      if (dataConv.syncStatus !== undefined) {
+        setZaloSyncStatus(dataConv.syncStatus || null);
+      }
       if (Array.isArray(dataConv.connectedZaloAccounts)) {
         setConnectedZaloAccounts(dataConv.connectedZaloAccounts);
         if (dataConv.connectedZaloAccounts.length === 0) {
@@ -544,6 +548,16 @@ export default function LiveZaloInbox() {
 
     return () => clearInterval(pollTimer);
   }, []);
+
+  // Tự động làm mới nhanh hơn (4s/lần) khi tài khoản Zalo mới đăng nhập đang kéo lịch sử tin nhắn cũ
+  useEffect(() => {
+    if (!zaloSyncStatus?.isSyncing) return;
+    const fastSyncTimer = setInterval(() => {
+      loadConversations(false, false);
+    }, 4000);
+    return () => clearInterval(fastSyncTimer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zaloSyncStatus?.isSyncing]);
 
   // Tự động chọn hội thoại đầu tiên phù hợp khi đổi Dropdown tài khoản
   useEffect(() => {
@@ -2094,6 +2108,31 @@ export default function LiveZaloInbox() {
             </div>
           </div>
 
+          {/* Banner tiến trình kéo lịch sử Zalo khi tài khoản mới đăng nhập hoặc đang đồng bộ sâu */}
+          {zaloSyncStatus?.isSyncing && (
+            <div className="px-3 py-2 bg-blue-950/70 border-b border-blue-800/60 flex items-center gap-2 text-[11px] text-blue-200 shrink-0">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold truncate">
+                  Đang đồng bộ lịch sử hội thoại Zalo...
+                </div>
+                <div className="text-[10px] text-blue-300/80 truncate">
+                  {(() => {
+                    const activeAcc = (zaloSyncStatus.accounts || []).find((a) => a.isSyncing);
+                    if (!activeAcc) return "Đang nạp tin nhắn DM & Nhóm từ máy chủ Zalo";
+                    const totalFetched =
+                      (activeAcc.dmBackfilled || 0) +
+                      (activeAcc.groupBackfilled || 0) +
+                      (activeAcc.groupRestFetched || 0);
+                    return totalFetched > 0
+                      ? `${activeAcc.name}: đã nạp ${totalFetched} tin nhắn (DM + Nhóm)`
+                      : `${activeAcc.name}: đang kết nối & tải lịch sử (DM + Nhóm)...`;
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Danh sách các cuộc trò chuyện */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 min-h-0">
             {loadingConv ? (
@@ -2445,12 +2484,34 @@ export default function LiveZaloInbox() {
                     </div>
                     <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1 shadow-xs">
                       <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold text-xs">
-                        <Zap className="w-3.5 h-3.5" />
-                        <span>Sẵn sàng kết nối 2 chiều</span>
+                        {zaloSyncStatus?.isSyncing ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Zap className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {zaloSyncStatus?.isSyncing
+                            ? "Đang đồng bộ lịch sử tin nhắn từ Zalo..."
+                            : "Sẵn sàng kết nối 2 chiều"}
+                        </span>
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                        Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp qua{" "}
-                        <strong>{activeChannelName}</strong>.
+                        {zaloSyncStatus?.isSyncing ? (
+                          <>
+                            Hệ thống đang kéo lịch sử tin nhắn cũ của{" "}
+                            <strong>{activeChannelName}</strong>. Hội thoại sẽ tự động hiển thị ngay khi tải xong.
+                          </>
+                        ) : activeConv?.channel === "ZALO_PERSONAL" && activeConv?.type === "DIRECT" ? (
+                          <>
+                            Chưa có tin nhắn nào trong bộ nhớ gần đây. Zalo Web chỉ hỗ trợ tải lại các tin nhắn DM phát sinh gần đây trên cloud (tin nhắn quá cũ được mã hóa cục bộ trên điện thoại). Hãy gõ tin nhắn bên dưới để nhắn qua{" "}
+                            <strong>{activeChannelName}</strong>.
+                          </>
+                        ) : (
+                          <>
+                            Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp qua{" "}
+                            <strong>{activeChannelName}</strong>.
+                          </>
+                        )}
                       </p>
                     </div>
                   </div>

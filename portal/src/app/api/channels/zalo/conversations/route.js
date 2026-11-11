@@ -7,6 +7,7 @@ import {
   stopAllZaloMcpDaemons,
   syncZaloGroupsAndMetadata,
   getAllZaloHistoryFiles,
+  getZaloSyncStatus,
   scanAndAutoReplyZaloHistories,
 } from "../../../../../lib/zaloRunner.js";
 import {
@@ -296,6 +297,8 @@ export async function GET(request) {
             console.error(`[Zalo AI Bot] Lỗi scan từ conversations API (${acc.displayName}):`, err.message);
           });
 
+          const syncStatus = getZaloSyncStatus(acc.homeDir);
+
           return {
             acc,
             ownId: effectiveOwnId,
@@ -303,6 +306,7 @@ export async function GET(request) {
             groupMap: meta.groupMap,
             pinnedSet: meta.pinnedSet,
             threadsMap,
+            syncStatus,
           };
         })
       ),
@@ -450,6 +454,8 @@ export async function GET(request) {
           const friendName = f.displayName || f.zaloName || "Bạn bè";
           const rawFriendAvatar = f.avatar || f.avatar_url || f.thumb || f.picture || f.avt || f.fullAvt || "";
           const safeAvatar = buildSafeAvatarUrl(rawFriendAvatar, "zalo", uid, friendName);
+          const lastAct = Number(f.lastActionTime) || 0;
+          const contactLastActive = lastAct > 0 ? formatZaloTimeLabel(lastAct) : "Danh bạ";
           contactOnlyConversations.push({
             id: uid,
             name: friendName,
@@ -458,8 +464,9 @@ export async function GET(request) {
             phone: f.phoneNumber || "",
             isPinned: pinnedSet.has(uid),
             isContactOnly: true,
-            lastMessage: "Danh bạ Zalo",
-            lastActive: "Danh bạ",
+            lastActionTime: lastAct,
+            lastMessage: lastAct > 0 ? `Tương tác gần đây (${contactLastActive})` : "Danh bạ Zalo",
+            lastActive: contactLastActive,
             timestamp: 0,
             channel: "ZALO_PERSONAL",
             accountId,
@@ -477,7 +484,7 @@ export async function GET(request) {
       }
 
       // Chỉ đưa vào danh sách nếu tài khoản Zalo này có hoạt động (không hiển thị nick 0 tin nhắn đã ngắt kết nối)
-      if (accActiveCount + accContactCount > 0) {
+      if (accActiveCount + accContactCount > 0 || zaloSyncResults[accIdx].syncStatus?.isSyncing) {
         connectedZaloAccounts.push({
           accountId,
           ownId,
@@ -490,6 +497,7 @@ export async function GET(request) {
           activeCount: accActiveCount,
           contactCount: accContactCount,
           totalCount: accActiveCount + accContactCount,
+          syncStatus: zaloSyncResults[accIdx].syncStatus || { isSyncing: false },
           colorIndex: accIdx,
         });
       }
@@ -497,6 +505,9 @@ export async function GET(request) {
 
     contactOnlyConversations.sort((a, b) => {
       if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      const actA = Number(a.lastActionTime) || 0;
+      const actB = Number(b.lastActionTime) || 0;
+      if (actA !== actB) return actB - actA;
       return String(a.name).localeCompare(String(b.name), "vi");
     });
 
@@ -513,12 +524,23 @@ export async function GET(request) {
     const allThreadTags = getAllConversationTags();
     const combinedWithTags = combined.map((conv) => attachConversationTags(conv, allThreadTags));
 
+    const isAnyZaloSyncing = zaloSyncResults.some((r) => Boolean(r?.syncStatus?.isSyncing));
+    const syncAccounts = zaloSyncResults.map((r) => ({
+      name: r?.acc?.displayName || r?.acc?.name || "Zalo",
+      ownId: r?.ownId || "",
+      ...(r?.syncStatus || { isSyncing: false }),
+    }));
+
     return NextResponse.json({
       ok: true,
       total: combinedWithTags.length,
       activeCount: allActive.length,
       connectedZaloAccounts,
       connectedPages,
+      syncStatus: {
+        isSyncing: isAnyZaloSyncing,
+        accounts: syncAccounts,
+      },
       conversations: combinedWithTags,
     });
   } catch (error) {

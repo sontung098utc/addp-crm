@@ -92,17 +92,17 @@ async function handleZaloSync(request) {
       const seenThreadIds = new Set();
 
       try {
-        // 2.1. Đảm bảo Zalo MCP Daemon đang chạy với cấu hình kéo lịch sử (Backfill)
-        ensureZaloMcpDaemon(acc.homeDir);
-
-        // 2.2. Kích hoạt trực tiếp DirectSyncWorker để kéo danh bạ, avatar và tin nhắn nhóm mới nhất
+        // 2.1. Kích hoạt trực tiếp Deep Backfill (WS cmd 510 DM + cmd 511 Group + Group REST 50 tin/nhóm + Danh bạ/Avatar)
+        // triggerDirectSyncWorker tự động tạm dừng MCP Daemon trong lúc kéo WS và bật lại ngay sau khi xong.
         if (typeof triggerDirectSyncWorker === "function") {
           try {
             await Promise.race([
-              triggerDirectSyncWorker(acc.homeDir, true),
-              new Promise((r) => setTimeout(r, 6000)),
+              triggerDirectSyncWorker(acc.homeDir, { forceFull: true, runWsBackfill: true }),
+              new Promise((r) => setTimeout(r, 15000)),
             ]);
           } catch {}
+        } else {
+          ensureZaloMcpDaemon(acc.homeDir);
         }
 
         // 2.3. Lấy metadata danh bạ để map tên và avatar
