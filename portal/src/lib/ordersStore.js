@@ -14,9 +14,16 @@ import {
 } from "./kiotvietConnector.js";
 import { resolveComboFormulaList } from "./comboResolver.js";
 
-const ORDERS_FILE_PATH = fs.existsSync(path.join(process.cwd(), ".data"))
-  ? path.join(process.cwd(), ".data", "orders.json")
-  : path.join(process.cwd(), "portal", ".data", "orders.json");
+function getOrdersFilePath() {
+  const dataDir =
+    process.env.DATA_DIR ||
+    (fs.existsSync(path.join(process.cwd(), "portal", "package.json"))
+      ? "portal/.data"
+      : ".data");
+  return path.isAbsolute(dataDir)
+    ? path.join(dataDir, "orders.json")
+    : path.join(process.cwd(), dataDir, "orders.json");
+}
 
 if (!globalThis.__ADDP_ORDERS_CACHE__) {
   globalThis.__ADDP_ORDERS_CACHE__ = {
@@ -26,7 +33,8 @@ if (!globalThis.__ADDP_ORDERS_CACHE__) {
 }
 
 function ensureStorage() {
-  const dir = path.dirname(ORDERS_FILE_PATH);
+  const filePath = getOrdersFilePath();
+  const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -37,9 +45,10 @@ export function getStoredOrders() {
     return globalThis.__ADDP_ORDERS_CACHE__.orders;
   }
   ensureStorage();
+  const filePath = getOrdersFilePath();
   try {
-    if (fs.existsSync(ORDERS_FILE_PATH)) {
-      const data = fs.readFileSync(ORDERS_FILE_PATH, "utf8").replace(/^\uFEFF/, "");
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) {
         globalThis.__ADDP_ORDERS_CACHE__.orders = parsed;
@@ -64,7 +73,7 @@ export function saveStoredOrders(orders) {
     try {
       ensureStorage();
       await fs.promises.writeFile(
-        ORDERS_FILE_PATH,
+        getOrdersFilePath(),
         JSON.stringify(globalThis.__ADDP_ORDERS_CACHE__.orders || [], null, 2),
         "utf8"
       );
@@ -84,7 +93,7 @@ export function flushOrdersSync() {
   try {
     ensureStorage();
     fs.writeFileSync(
-      ORDERS_FILE_PATH,
+      getOrdersFilePath(),
       JSON.stringify(globalThis.__ADDP_ORDERS_CACHE__.orders || [], null, 2),
       "utf8"
     );
@@ -162,6 +171,19 @@ export function createOrder({
   const randNum = Math.floor(1000 + Math.random() * 9000);
   const orderCode = customOrderCode || `DH-${dateStr}-${randNum}`;
 
+  // Kiểm tra Idempotency: Nếu mã đơn hàng đã tồn tại, không tạo lặp và không trừ kho lần 2
+  const orders = getStoredOrders();
+  const existingOrder = orders.find(
+    (o) => o.orderCode === orderCode || (customOrderCode && o.kiotVietOrderCode === customOrderCode)
+  );
+  if (existingOrder) {
+    return {
+      ...existingOrder,
+      isDuplicate: true,
+      alreadyExists: true,
+    };
+  }
+
   // Bóc tách chi tiết Combo cho từng dòng sản phẩm
   const enrichedItems = (Array.isArray(items) ? items : []).map((it) => {
     const sku = String(it.sku || it.productCode || "");
@@ -217,7 +239,6 @@ export function createOrder({
     updatedAt: now.toISOString(),
   };
 
-  const orders = getStoredOrders();
   orders.unshift(newOrder);
   saveStoredOrders(orders);
 

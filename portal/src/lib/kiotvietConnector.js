@@ -51,12 +51,12 @@ const CONFIG_FILE_PATH = resolveDataFilePath("kiotviet_config.json");
 const PRODUCTS_CACHE_PATH = resolveDataFilePath("kiotviet_products.json");
 
 const DEFAULT_KIOTVIET_CONFIG = {
-  clientId: process.env.KIOTVIET_CLIENT_ID || "51ddde69-20f9-4cf0-9163-8ff9dc94cae1",
-  clientSecret: process.env.KIOTVIET_CLIENT_SECRET || "7D6E216C1F4348FD3033D6A11565E13B4CB80F33",
-  retailer: process.env.KIOTVIET_RETAILER || "0904637007",
-  branchId: Number(process.env.KIOTVIET_BRANCH_ID) || 272142,
+  clientId: process.env.KIOTVIET_CLIENT_ID || "",
+  clientSecret: process.env.KIOTVIET_CLIENT_SECRET || "",
+  retailer: process.env.KIOTVIET_RETAILER || "",
+  branchId: Number(process.env.KIOTVIET_BRANCH_ID) || 1,
   branchName: "Chi nhánh trung tâm",
-  autoSync: true,
+  autoSync: false,
   accessToken: "",
   tokenExpiresAt: 0,
   lastSyncedAt: null,

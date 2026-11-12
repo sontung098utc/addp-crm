@@ -347,7 +347,7 @@ export default function ChannelsPage() {
       case "FACEBOOK":
         return {
           url: "https://crm.addp.vn/api/webhooks/facebook",
-          verifyToken: "addp_crm_fb_webhook_secret_2026",
+          verifyToken: "[Được cấu hình trong FB_VERIFY_TOKEN]",
           note: "Nhận tin nhắn & Tự ẩn SĐT",
         };
       case "TIKTOK_SHOP":
@@ -1301,7 +1301,7 @@ export default function ChannelsPage() {
                     <li>Truy cập <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="text-blue-400 underline inline-flex items-center gap-1">Meta for Developers <ExternalLink className="w-3 h-3" /></a>.</li>
                     <li>Vào mục <strong className="text-white">Messenger &rarr; Settings &rarr; Access Tokens</strong> &rarr; Chọn Fanpage cần kết nối &rarr; Bấm <strong>Generate Token</strong>.</li>
                     <li>Cấu hình Webhook Callback URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/facebook</code></li>
-                    <li>Verify Token nhập vào Meta: <code className="text-amber-400 font-mono">addp_crm_fb_webhook_secret_2026</code></li>
+                    <li>Verify Token nhập vào Meta: <code className="text-amber-400 font-mono">(Cấu hình trong biến môi trường FB_VERIFY_TOKEN)</code></li>
                     <li>Đăng ký các trường sự kiện: <code className="text-emerald-400">messages, messaging_postbacks, feed (comments)</code>.</li>
                   </ol>
                 </div>

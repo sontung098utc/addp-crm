@@ -5,6 +5,7 @@ import {
   controlBroadcastCampaign,
   getSentCountTodayForChannel,
 } from "@/lib/broadcastEngine.js";
+import { DEFAULT_DAILY_ZALO_MSG_LIMIT } from "@/lib/pilotConfig.js";
 
 export async function GET() {
   try {
@@ -17,8 +18,8 @@ export async function GET() {
       antiBanRules: {
         minDelaySec: 45,
         maxDelaySec: 120,
-        dailyTargetLimit: 150,
-        policy: "Điều 4 AGENTS.md: Giãn cách 45-120s ngẫu nhiên, tối đa 150 tin/ngày/nick Zalo",
+        dailyTargetLimit: DEFAULT_DAILY_ZALO_MSG_LIMIT,
+        policy: `Điều 4 AGENTS.md: Giãn cách 45-120s ngẫu nhiên, tối đa ${DEFAULT_DAILY_ZALO_MSG_LIMIT} tin/ngày/nick Zalo`,
       },
     });
   } catch (error) {

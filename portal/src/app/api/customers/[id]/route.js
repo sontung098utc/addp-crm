@@ -1,15 +1,14 @@
-import { NextResponse } from "next/server";
 import {
   getCustomerById,
   updateCustomer,
   deleteCustomer,
   normalizePhone,
   isValidVietnamPhone,
-} from "@/lib/customerIdentityResolver";
-import { getSessionStaff, listAllStaff } from "@/lib/auth";
-import { filterRecordsByRbac } from "@/lib/rbac";
-import { buildCareSchedule } from "@/lib/careAutomation";
-import { updateConversationTags, removeConversationTags } from "@/lib/tagStore";
+} from "../../../../lib/customerIdentityResolver.js";
+import { getSessionStaff, listAllStaff } from "../../../../lib/auth.js";
+import { filterRecordsByRbac } from "../../../../lib/rbac.js";
+import { buildCareSchedule } from "../../../../lib/careAutomation.js";
+import { updateConversationTags, removeConversationTags } from "../../../../lib/tagStore.js";
 
 // Force dynamic execution for customer detail API
 export const dynamic = "force-dynamic";
@@ -23,7 +22,7 @@ export async function GET(request, { params }) {
   try {
     const currentStaff = await getSessionStaff(request);
     if (!currentStaff) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." },
         { status: 401 }
       );
@@ -33,11 +32,11 @@ export async function GET(request, { params }) {
     const customer = getCustomerById(id);
 
     if (!customer) {
-      return NextResponse.json({ ok: false, error: "Không tìm thấy khách hàng" }, { status: 404 });
+      return Response.json({ ok: false, error: "Không tìm thấy khách hàng" }, { status: 404 });
     }
 
     if (!canAccessCustomerRecord(currentStaff, customer)) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Từ chối truy cập: Bạn không phụ trách khách hàng này" },
         { status: 403 }
       );
@@ -55,14 +54,14 @@ export async function GET(request, { params }) {
       durationDays: 30,
     });
 
-    return NextResponse.json({
+    return Response.json({
       ok: true,
       customer,
       careSchedule,
     });
   } catch (error) {
     console.error("GET /api/customers/[id] error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 }
 
@@ -70,7 +69,7 @@ export async function PUT(request, { params }) {
   try {
     const currentStaff = await getSessionStaff(request);
     if (!currentStaff) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." },
         { status: 401 }
       );
@@ -79,14 +78,14 @@ export async function PUT(request, { params }) {
     const { id } = await params;
     const existing = getCustomerById(id);
     if (!existing) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Không tìm thấy khách hàng để cập nhật" },
         { status: 404 }
       );
     }
 
     if (!canAccessCustomerRecord(currentStaff, existing)) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Từ chối quyền sửa: Khách hàng này không thuộc phạm vi phụ trách của bạn." },
         { status: 403 }
       );
@@ -98,7 +97,7 @@ export async function PUT(request, { params }) {
     if (body.fullName !== undefined) {
       const cleanName = String(body.fullName || "").trim();
       if (!cleanName) {
-        return NextResponse.json(
+        return Response.json(
           { ok: false, error: "Họ và tên khách hàng không được để trống." },
           { status: 400 }
         );
@@ -109,7 +108,7 @@ export async function PUT(request, { params }) {
     if (body.phone !== undefined) {
       const cleanPhone = normalizePhone(body.phone);
       if (cleanPhone && !isValidVietnamPhone(cleanPhone)) {
-        return NextResponse.json(
+        return Response.json(
           { ok: false, error: "Số điện thoại không hợp lệ. Vui lòng nhập SĐT chuẩn 10 số Việt Nam." },
           { status: 400 }
         );
@@ -164,7 +163,7 @@ export async function PUT(request, { params }) {
 
     const updated = updateCustomer(id, updates);
     if (!updated) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Không tìm thấy khách hàng để cập nhật" },
         { status: 404 }
       );
@@ -185,14 +184,14 @@ export async function PUT(request, { params }) {
       }
     }
 
-    return NextResponse.json({
+    return Response.json({
       ok: true,
       customer: updated,
       message: "Cập nhật hồ sơ khách hàng thành công",
     });
   } catch (error) {
     console.error("PUT /api/customers/[id] error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 }
 
@@ -200,7 +199,7 @@ export async function DELETE(request, { params }) {
   try {
     const currentStaff = await getSessionStaff(request);
     if (!currentStaff) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." },
         { status: 401 }
       );
@@ -209,14 +208,14 @@ export async function DELETE(request, { params }) {
     const { id } = await params;
     const existing = getCustomerById(id);
     if (!existing) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Không tìm thấy khách hàng để xóa" },
         { status: 404 }
       );
     }
 
     if (!canAccessCustomerRecord(currentStaff, existing)) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Từ chối quyền xóa: Bạn không phụ trách khách hàng này." },
         { status: 403 }
       );
@@ -224,7 +223,7 @@ export async function DELETE(request, { params }) {
 
     const removed = deleteCustomer(id);
     if (!removed) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, error: "Không thể xóa khách hàng khỏi cơ sở dữ liệu." },
         { status: 404 }
       );
@@ -234,13 +233,13 @@ export async function DELETE(request, { params }) {
     if (cleanPhone) removeConversationTags(cleanPhone);
     if (removed.zaloThreadId) removeConversationTags(String(removed.zaloThreadId));
 
-    return NextResponse.json({
+    return Response.json({
       ok: true,
       deletedId: removed.id,
       message: `Đã xóa khách hàng "${removed.fullName || cleanPhone || id}" thành công.`,
     });
   } catch (error) {
     console.error("DELETE /api/customers/[id] error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 }

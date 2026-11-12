@@ -18,6 +18,14 @@ export async function GET(request) {
   try {
     const cookieStore = await cookies();
     const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "SALE", "CSKH", "KHO", "KE_TOAN"],
+      moduleKey: "settings",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const { searchParams } = new URL(request.url);
     const simulateStaffCode = searchParams.get("simulateStaff");
 
@@ -25,7 +33,7 @@ export async function GET(request) {
 
     // Hỗ trợ trình mô phỏng RBAC (Live RBAC Simulator WBS-06)
     let simulatedScope = null;
-    if (simulateStaffCode) {
+    if (simulateStaffCode && (guard.staff?.role === "ADMIN" || guard.staff?.role === "SALE_LEADER")) {
       const target = staffList.find((s) => s.code === simulateStaffCode.toUpperCase());
       if (target) {
         simulatedScope = {
@@ -57,12 +65,10 @@ export async function POST(request) {
     const cookieStore = await cookies();
     const reqHeaders = await headers();
     const guard = guardApiRequest(cookieStore, reqHeaders, {
-      allowedRoles: ["ADMIN", "SALE_LEADER"],
+      allowedRoles: ["ADMIN"],
+      moduleKey: "settings",
     });
-    // Trong môi trường phát triển nếu chưa có cookie thì cho phép thao tác thử nghiệm trên UI,
-    // nhưng nếu đăng nhập bằng tài khoản thường (SALE/KHO) sẽ bị chặn nghiêm ngặt theo Điều 5
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 
@@ -74,7 +80,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       ok: true,
-      message: `Đã tạo tài khoản nhân viên ${result.staff.code} (${result.staff.name}) thành công! Mật khẩu mặc định: 123456`,
+      message: `Đã tạo tài khoản nhân viên ${result.staff.code} (${result.staff.name}) thành công với mật khẩu riêng được cấp!`,
       staff: result.staff,
     });
   } catch (error) {
@@ -92,9 +98,9 @@ export async function PUT(request) {
     const reqHeaders = await headers();
     const guard = guardApiRequest(cookieStore, reqHeaders, {
       allowedRoles: ["ADMIN", "SALE_LEADER"],
+      moduleKey: "settings",
     });
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 
@@ -129,9 +135,9 @@ export async function DELETE(request) {
     const reqHeaders = await headers();
     const guard = guardApiRequest(cookieStore, reqHeaders, {
       allowedRoles: ["ADMIN"],
+      moduleKey: "settings",
     });
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 

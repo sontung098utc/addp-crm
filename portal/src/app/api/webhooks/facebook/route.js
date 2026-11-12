@@ -11,10 +11,15 @@ import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
  *    - Tuân thủ Điều 3 (normalizePhone) & Điều 11 (Dữ liệu xác thực) AGENTS.md
  */
 
-const FB_VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "addp_crm_fb_webhook_secret_2026";
+const FB_VERIFY_TOKEN = process.env.FB_VERIFY_TOKEN || "";
 
 export async function GET(request) {
   try {
+    if (!FB_VERIFY_TOKEN) {
+      console.error("[FB_WEBHOOK] FB_VERIFY_TOKEN chưa được cấu hình trong biến môi trường (Fail closed).");
+      return new Response("Webhook verify token chưa được cấu hình trên server (Fail closed).", { status: 500 });
+    }
+
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("hub.mode");
     const token = searchParams.get("hub.verify_token");

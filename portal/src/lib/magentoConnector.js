@@ -10,10 +10,10 @@ import { createOrder } from "./ordersStore.js";
 
 // Cấu hình Magento 2.4.8 (Có thể override qua biến môi trường)
 export const MAGENTO_CONFIG = {
-  baseUrl: process.env.MAGENTO_BASE_URL || "https://addp.vn",
-  apiEndpoint: process.env.MAGENTO_API_ENDPOINT || "https://addp.vn/rest/V1",
-  webhookSecret: process.env.MAGENTO_WEBHOOK_SECRET || "addp_magento_secret_2026",
-  storeCode: "default",
+  baseUrl: process.env.MAGENTO_BASE_URL || "",
+  apiEndpoint: process.env.MAGENTO_API_ENDPOINT || "",
+  webhookSecret: process.env.MAGENTO_WEBHOOK_SECRET || "",
+  storeCode: process.env.MAGENTO_STORE_CODE || "default",
 };
 
 /**

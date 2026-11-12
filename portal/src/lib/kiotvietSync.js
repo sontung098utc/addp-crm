@@ -9,6 +9,7 @@ import {
 } from "./customerIdentityResolver.js";
 import { broadcastMessage } from "./unifiedMessageRouter.js";
 import { getKiotVietConfig, saveKiotVietConfig } from "./kiotvietConnector.js";
+import { isSafePilotMode, isAutoSyncAllowed } from "./pilotConfig.js";
 
 /**
  * ADDP Omnichannel AI CRM — KiotViet 2-Way Sync Engine (WBS-39 & WBS-40)
@@ -43,13 +44,16 @@ export async function getKiotVietSyncToken(forceRefresh = false) {
   }
 
   const cfg = getKiotVietConfig();
-  const clientId =
-    cfg.clientId || process.env.KIOTVIET_CLIENT_ID || "51ddde69-20f9-4cf0-9163-8ff9dc94cae1";
-  const clientSecret =
-    cfg.clientSecret ||
-    process.env.KIOTVIET_CLIENT_SECRET ||
-    "7D6E216C1F4348FD3033D6A11565E13B4CB80F33";
-  const retailer = cfg.retailer || process.env.KIOTVIET_RETAILER || "0904637007";
+  const clientId = cfg.clientId || process.env.KIOTVIET_CLIENT_ID || "";
+  const clientSecret = cfg.clientSecret || process.env.KIOTVIET_CLIENT_SECRET || "";
+  const retailer = cfg.retailer || process.env.KIOTVIET_RETAILER || "";
+
+  if (!clientId || !clientSecret || !retailer) {
+    return {
+      ok: false,
+      error: "[SECURITY_CONFIG_ERROR] Chưa cấu hình KiotViet Client ID, Client Secret hoặc Retailer trong biến môi trường (Fail closed).",
+    };
+  }
 
   try {
     const params = new URLSearchParams({
@@ -290,6 +294,13 @@ export async function syncAllKiotVietOrders({
   lastModifiedFrom = null,
   maxPages = 30, // Tối đa 30 trang x 100 = 3000 đơn mỗi lần chạy để đảm bảo tốc độ
 } = {}) {
+  if (isSafePilotMode() || !isAutoSyncAllowed()) {
+    return {
+      ok: false,
+      error: "[PILOT_SAFE_MODE] Đã chặn đồng bộ trực tiếp KiotViet trong môi trường safe-mode / staging.",
+    };
+  }
+
   if (syncCache.isSyncing) {
     return { ok: false, error: "Đang có tiến trình đồng bộ KiotViet chạy nền. Vui lòng chờ..." };
   }
@@ -451,7 +462,23 @@ export async function syncAllKiotVietOrders({
 /**
  * Đăng ký Webhook KiotViet tự động cho order.update, invoice.add, invoice.update
  */
-export async function registerKiotVietWebhooks(targetUrl = "https://crm.addp.vn/api/webhooks/kiotviet") {
+export async function registerKiotVietWebhooks(targetUrl = null) {
+  const defaultBase =
+    process.env.APP_URL ||
+    (process.env.APP_ENV === "staging"
+      ? `http://localhost:${process.env.PORT || 3006}`
+      : (process.env.NEXT_PUBLIC_SITE_URL || "https://crm.addp.vn"));
+  const finalUrl = targetUrl || `${defaultBase.replace(/\/$/, "")}/api/webhooks/kiotviet`;
+
+  if (isSafePilotMode() || !isAutoSyncAllowed()) {
+    return {
+      ok: true,
+      disabled: true,
+      targetUrl: finalUrl,
+      message: "[PILOT_SAFE_MODE] Đã chặn đăng ký webhook KiotViet ra ngoài trong môi trường safe-mode / staging.",
+    };
+  }
+
   const tokenRes = await getKiotVietSyncToken();
   if (!tokenRes.ok) return { ok: false, error: tokenRes.error };
 
@@ -474,7 +501,7 @@ export async function registerKiotVietWebhooks(targetUrl = "https://crm.addp.vn/
         },
         body: JSON.stringify({
           Webhook: {
-            Url: targetUrl,
+            Url: finalUrl,
             IsActive: true,
             Type: type,
           },
@@ -487,5 +514,5 @@ export async function registerKiotVietWebhooks(targetUrl = "https://crm.addp.vn/
     }
   }
 
-  return { ok: true, webhooks: results };
+  return { ok: true, webhooks: results, targetUrl: finalUrl };
 }

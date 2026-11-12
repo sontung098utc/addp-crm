@@ -33,8 +33,16 @@ export async function POST(request) {
       request.headers.get("authorization") ||
       "";
 
-    const appSecret = process.env.TIKTOK_APP_SECRET || "default_tiktok_app_secret";
-    const appKey = process.env.TIKTOK_APP_KEY || "default_tiktok_app_key";
+    const appSecret = process.env.TIKTOK_APP_SECRET || "";
+    const appKey = process.env.TIKTOK_APP_KEY || "";
+
+    if (!appSecret) {
+      logWebhook("REJECTED: TIKTOK_APP_SECRET chưa được cấu hình (Fail closed).");
+      return NextResponse.json(
+        { error: "TikTok webhook secret chưa được cấu hình trên server (Fail closed)." },
+        { status: 500 }
+      );
+    }
 
     let isVerified = false;
 
@@ -61,9 +69,14 @@ export async function POST(request) {
       if (expectedSign === signatureHeader.trim()) {
         isVerified = true;
       }
-    } else {
-      // Cho phép sandbox / testing nếu chưa cấu hình secret
-      isVerified = true;
+    }
+
+    if (!isVerified) {
+      logWebhook("REJECTED: Chữ ký Webhook TikTok không hợp lệ hoặc thiếu header (Fail closed).");
+      return NextResponse.json(
+        { error: "Chữ ký xác thực Webhook không hợp lệ." },
+        { status: 401 }
+      );
     }
 
     logWebhook(

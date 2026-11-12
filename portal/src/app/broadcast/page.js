@@ -315,7 +315,14 @@ export default function BroadcastPage() {
       const data = await res.json();
       setTestResult(data);
       if (data.ok) {
-        showNotice(data.message || "✓ Đã gửi thử 1 tin thành công!", "success");
+        if (data.mocked) {
+          showNotice(
+            data.message || "Chế độ An toàn (Mock): Chỉ mô phỏng gửi thử, chưa gửi thật ra ngoài.",
+            "info"
+          );
+        } else {
+          showNotice(data.message || "✓ Đã gửi thử 1 tin thành công!", "success");
+        }
       } else {
         showNotice(data.error || "Không thể gửi thử tin nhắn.", "error");
       }
@@ -396,7 +403,7 @@ export default function BroadcastPage() {
               WBS-35 & WBS-36
             </span>
             <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400 border border-emerald-500/30">
-              🛡️ Giãn cách an toàn 45–120s/tin • Max 150 tin/ngày
+              🛡️ Giãn cách an toàn 45–120s/tin • Max 70 tin/ngày
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -410,13 +417,13 @@ export default function BroadcastPage() {
             <span className="text-[11px] text-slate-400 block">Hạn mức an toàn hôm nay</span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-lg font-bold text-white">{sentToday}</span>
-              <span className="text-xs text-slate-400">/ 150 tin/tài khoản</span>
+              <span className="text-xs text-slate-400">/ 70 tin/tài khoản</span>
             </div>
           </div>
           <div className="w-24 h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
               className="h-full bg-emerald-500 rounded-full transition-all"
-              style={{ width: `${Math.min(100, Math.round((sentToday / 150) * 100))}%` }}
+              style={{ width: `${Math.min(100, Math.round((sentToday / 70) * 100))}%` }}
             />
           </div>
         </div>

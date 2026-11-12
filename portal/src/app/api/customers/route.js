@@ -1,13 +1,12 @@
-import { NextResponse } from "next/server";
 import {
   getAllCustomers,
   resolveCustomerIdentity,
   normalizePhone,
   isValidVietnamPhone,
-} from "@/lib/customerIdentityResolver";
-import { getTags, getAllConversationTags } from "@/lib/tagStore";
-import { getSessionStaff } from "@/lib/auth";
-import { filterRecordsByRbac } from "@/lib/rbac";
+} from "../../../lib/customerIdentityResolver.js";
+import { getTags, getAllConversationTags } from "../../../lib/tagStore.js";
+import { getSessionStaff } from "../../../lib/auth.js";
+import { filterRecordsByRbac, guardApiRequest } from "../../../lib/rbac.js";
 
 function normalizeCustomerPlatform(customer = {}) {
   const raw = String(
@@ -86,6 +85,25 @@ function isLegacySystemCustomer(customer = {}) {
 export async function GET(request) {
   try {
     const currentStaff = await getSessionStaff(request);
+    if (!currentStaff) {
+      return Response.json(
+        { ok: false, error: "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại." },
+        { status: 401 }
+      );
+    }
+
+    if (currentStaff.mustChangePassword) {
+      return Response.json(
+        {
+          ok: false,
+          error: "Bắt buộc đổi mật khẩu: Tài khoản cần đổi mật khẩu khởi tạo trước khi truy cập các phân hệ nghiệp vụ.",
+          code: "MUST_CHANGE_PASSWORD",
+          mustChangePassword: true,
+        },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
 
     const search = searchParams.get("search") || "";
@@ -99,6 +117,21 @@ export async function GET(request) {
     const rawPlatformParam =
       searchParams.get("platform") || searchParams.get("source") || "all";
     const platformFilter = String(rawPlatformParam).trim();
+
+    // 0. Kiểm tra quyền xuất toàn bộ dữ liệu (Điều 5 AGENTS.md)
+    const isExportAllRequested =
+      searchParams.get("exportAll") === "true" ||
+      searchParams.get("export") === "all";
+
+    if (isExportAllRequested && currentStaff?.role !== "ADMIN") {
+      return Response.json(
+        {
+          ok: false,
+          error: "Forbidden: Nhân viên không có quyền xuất toàn bộ danh sách khách hàng của công ty (Điều 5 AGENTS.md).",
+        },
+        { status: 403 }
+      );
+    }
 
     let customers = getAllCustomers();
 
@@ -226,7 +259,7 @@ export async function GET(request) {
       );
     }
 
-    return NextResponse.json({
+    return Response.json({
       ok: true,
       customers,
       total: customers.length,
@@ -246,21 +279,39 @@ export async function GET(request) {
             fullName: currentStaff.fullName || currentStaff.name,
             role: currentStaff.role,
             customerScope: currentStaff.customerScope || (currentStaff.role === "ADMIN" || currentStaff.role === "SALE_LEADER" ? "all" : "assigned_only"),
+            canExportAllCustomers: currentStaff.role === "ADMIN",
           }
         : null,
     });
   } catch (error) {
     console.error("GET /api/customers error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 }
 
 export async function POST(request) {
   try {
+    const cookieHeader = request.headers.get("cookie") || "";
+    const cookieStore = request.cookies || {
+      get: (name) => {
+        const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+        return match ? { value: decodeURIComponent(match[1]) } : null;
+      },
+    };
+    const reqHeaders = request.headers;
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "SALE", "CSKH"],
+      moduleKey: "customers",
+      resourceType: "customers",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const body = await request.json();
     const cleanPhone = normalizePhone(body?.phone);
     if (!isValidVietnamPhone(cleanPhone)) {
-      return NextResponse.json(
+      return Response.json(
         {
           ok: false,
           error: "Số điện thoại không hợp lệ. Vui lòng nhập SĐT chuẩn 10 số Việt Nam (bắt đầu bằng 03, 05, 07, 08, 09).",
@@ -269,9 +320,33 @@ export async function POST(request) {
       );
     }
 
-    const result = await resolveCustomerIdentity({ ...body, phone: cleanPhone });
+    const payload = {
+      ...body,
+      phone: cleanPhone,
+      staffId:
+        body?.staffId ||
+        (guard.staff?.role === "SALE" || guard.staff?.role === "CSKH"
+          ? guard.staff.id
+          : body?.staffId || 1),
+    };
 
-    return NextResponse.json({
+    const result = await resolveCustomerIdentity(payload);
+
+    // Kiểm tra phạm vi dữ liệu: Nếu khách hàng đã tồn tại nhưng thuộc quyền nhân sự khác
+    if (!result.isNew && (guard.staff?.role === "SALE" || guard.staff?.role === "CSKH")) {
+      const accessible = filterRecordsByRbac(guard.staff, [result.customer], "customers");
+      if (accessible.length === 0) {
+        return Response.json(
+          {
+            ok: false,
+            error: "Từ chối truy cập: Khách hàng này thuộc phạm vi quản lý của nhân sự khác.",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    return Response.json({
       ok: true,
       customer: result.customer,
       isNew: result.isNew,
@@ -279,6 +354,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("POST /api/customers error:", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return Response.json({ ok: false, error: error.message }, { status: 500 });
   }
 }

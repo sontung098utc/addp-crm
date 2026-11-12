@@ -247,7 +247,7 @@ export function filterRecordsByRbac(staff, records = [], resourceType = "custome
  * Guard bảo vệ API Route của Next.js theo Role và Module
  */
 export function guardApiRequest(cookieStore, headers, options = {}) {
-  const { allowedRoles = null, moduleKey = null, resourceType = "customers" } = options;
+  const { allowedRoles = null, moduleKey = null, resourceType = "customers", allowPasswordChange = false } = options;
   const staff = getCurrentStaffFromCookieOrHeader(cookieStore, headers);
 
   if (!staff) {
@@ -256,6 +256,22 @@ export function guardApiRequest(cookieStore, headers, options = {}) {
       response: Response.json(
         { error: "Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại." },
         { status: 401 }
+      ),
+    };
+  }
+
+  // Bắt buộc đổi mật khẩu sau đăng nhập đầu tiên
+  if (staff.mustChangePassword && !allowPasswordChange) {
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          ok: false,
+          error: "Bắt buộc đổi mật khẩu: Tài khoản cần đổi mật khẩu khởi tạo trước khi truy cập các phân hệ nghiệp vụ.",
+          code: "MUST_CHANGE_PASSWORD",
+          mustChangePassword: true,
+        },
+        { status: 403 }
       ),
     };
   }

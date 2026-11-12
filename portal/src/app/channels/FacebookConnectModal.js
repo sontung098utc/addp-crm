@@ -197,7 +197,7 @@ export default function FacebookConnectModal({ isOpen, onClose, onConnected }) {
   };
 
   const webhookUrl = typeof window !== "undefined" ? `${window.location.origin}/api/webhooks/facebook` : "https://crm.addp.vn/api/webhooks/facebook";
-  const webhookVerifyToken = "addp_crm_fb_webhook_secret_2026";
+  const webhookVerifyToken = "[Được cấu hình trong FB_VERIFY_TOKEN]";
   const redirectUri = typeof window !== "undefined" ? `${window.location.origin}/api/channels/facebook/oauth/callback` : "https://crm.addp.vn/api/channels/facebook/oauth/callback";
 
   return (

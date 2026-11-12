@@ -32,6 +32,10 @@ import {
 } from "./tiktokConfig.js";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
+import { isSafePilotMode, isAutoSyncAllowed } from "./pilotConfig.js";
+import { sendMetaFacebookMessage } from "./adapters/metaFacebookAdapter.js";
+import { sendZaloOaMessage } from "./adapters/zaloOaAdapter.js";
+import { recordMessageAudit } from "./adapters/messageAuditLogger.js";
 
 const DATA_FILE = path.join(process.cwd(), "data", "omnichannel_messages.json");
 
@@ -1541,11 +1545,16 @@ export async function getOmnichannelConversations(forceRefresh = false) {
 
   const convMap = new Map();
 
-  // 1. Lấy hội thoại thật từ các Fanpage Facebook & TikTok Shop qua API (TikTok chỉ fetch khi forceRefresh hoặc cache hết hạn)
-  const [liveFb, liveTikTok] = await Promise.all([
-    fetchLiveFacebookConversations(forceRefresh),
-    fetchLiveTikTokConversations(forceRefresh).catch(() => []),
-  ]);
+  // 1. Lấy hội thoại thật từ các Fanpage Facebook & TikTok Shop qua API
+  // Nếu bật cờ tắt đồng bộ (QA_DISABLE_AUTO_SYNC hoặc PILOT_SAFE_MODE): bỏ qua gọi API ngoài
+  let liveFb = [];
+  let liveTikTok = [];
+  if (isAutoSyncAllowed()) {
+    [liveFb, liveTikTok] = await Promise.all([
+      fetchLiveFacebookConversations(forceRefresh),
+      fetchLiveTikTokConversations(forceRefresh).catch(() => []),
+    ]);
+  }
   for (const fbConv of liveFb) {
     convMap.set(`FACEBOOK_${fbConv.id}`, fbConv);
   }
@@ -1752,100 +1761,141 @@ export async function sendUnifiedMessage({
   text,
   channelId,
   pageId,
+  staffId = "STAFF",
+  staffName = "Chuyên viên ADDP",
+  staffConfirmed = false,
 }) {
   if (!text || (!recipientId && !conversationId && !thread)) {
     return { ok: false, error: "Thiếu nội dung hoặc người nhận tin nhắn." };
   }
 
-  if (channel === "ZALO_PERSONAL") {
-    const res = await sendTextMessage(
-      "Dược sĩ Thảo (AI)",
-      String(recipientId),
-      String(text)
-    );
-    if (res.ok) {
-      await addUnifiedMessage({
-        channel: "ZALO_PERSONAL",
-        channelId: channelId || "zalo_default",
-        channelName: "Zalo Cá Nhân (Sơn Tùng)",
-        threadId: recipientId,
-        senderId: "me",
-        senderName: "Dược sĩ Thảo (AI)",
-        text,
-        isMe: true,
-        metadata: { skipAiBot: true },
-      });
-      return { ok: true, message: "Đã gửi qua Zalo cá nhân!" };
-    }
-    return { ok: false, error: res.error || "Gửi Zalo thất bại" };
-  }
+  const targetRecipientId = String(recipientId || conversationId || "");
 
+  // 1. Kênh Fanpage Facebook chính thức qua Meta Graph API
   if (channel === "FACEBOOK") {
     const channels = listAllChannels();
     const fbChannels = channels.filter(
       (c) => c.platform === "FACEBOOK" && c.config?.pageId && c.config?.pageAccessToken
     );
 
-    const meta = fbThreadMetaMap.get(String(recipientId));
-    const targetPageId = pageId || channelId || meta?.pageId || "";
+    const meta = fbThreadMetaMap.get(targetRecipientId);
+    const targetPageId = pageId || channelId || meta?.pageId || process.env.META_TEST_PAGE_ID || "";
     const fbChannel =
       fbChannels.find((c) => String(c.config.pageId) === String(targetPageId)) || fbChannels[0];
 
-    const token = fbChannel?.config?.pageAccessToken;
-    const resolvedPageId = fbChannel?.config?.pageId;
-    let targetPsid = meta?.psid || String(recipientId);
+    const token = fbChannel?.config?.pageAccessToken || process.env.META_TEST_PAGE_ACCESS_TOKEN || "";
+    const resolvedPageId = fbChannel?.config?.pageId || targetPageId;
+    let targetPsid = meta?.psid || targetRecipientId;
 
-    if (token) {
+    if (token && targetPsid.startsWith("t_")) {
       try {
-        // Nếu recipientId đang là mã hội thoại t_xxx thì truy vấn PSID của khách hàng
-        if (targetPsid.startsWith("t_")) {
-          const convRes = await fetch(
-            `https://graph.facebook.com/v19.0/${encodeURIComponent(
-              targetPsid
-            )}?fields=participants&access_token=${encodeURIComponent(token)}`
-          );
-          const convData = await convRes.json();
-          const parts = Array.isArray(convData?.participants?.data) ? convData.participants.data : [];
-          const cust = parts.find((p) => String(p.id) !== String(resolvedPageId)) || parts[0];
-          if (cust?.id) {
-            targetPsid = String(cust.id);
-          }
+        const convRes = await fetch(
+          `https://graph.facebook.com/v20.0/${encodeURIComponent(
+            targetPsid
+          )}?fields=participants&access_token=${encodeURIComponent(token)}`
+        );
+        const convData = await convRes.json();
+        const parts = Array.isArray(convData?.participants?.data) ? convData.participants.data : [];
+        const cust = parts.find((p) => String(p.id) !== String(resolvedPageId)) || parts[0];
+        if (cust?.id) {
+          targetPsid = String(cust.id);
         }
-
-        const sendUrl = `https://graph.facebook.com/v19.0/me/messages?access_token=${encodeURIComponent(token)}`;
-        const fbRes = await fetch(sendUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recipient: { id: targetPsid },
-            message: { text },
-          }),
-        });
-        const fbData = await fbRes.json();
-        if (fbData.message_id) {
-          await addUnifiedMessage({
-            channel: "FACEBOOK",
-            channelId: resolvedPageId,
-            channelName: fbChannel.name,
-            threadId: String(recipientId),
-            senderId: "me",
-            senderName: fbChannel.name,
-            text,
-            isMe: true,
-          });
-          return { ok: true, message: `Đã gửi tin nhắn qua Fanpage ${fbChannel.name}!` };
-        } else if (fbData.error) {
-          return { ok: false, error: `Meta báo lỗi: ${fbData.error.message}` };
-        }
-      } catch (err) {
-        console.error("[FB_SEND_ERR]", err);
-        return { ok: false, error: `Lỗi kết nối Meta Graph API: ${err.message}` };
-      }
+      } catch {}
     }
 
-    return { ok: false, error: "Chưa tìm thấy Page Access Token hợp lệ cho Fanpage này." };
+    const adapterRes = await sendMetaFacebookMessage({
+      pageId: resolvedPageId,
+      pageAccessToken: token,
+      recipientPsid: targetPsid,
+      text,
+      staffId,
+      staffName,
+      staffConfirmed,
+    });
+
+    if (adapterRes.ok) {
+      await addUnifiedMessage({
+        channel: "FACEBOOK",
+        channelId: resolvedPageId,
+        channelName: fbChannel?.name || "Fanpage Facebook",
+        threadId: targetRecipientId,
+        senderId: staffId || "me",
+        senderName: staffName || fbChannel?.name || "Fanpage Facebook",
+        text,
+        isMe: true,
+        metadata: {
+          mocked: adapterRes.mocked,
+          messageId: adapterRes.messageId,
+          provider: "META_GRAPH_API",
+        },
+      });
+      return {
+        ok: true,
+        status: adapterRes.status || "sent",
+        mocked: Boolean(adapterRes.mocked),
+        safeMode: Boolean(adapterRes.safeMode),
+        provider: "META_GRAPH_API",
+        messageId: adapterRes.messageId,
+        message: adapterRes.message || `Đã gửi tin nhắn qua Fanpage ${fbChannel?.name || "Facebook"}!`,
+      };
+    }
+    return { ok: false, status: adapterRes.status || "failed", error: adapterRes.error };
   }
 
+  // 2. Kênh Zalo Official Account (OA) chính thức qua Zalo OpenAPI v3
+  if (channel === "ZALO_OA") {
+    const channels = listAllChannels();
+    const oaChannels = channels.filter(
+      (c) => (c.platform === "ZALO_OA" || c.type === "zalo_oa") && (c.config?.accessToken || c.config?.oaId)
+    );
+    const targetOaId = pageId || channelId || process.env.ZALO_OA_TEST_ID || "";
+    const oaChannel =
+      oaChannels.find((c) => String(c.config?.oaId) === String(targetOaId)) || oaChannels[0];
+
+    const effectiveToken =
+      oaChannel?.config?.accessToken || process.env.ZALO_OA_TEST_ACCESS_TOKEN || "";
+    const resolvedOaId = oaChannel?.config?.oaId || targetOaId;
+
+    const adapterRes = await sendZaloOaMessage({
+      oaId: resolvedOaId,
+      accessToken: effectiveToken,
+      recipientUserId: targetRecipientId,
+      text,
+      staffId,
+      staffName,
+      staffConfirmed,
+    });
+
+    if (adapterRes.ok) {
+      await addUnifiedMessage({
+        channel: "ZALO_OA",
+        channelId: resolvedOaId || "oa_default",
+        channelName: oaChannel?.name || "Zalo OA",
+        threadId: targetRecipientId,
+        senderId: staffId || "me",
+        senderName: staffName || "CSKH ADDP",
+        text,
+        isMe: true,
+        metadata: {
+          mocked: adapterRes.mocked,
+          messageId: adapterRes.messageId,
+          provider: "ZALO_OPENAPI",
+        },
+      });
+      return {
+        ok: true,
+        status: adapterRes.status || "sent",
+        mocked: Boolean(adapterRes.mocked),
+        safeMode: Boolean(adapterRes.safeMode),
+        provider: "ZALO_OPENAPI",
+        messageId: adapterRes.messageId,
+        message: adapterRes.message || `Đã gửi tin nhắn qua Zalo OA ${oaChannel?.name || ""}!`,
+      };
+    }
+    return { ok: false, status: adapterRes.status || "failed", error: adapterRes.error };
+  }
+
+  // 3. Kênh TikTok Shop Customer Service
   if (channel === "TIKTOK_SHOP" || channel === "TIKTOK") {
     return await sendTikTokShopMessage({
       conversationId: conversationId || recipientId,
@@ -1857,16 +1907,105 @@ export async function sendUnifiedMessage({
     });
   }
 
-  await addUnifiedMessage({
-    channel: channel || "ZALO_OA",
-    channelId: channelId || "oa_default",
-    channelName: "Zalo OA",
-    threadId: recipientId,
-    senderId: "me",
-    senderName: "CSKH ADDP",
-    text,
-    isMe: true,
-  });
+  // 4. Kênh Zalo Cá Nhân (Giữ ở trạng thái thử nghiệm - Không bật broadcast/hàng loạt)
+  if (channel === "ZALO_PERSONAL") {
+    if (isSafePilotMode()) {
+      recordMessageAudit({
+        staffId,
+        staffName,
+        staffConfirmed: true,
+        channel: "ZALO_PERSONAL",
+        recipient: targetRecipientId,
+        text,
+        status: "mocked",
+        provider: "ZALO_CLI_EXPERIMENTAL",
+        providerHttpCode: 200,
+        mocked: true,
+        safeMode: true,
+      });
+      await addUnifiedMessage({
+        channel: "ZALO_PERSONAL",
+        channelId: channelId || "zalo_default",
+        channelName: "Zalo Cá Nhân (Thử nghiệm)",
+        threadId: targetRecipientId,
+        senderId: staffId || "me",
+        senderName: staffName || "Chuyên viên ADDP",
+        text,
+        isMe: true,
+        metadata: { skipAiBot: true, pilotMock: true },
+      });
+      return {
+        ok: true,
+        status: "mocked",
+        mocked: true,
+        safeMode: true,
+        provider: "ZALO_CLI_EXPERIMENTAL",
+        message: `[Safe Mode] Giả lập gửi tin Zalo Cá Nhân an toàn tới ${targetRecipientId}!`,
+      };
+    }
 
-  return { ok: true, message: `Đã gửi tin nhắn thành công qua ${channel}!` };
+    if (!staffConfirmed) {
+      return {
+        ok: false,
+        status: "failed",
+        error: "Yêu cầu xác nhận chủ động từ nhân viên trước khi gửi tin nhắn qua Zalo Cá Nhân thử nghiệm.",
+      };
+    }
+
+    const res = await sendTextMessage(
+      staffName || "Chuyên viên ADDP",
+      targetRecipientId,
+      String(text)
+    );
+
+    if (res.ok) {
+      recordMessageAudit({
+        staffId,
+        staffName,
+        staffConfirmed: true,
+        channel: "ZALO_PERSONAL",
+        recipient: targetRecipientId,
+        text,
+        status: "sent",
+        provider: "ZALO_CLI_EXPERIMENTAL",
+        providerHttpCode: 200,
+        mocked: false,
+        safeMode: false,
+      });
+      await addUnifiedMessage({
+        channel: "ZALO_PERSONAL",
+        channelId: channelId || "zalo_default",
+        channelName: "Zalo Cá Nhân (Thử nghiệm)",
+        threadId: targetRecipientId,
+        senderId: staffId || "me",
+        senderName: staffName || "Chuyên viên ADDP",
+        text,
+        isMe: true,
+        metadata: { skipAiBot: true, experimental: true },
+      });
+      return {
+        ok: true,
+        status: "sent",
+        provider: "ZALO_CLI_EXPERIMENTAL",
+        message: "Đã gửi qua Zalo Cá Nhân (Kênh thử nghiệm)!",
+      };
+    }
+
+    recordMessageAudit({
+      staffId,
+      staffName,
+      staffConfirmed: true,
+      channel: "ZALO_PERSONAL",
+      recipient: targetRecipientId,
+      text,
+      status: "failed",
+      provider: "ZALO_CLI_EXPERIMENTAL",
+      mocked: false,
+      safeMode: false,
+      error: res.error,
+    });
+    return { ok: false, status: "failed", error: res.error || "Gửi Zalo thất bại." };
+  }
+
+  return { ok: false, status: "failed", error: `Kênh không được hỗ trợ: ${channel}` };
 }

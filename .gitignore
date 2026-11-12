@@ -233,4 +233,25 @@ deploy/certbot/
 portal/node_modules/
 portal/.next/
 portal/config/
+
+# QA Agent environment files & test reports
+.env.qa
+.env.qa.*
+!**/.env.qa.example
+reports/qa/
+
+# Runtime data & temp files
+.data/
+.data_staging/
+portal/.data_staging/
+data/
+cookies.txt
+portal/public/audit_screenshots/
+backups/
+
+# Local dev and test utilities
+.vscode/
+.mcp.json
+visual_check.py
+
 scratch/

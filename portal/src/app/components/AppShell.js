@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
-import { canAccessModule } from "@/lib/auth";
+import { canAccessModule } from "@/lib/authConstants";
 import { ShieldAlert, ArrowLeft } from "lucide-react";
 
 function resolveModuleKeyFromPathname(pathname) {

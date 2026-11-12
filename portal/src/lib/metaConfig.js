@@ -8,18 +8,18 @@ export function getMetaConfig() {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
       return {
-        appId: data.appId || process.env.FB_APP_ID || "1818021756018026",
+        appId: data.appId || process.env.FB_APP_ID || "",
         appSecret: data.appSecret || process.env.FB_APP_SECRET || "",
-        verifyToken: data.verifyToken || process.env.FB_VERIFY_TOKEN || "addp_crm_fb_webhook_secret_2026",
+        verifyToken: data.verifyToken || process.env.FB_VERIFY_TOKEN || "",
       };
     }
   } catch (err) {
     console.error("[META_CONFIG_READ_ERR]", err);
   }
   return {
-    appId: process.env.FB_APP_ID || "1818021756018026",
+    appId: process.env.FB_APP_ID || "",
     appSecret: process.env.FB_APP_SECRET || "",
-    verifyToken: process.env.FB_VERIFY_TOKEN || "addp_crm_fb_webhook_secret_2026",
+    verifyToken: process.env.FB_VERIFY_TOKEN || "",
   };
 }
 

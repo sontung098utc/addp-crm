@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { spinAndPersonalizeText } from "@/lib/broadcastEngine.js";
 import { sendTextMessage } from "@/lib/zaloRunner.js";
 import { listAllChannels } from "@/lib/connectionHub.js";
+import { isSafePilotMode } from "@/lib/pilotConfig.js";
 
 /**
  * ADDP CRM — API Gửi Thử 1 Tin Nhắn Broadcast (Single Test Message)
@@ -46,6 +47,19 @@ export async function POST(request) {
     });
 
     const chUpper = String(channel).toUpperCase();
+
+    if (isSafePilotMode()) {
+      return NextResponse.json({
+        ok: true,
+        mocked: true,
+        safeMode: true,
+        message: `[PILOT_SAFE_MODE] Đã giả lập gửi thử tin nhắn tới ${cleanTarget} (chưa gửi thật ra ngoài).`,
+        renderedText,
+        target: cleanTarget,
+        timestamp: new Date().toISOString(),
+        msgId: `mock_test_${Date.now()}`,
+      });
+    }
 
     // 1. Gửi thử qua Zalo Cá Nhân (zca-js)
     if (chUpper.includes("ZALO") && chUpper !== "ZALO_OA") {

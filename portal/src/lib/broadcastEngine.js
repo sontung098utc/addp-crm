@@ -4,16 +4,19 @@ import { filterCustomersByTags, maskPhoneMiddle } from "./customerIdentityResolv
 import { resolveBroadcastAudience } from "./broadcastAudienceResolver.js";
 import { sendTextMessage, hasExistingZaloConnection } from "./zaloRunner.js";
 import { listAllChannels } from "./connectionHub.js";
+import { DEFAULT_DAILY_ZALO_MSG_LIMIT, isSafePilotMode } from "./pilotConfig.js";
+import { sendMetaFacebookMessage } from "./adapters/metaFacebookAdapter.js";
+import { sendZaloOaMessage } from "./adapters/zaloOaAdapter.js";
 
 /**
  * ADDP Omnichannel AI CRM — Smart Broadcast Engine & Anti-Ban Queue (WBS-35 - Modules 2 & 3)
  * - Lưu trữ bền vững chiến dịch tại `portal/.data/broadcast_campaigns.json`.
  * - AI Spin Text (`{a|b|c}`) & Cá nhân hóa biến `{fullName}`, `{firstName}`, `{phone}`, `{assignedStaff}`.
- * - Hàng đợi gửi tin an toàn: Giãn cách ngẫu nhiên 45s - 120s/tin, giới hạn cứng 150 tin/tài khoản Zalo/ngày.
+ * - Hàng đợi gửi tin an toàn: Giãn cách ngẫu nhiên 45s - 120s/tin, giới hạn định mức server (Điều 4 AGENTS.md).
  * - Đấu nối gửi thực tế qua Zalo Cá nhân (`zca-js`), Fanpage Facebook (Luật 24h + Message Tag), Zalo OA (48h / ZNS).
  */
 
-const HARD_DAILY_LIMIT_PER_ACCOUNT = 150;
+const HARD_DAILY_LIMIT_PER_ACCOUNT = DEFAULT_DAILY_ZALO_MSG_LIMIT;
 
 function getCampaignsFilePath() {
   const candidates = [
@@ -203,6 +206,17 @@ function randomDelay(minMs = 45000, maxMs = 120000) {
 async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText) {
   const channel = String(campaign.channel || "ZALO_PERSONAL").toUpperCase();
 
+  if (isSafePilotMode()) {
+    console.log(
+      `[PILOT_SAFE_MODE] Giả lập Broadcast gửi tới ${customer.phone || customer.fullName}: "${renderedText.slice(0, 60)}"`
+    );
+    return {
+      ok: true,
+      mocked: true,
+      note: "[PILOT_SAFE_MODE] Giả lập gửi tin broadcast an toàn thành công (Mock)",
+    };
+  }
+
   // Nếu chạy ở chế độ kiểm thử Mock Send (để test luồng chiến dịch mà không bắn tin thật ra ngoài)
   if (campaign.mockMode === true) {
     // Vẫn kiểm tra quy tắc an toàn nền tảng (như Meta 24h) nếu khách có đánh dấu quá 24h
@@ -224,56 +238,17 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
   }
 
   // 1. Đối với Zalo Cá nhân:
-  // - Gửi qua zaloRunner.sendTextMessage(accountPhone, targetZaloId, text)
-  // - Chỉ gửi cho những khách hàng đã có kết nối/tin nhắn từ trước, tuyệt đối không gửi cho người lạ chưa có thread
+  // Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Tuyệt đối không bật gửi hàng loạt.
   if (channel === "ZALO_PERSONAL" || channel === "ZALO") {
-    const targetZaloId = customer.zaloUid || customer.zaloThreadId || customer.phone || "";
-    const hasConnectedBefore =
-      Boolean(customer.zaloUid || customer.zaloThreadId || customer.hasExistingThread) ||
-      hasExistingZaloConnection(targetZaloId, customer.phone);
-
-    if (!hasConnectedBefore) {
-      return {
-        ok: false,
-        skipped: true,
-        reason: "Bỏ qua: Khách chưa có kết nối/tin nhắn Zalo từ trước (Anti-Ban)",
-      };
-    }
-
-    const res = await sendTextMessage(
-      campaign.accountName || campaign.channelId || "ZALO_PERSONAL",
-      targetZaloId,
-      renderedText
-    );
-    if (res.ok) {
-      return { ok: true, note: "Đã gửi qua Zalo Cá Nhân (zca-js)" };
-    }
-    return { ok: false, error: res.error || "Lỗi gửi Zalo Cá Nhân" };
+    return {
+      ok: false,
+      skipped: true,
+      reason: "Bỏ qua: Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Nghiêm cấm gửi tin hàng loạt (Broadcast) theo Điều 4 AGENTS.md.",
+    };
   }
 
-  // 2. Đối với Fanpage Facebook:
-  // - Kiểm tra mốc thời gian tương tác cuối cùng của khách (lastInteractionTime)
-  //   + Trong vòng 24 giờ: Gửi qua Graph API /v20.0/me/messages với messaging_type: "RESPONSE"
-  //   + Quá 24 giờ: Chỉ gửi nếu chiến dịch đánh dấu useMessageTag: true với tag hợp lệ
-  //     (CONFIRMED_EVENT_UPDATE hoặc POST_PURCHASE_UPDATE), ngược lại bỏ qua và ghi log "Bỏ qua do vi phạm luật Meta 24h"
+  // 2. Đối với Fanpage Facebook (Meta Graph API)
   if (channel === "FACEBOOK") {
-    const lastTs = customer.lastInteractionTime
-      ? new Date(customer.lastInteractionTime).getTime()
-      : 0;
-    const isWithin24h = lastTs > 0 && Date.now() - lastTs <= 24 * 3600 * 1000;
-    const validTags = ["CONFIRMED_EVENT_UPDATE", "POST_PURCHASE_UPDATE"];
-    const selectedTag = validTags.includes(campaign.messageTag)
-      ? campaign.messageTag
-      : "POST_PURCHASE_UPDATE";
-
-    if (!isWithin24h && !campaign.useMessageTag) {
-      return {
-        ok: false,
-        skipped: true,
-        reason: "Bỏ qua do vi phạm luật Meta 24h",
-      };
-    }
-
     const psid = customer.facebookId || customer.psid || "";
     if (!psid) {
       return {
@@ -291,76 +266,67 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
         (!campaign.channelId || String(c.id) === String(campaign.channelId) || String(c.config.pageId) === String(campaign.channelId))
     );
 
-    const token = fbCh?.config?.pageAccessToken;
-    if (!token) {
+    const token = fbCh?.config?.pageAccessToken || process.env.META_TEST_PAGE_ACCESS_TOKEN || "";
+    const pageId = fbCh?.config?.pageId || process.env.META_TEST_PAGE_ID || "";
+
+    const res = await sendMetaFacebookMessage({
+      pageId,
+      pageAccessToken: token,
+      recipientPsid: psid,
+      text: renderedText,
+      staffId: campaign.operator || "BROADCAST_OPERATOR",
+      staffName: "Tự động Broadcast (Meta Graph API)",
+      staffConfirmed: true,
+      messageTag: campaign.useMessageTag ? (campaign.messageTag || "POST_PURCHASE_UPDATE") : "",
+    });
+
+    if (res.ok) {
       return {
-        ok: false,
-        error: "Chưa cấu hình Page Access Token cho Fanpage Facebook.",
+        ok: true,
+        note: `Đã gửi qua Meta Graph API (MsgID: ${res.messageId})`,
       };
     }
-
-    const payload = isWithin24h
-      ? {
-          messaging_type: "RESPONSE",
-          recipient: { id: String(psid) },
-          message: { text: renderedText },
-        }
-      : {
-          messaging_type: "MESSAGE_TAG",
-          tag: selectedTag,
-          recipient: { id: String(psid) },
-          message: { text: renderedText },
-        };
-
-    try {
-      const fbRes = await fetch(
-        `https://graph.facebook.com/v20.0/me/messages?access_token=${encodeURIComponent(token)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
-      const fbData = await fbRes.json();
-      if (fbData.message_id) {
-        return {
-          ok: true,
-          note: isWithin24h
-            ? "Đã gửi qua Messenger (Trong khung 24h - RESPONSE)"
-            : `Đã gửi qua Messenger (Message Tag: ${selectedTag})`,
-        };
-      }
-      return {
-        ok: false,
-        error: fbData.error?.message || "Meta Graph API từ chối gửi tin.",
-      };
-    } catch (err) {
-      return { ok: false, error: `Lỗi kết nối Meta Graph API: ${err.message}` };
-    }
+    return { ok: false, error: res.error || "Meta Graph API từ chối gửi tin." };
   }
 
-  // 3. Đối với Zalo OA:
-  // - Gửi tin tư vấn nếu trong 48h hoặc gọi API gửi ZNS theo template đã duyệt
+  // 3. Đối với Zalo OA (Zalo OpenAPI v3)
   if (channel === "ZALO_OA") {
-    const lastTs = customer.lastInteractionTime
-      ? new Date(customer.lastInteractionTime).getTime()
-      : 0;
-    const isWithin48h = lastTs > 0 && Date.now() - lastTs <= 48 * 3600 * 1000;
-
-    if (!isWithin48h && !campaign.useZnsTemplate) {
+    const userId = customer.zaloOaUserId || customer.oaUserId || customer.phone || "";
+    if (!userId) {
       return {
         ok: false,
         skipped: true,
-        reason: "Bỏ qua: Quá hạn 48h tương tác Zalo OA và chưa bật gửi ZNS Template",
+        reason: "Bỏ qua: Khách hàng chưa có Zalo OA User ID",
       };
     }
 
-    return {
-      ok: true,
-      note: isWithin48h
-        ? "Đã gửi tin Tư vấn Zalo OA (Trong khung 48h)"
-        : `Đã gửi thông báo ZNS Template (${campaign.znsTemplateId || "ZNS_CARE_ADDP"})`,
-    };
+    const allChannels = listAllChannels();
+    const oaCh = allChannels.find(
+      (c) =>
+        (c.platform === "ZALO_OA" || c.type === "zalo_oa") &&
+        (c.config?.accessToken || c.config?.oaId)
+    );
+
+    const token = oaCh?.config?.accessToken || process.env.ZALO_OA_TEST_ACCESS_TOKEN || "";
+    const oaId = oaCh?.config?.oaId || process.env.ZALO_OA_TEST_ID || "";
+
+    const res = await sendZaloOaMessage({
+      oaId,
+      accessToken: token,
+      recipientUserId: userId,
+      text: renderedText,
+      staffId: campaign.operator || "BROADCAST_OPERATOR",
+      staffName: "Tự động Broadcast (Zalo OpenAPI)",
+      staffConfirmed: true,
+    });
+
+    if (res.ok) {
+      return {
+        ok: true,
+        note: `Đã gửi qua Zalo OpenAPI (MsgID: ${res.messageId})`,
+      };
+    }
+    return { ok: false, error: res.error || "Zalo OpenAPI từ chối gửi tin." };
   }
 
   return { ok: false, error: `Kênh không hợp lệ: ${channel}` };
@@ -400,7 +366,7 @@ export async function runCampaignQueue(campaignId) {
 
       if (sentToday >= hardLimit) {
         campaign.status = "PAUSED";
-        campaign.pauseReason = "Đạt giới hạn an toàn 150 tin/ngày";
+        campaign.pauseReason = `Đạt giới hạn an toàn ${hardLimit} tin/ngày`;
         campaign.nextSendInSec = null;
         campaign.updatedAt = new Date().toISOString();
         saveCampaignsToDisk(store);
@@ -540,6 +506,10 @@ export function getBroadcastCampaignById(id) {
   return all.find((c) => String(c.id) === String(id)) || null;
 }
 
+export function isPersistentQueueAvailable() {
+  return process.env.MYSQL_PERSISTENT_QUEUE_ENABLED === "true";
+}
+
 /**
  * Tạo chiến dịch Broadcast mới (Module 2.1 & 2.4)
  */
@@ -555,6 +525,20 @@ export function createBroadcastCampaign(input = {}) {
     ? input.excludeTags
     : ["Đã Hủy Đơn", "Khiếu Nại", "Dừng Chăm Sóc"];
   const channel = String(input.channel || input.channelType || "ZALO_PERSONAL").toUpperCase();
+
+  // Kiểm tra cấm gửi hàng loạt qua Zalo cá nhân (Requirement 2)
+  if ((channel === "ZALO_PERSONAL" || channel === "ZALO") && !input.mockMode) {
+    throw new Error(
+      "Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Nghiêm cấm kích hoạt chiến dịch gửi tin hàng loạt qua Zalo cá nhân theo Điều 4 AGENTS.md."
+    );
+  }
+
+  // Kiểm tra điều kiện tiên quyết cho gửi thật hàng loạt (Requirement 6)
+  if (!input.mockMode && !isPersistentQueueAvailable()) {
+    throw new Error(
+      "Hệ thống Broadcast & Lên lịch gửi tin thật chưa được kích hoạt: Thiếu MySQL 8.0 bền vững và hàng đợi phân tán (Redis/BullMQ) trên staging. Hiện chỉ hỗ trợ gửi 1-1 do nhân viên chủ động xác nhận hoặc chạy chiến dịch ở chế độ Mô phỏng (Mock Mode)."
+    );
+  }
   const operator = input.operator === "OR" ? "OR" : "AND";
   const audienceSource =
     input.audienceSource || (includeTags.length > 0 ? "BY_TAG" : "ZALO_FRIENDS");
@@ -694,6 +678,14 @@ export function controlBroadcastCampaign(id, action = "pause", reason = "") {
   }
 
   if (act === "start" || act === "resume" || act === "running" || act === "processing") {
+    if (!campaign.mockMode && !isSafePilotMode() && !isPersistentQueueAvailable()) {
+      campaign.status = "PAUSED";
+      campaign.pauseReason = "Chưa có MySQL 8.0 & Queue bền vững trên staging. Chỉ hỗ trợ gửi thử Mock Mode hoặc 1-1.";
+      campaign.updatedAt = nowIso;
+      saveCampaignsToDisk(store);
+      return campaign;
+    }
+
     campaign.status = "RUNNING";
     campaign.pauseReason = null;
     campaign.updatedAt = nowIso;

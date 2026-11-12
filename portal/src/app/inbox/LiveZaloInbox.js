@@ -193,6 +193,15 @@ export default function LiveZaloInbox() {
   // Tin nhắn của cuộc trò chuyện đang chọn
   const [messages, setMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [messagesError, setMessagesError] = useState(null);
+  const [messagesMeta, setMessagesMeta] = useState({
+    hasMore: false,
+    oldestTimestamp: 0,
+    latestTimestamp: 0,
+    historyLimited: false,
+    limitationReason: "",
+  });
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -265,6 +274,12 @@ export default function LiveZaloInbox() {
   );
 
   const messagesEndRef = useRef(null);
+  const msgStreamRef = useRef(null);
+  const isNearBottomRef = useRef(true);
+  const forceScrollNextRef = useRef(true);
+  const convInFlightRef = useRef(false);
+  const msgInFlightRef = useRef(false);
+  const latestTimestampRef = useRef(0);
   const activeConvRef = useRef(activeConv);
   const convSignatureRef = useRef("");
   const prevMsgCountRef = useRef(0);
@@ -397,6 +412,8 @@ export default function LiveZaloInbox() {
           if (data.type === "NEW_MESSAGE" && data.message) {
             const newMsg = data.message;
             if (activeConvRef.current && String(activeConvRef.current.id) === String(newMsg.threadId)) {
+              const msgTs = Number(newMsg.timestamp) || Date.now();
+              if (msgTs > latestTimestampRef.current) latestTimestampRef.current = msgTs;
               setMessages((prev) => {
                 if ((prev || []).some((m) => m.id === newMsg.id)) return prev;
                 return [
@@ -445,16 +462,21 @@ export default function LiveZaloInbox() {
     };
   }, []);
 
-  // Tự động cuộn xuống đáy khi có tin nhắn mới
+  // Tự động cuộn xuống đáy khi đổi hội thoại hoặc có tin nhắn mới (chỉ khi đang ở gần đáy)
   useEffect(() => {
     if (messages.length !== prevMsgCountRef.current) {
       prevMsgCountRef.current = messages.length;
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (forceScrollNextRef.current || isNearBottomRef.current) {
+        forceScrollNextRef.current = false;
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     }
   }, [messages]);
 
-  // 1. Tải danh sách cuộc hội thoại thực tế
+  // 1. Tải danh sách cuộc hội thoại thực tế (chống chồng lặp request)
   const loadConversations = async (showLoading = true, forceRefresh = false) => {
+    if (convInFlightRef.current && !forceRefresh) return;
+    convInFlightRef.current = true;
     try {
       if (showLoading) setLoadingConv(true);
       else if (forceRefresh) setIsRefreshing(true);
@@ -546,6 +568,7 @@ export default function LiveZaloInbox() {
     } catch (err) {
       console.error("Lỗi tải hội thoại:", err);
     } finally {
+      convInFlightRef.current = false;
       setLoadingConv(false);
       setIsRefreshing(false);
     }
@@ -569,16 +592,28 @@ export default function LiveZaloInbox() {
     loadConversations(!hasLocal, false);
 
     const pollTimer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       loadConversations(false, false);
     }, 12000);
 
-    return () => clearInterval(pollTimer);
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        loadConversations(false, false);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   // Tự động làm mới nhanh hơn (4s/lần) khi tài khoản Zalo mới đăng nhập đang kéo lịch sử tin nhắn cũ
   useEffect(() => {
     if (!zaloSyncStatus?.isSyncing) return;
     const fastSyncTimer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       loadConversations(false, false);
     }, 4000);
     return () => clearInterval(fastSyncTimer);
@@ -610,18 +645,37 @@ export default function LiveZaloInbox() {
     }
   }, [channelFilter, selectedPageId, selectedZaloAccountId, conversations, activeConv]);
 
-  // 2. Tải lịch sử tin nhắn khi đổi người chat & tự động làm mới ngầm (Instant Cache Transition 0ms)
+  // 2. Tải lịch sử tin nhắn khi đổi người chat & đồng bộ tăng dần (cursor since + chống chồng lặp + pause khi ẩn tab)
   useEffect(() => {
     if (!activeConv?.id) return;
     let isCancelled = false;
     const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
+    latestTimestampRef.current = 0;
+    forceScrollNextRef.current = true;
+    isNearBottomRef.current = true;
+    setMessagesError(null);
+    setMessagesMeta({
+      hasMore: false,
+      oldestTimestamp: 0,
+      latestTimestamp: 0,
+      historyLimited: false,
+      limitationReason: "",
+    });
 
     async function fetchMessagesForActive(silent = false) {
+      if (msgInFlightRef.current && silent) return;
+      msgInFlightRef.current = true;
       try {
         if (!silent) {
           setLoadingMessages(true);
+          setMessagesError(null);
           prevMsgCountRef.current = 0;
         }
+        const sinceQuery =
+          silent && latestTimestampRef.current > 0
+            ? `&since=${encodeURIComponent(latestTimestampRef.current)}`
+            : "&limit=100";
+
         const res = await fetch(
           `/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}&type=${encodeURIComponent(
             activeConv.type || "DIRECT"
@@ -629,29 +683,64 @@ export default function LiveZaloInbox() {
             activeConv.pageId || ""
           )}&accountId=${encodeURIComponent(activeConv.accountId || "")}&homeDir=${encodeURIComponent(
             activeConv.zaloHome || ""
-          )}&name=${encodeURIComponent(activeConv.name || activeConv.customerName || "")}`
+          )}&name=${encodeURIComponent(activeConv.name || activeConv.customerName || "")}${sinceQuery}`
         );
-        const data = await res.json();
+        const data = await res.json().catch(() => null);
         if (isCancelled) return;
 
-        if (data.ok && Array.isArray(data.messages)) {
-          messageCacheRef.current.set(convCacheKey, data.messages);
-          setMessages((prev) => {
-            if (
-              silent &&
-              (prev || []).length === data.messages.length &&
-              prev[prev.length - 1]?.id === data.messages[data.messages.length - 1]?.id
-            ) {
-              return prev;
+        if (res.ok && data?.ok && Array.isArray(data.messages)) {
+          setMessagesError(null);
+          const nextLatest = Number(data.latestTimestamp) || 0;
+          if (nextLatest > latestTimestampRef.current) {
+            latestTimestampRef.current = nextLatest;
+          }
+
+          if (data.incremental) {
+            if (data.messages.length > 0) {
+              setMessages((prev) => {
+                const existing = prev || [];
+                const seen = new Set(existing.map((m) => String(m.id)));
+                const additions = data.messages.filter((m) => !seen.has(String(m.id)));
+                if (additions.length === 0) return existing;
+                const merged = [...existing, ...additions].sort(
+                  (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
+                );
+                messageCacheRef.current.set(convCacheKey, merged);
+                return merged;
+              });
             }
-            return data.messages;
-          });
+          } else {
+            const maxTs = data.messages.reduce((mx, m) => Math.max(mx, Number(m.timestamp) || 0), 0);
+            if (maxTs > latestTimestampRef.current) latestTimestampRef.current = maxTs;
+
+            setMessagesMeta({
+              hasMore: Boolean(data.hasMore),
+              oldestTimestamp: Number(data.oldestTimestamp) || 0,
+              latestTimestamp: nextLatest || maxTs,
+              historyLimited: Boolean(data.historyLimited),
+              limitationReason: data.limitationReason || "",
+            });
+            messageCacheRef.current.set(convCacheKey, data.messages);
+            setMessages((prev) => {
+              if (
+                silent &&
+                (prev || []).length === data.messages.length &&
+                prev[prev.length - 1]?.id === data.messages[data.messages.length - 1]?.id
+              ) {
+                return prev;
+              }
+              return data.messages;
+            });
+          }
         } else if (!silent) {
-          setMessages([]);
+          setMessagesError(data?.error || `Lỗi tải tin nhắn (HTTP ${res.status}).`);
         }
-      } catch {
-        if (!silent && !isCancelled) setMessages([]);
+      } catch (err) {
+        if (!silent && !isCancelled) {
+          setMessagesError(err?.message || "Mất kết nối khi tải lịch sử tin nhắn.");
+        }
       } finally {
+        msgInFlightRef.current = false;
         if (!silent && !isCancelled) setLoadingMessages(false);
       }
     }
@@ -660,20 +749,79 @@ export default function LiveZaloInbox() {
     const cachedMsgs = messageCacheRef.current.get(convCacheKey);
     if (cachedMsgs && Array.isArray(cachedMsgs) && cachedMsgs.length > 0) {
       setMessages(cachedMsgs);
+      const maxCachedTs = cachedMsgs.reduce((mx, m) => Math.max(mx, Number(m.timestamp) || 0), 0);
+      latestTimestampRef.current = maxCachedTs;
       fetchMessagesForActive(true);
     } else {
       fetchMessagesForActive(false);
     }
 
     const msgPoll = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       fetchMessagesForActive(true);
     }, 7000);
+
+    const handleVisibility = () => {
+      if (!document.hidden) fetchMessagesForActive(true);
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       isCancelled = true;
       clearInterval(msgPoll);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [activeConv?.id, activeConv?.channel, activeConv?.pageId, activeConv?.accountId, activeConv?.type, activeConv?.zaloHome, refreshMsgCount]);
+
+  // Tải thêm tin nhắn cũ (phân trang ngược theo cursor before, giữ nguyên vị trí cuộn)
+  const handleLoadOlderMessages = async () => {
+    if (!activeConv?.id || loadingOlder || !messagesMeta.hasMore || !messagesMeta.oldestTimestamp) return;
+    const container = msgStreamRef.current;
+    const prevScrollHeight = container?.scrollHeight || 0;
+    const prevScrollTop = container?.scrollTop || 0;
+
+    try {
+      setLoadingOlder(true);
+      const res = await fetch(
+        `/api/channels/zalo/messages?threadId=${encodeURIComponent(activeConv.id)}&type=${encodeURIComponent(
+          activeConv.type || "DIRECT"
+        )}&channel=${encodeURIComponent(activeConv.channel || "ZALO_PERSONAL")}&pageId=${encodeURIComponent(
+          activeConv.pageId || ""
+        )}&accountId=${encodeURIComponent(activeConv.accountId || "")}&homeDir=${encodeURIComponent(
+          activeConv.zaloHome || ""
+        )}&before=${encodeURIComponent(messagesMeta.oldestTimestamp)}&limit=100`
+      );
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok && Array.isArray(data.messages) && data.messages.length > 0) {
+        setMessages((prev) => {
+          const existing = prev || [];
+          const seen = new Set(existing.map((m) => String(m.id)));
+          const older = data.messages.filter((m) => !seen.has(String(m.id)));
+          const merged = [...older, ...existing].sort(
+            (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
+          );
+          const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
+          messageCacheRef.current.set(convCacheKey, merged);
+          return merged;
+        });
+        setMessagesMeta((prev) => ({
+          ...prev,
+          hasMore: Boolean(data.hasMore),
+          oldestTimestamp: Number(data.oldestTimestamp) || prev.oldestTimestamp,
+          historyLimited: Boolean(data.historyLimited),
+        }));
+        requestAnimationFrame(() => {
+          if (msgStreamRef.current) {
+            const newScrollHeight = msgStreamRef.current.scrollHeight;
+            msgStreamRef.current.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+          }
+        });
+      }
+    } catch {
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   // Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat
   useEffect(() => {
@@ -918,6 +1066,7 @@ export default function LiveZaloInbox() {
       status: "sending",
     };
 
+    forceScrollNextRef.current = true;
     setMessages((prev) => {
       const next = [...(prev || []), optimisticMsg];
       const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
@@ -940,17 +1089,29 @@ export default function LiveZaloInbox() {
           type: activeConv.type || "DIRECT",
           message: messageText,
           channel: activeConv.channel || "ZALO_PERSONAL",
+          staffId: currentUser?.code || currentUser?.id || "STAFF",
+          staffName: currentUser?.fullName || currentUser?.name || "Chuyên viên ADDP",
+          staffConfirmed: true,
         }),
       });
 
       const data = await res.json();
       if (res.ok && data.ok) {
+        const isMocked = Boolean(data.mocked);
         setMessages((prev) => {
-          const next = (prev || []).map((m) => (m.id === tempId ? { ...m, status: "sent" } : m));
+          const next = (prev || []).map((m) =>
+            m.id === tempId ? { ...m, status: isMocked ? "mocked" : "sent" } : m
+          );
           const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
           messageCacheRef.current.set(convCacheKey, next);
           return next;
         });
+        if (isMocked) {
+          setToast({
+            type: "info",
+            text: data.message || "Chế độ An toàn (Mock): Tin nhắn chỉ được mô phỏng, chưa gửi thật ra ngoài.",
+          });
+        }
         setConversations((prev) => {
           const list = prev || [];
           const idx = list.findIndex(
@@ -3027,8 +3188,28 @@ export default function LiveZaloInbox() {
                 </div>
               </div>
 
-              {/* Message Thread Stream (Bong bóng chat 2 chiều - triệt tiêu cuộn ngang) */}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 chat-stream-bg min-h-0">
+              {/* Message Thread Stream (Bong bóng chat 2 chiều - triệt tiêu cuộn ngang, giữ vị trí cuộn) */}
+              <div
+                ref={msgStreamRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+                }}
+                className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 chat-stream-bg min-h-0"
+              >
+                {/* Nút tải thêm lịch sử cũ nếu connector hỗ trợ */}
+                {messagesMeta.hasMore && !loadingMessages && (
+                  <div className="flex justify-center">
+                    <button
+                      type="button"
+                      onClick={handleLoadOlderMessages}
+                      disabled={loadingOlder}
+                      className="rounded-full bg-white dark:bg-slate-800 px-3 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                    >
+                      {loadingOlder ? "Đang tải tin cũ..." : "Tải thêm tin nhắn cũ"}
+                    </button>
+                  </div>
+                )}
                 {/* Dấu mốc ngày tháng */}
                 <div className="flex justify-center">
                   <span className="rounded-full bg-slate-200/90 dark:bg-slate-800/80 px-3 py-1 text-[11px] text-slate-600 dark:text-slate-400 font-medium border border-slate-300 dark:border-slate-700/60 shadow-xs">
@@ -3042,6 +3223,27 @@ export default function LiveZaloInbox() {
                   <div className="p-8 text-center text-xs text-slate-500 flex flex-col items-center gap-2">
                     <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
                     <span>Đang nạp lịch sử tin nhắn...</span>
+                  </div>
+                ) : messagesError && messages.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
+                    <div className="h-12 w-12 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-center text-rose-500">
+                      <AlertTriangle className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1 max-w-sm">
+                      <p className="font-bold text-sm text-rose-600 dark:text-rose-400">
+                        Không thể tải lịch sử tin nhắn
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {messagesError}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setRefreshMsgCount((c) => c + 1)}
+                      className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium cursor-pointer"
+                    >
+                      Thử tải lại
+                    </button>
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
@@ -3178,6 +3380,10 @@ export default function LiveZaloInbox() {
                                   <Clock className="w-3 h-3" />
                                 ) : m.status === "error" ? (
                                   <AlertTriangle className="w-3 h-3 text-rose-300" />
+                                ) : m.status === "mocked" ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 text-[9px] font-semibold">
+                                    Mô phỏng (Safe Mode)
+                                  </span>
                                 ) : (
                                   <CheckCheck className="w-3 h-3" />
                                 )}

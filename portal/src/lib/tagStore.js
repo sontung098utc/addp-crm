@@ -5,6 +5,15 @@ import { COLOR_VARIANTS, COLOR_OPTIONS } from "./tagConstants.js";
 export { COLOR_VARIANTS, COLOR_OPTIONS };
 
 function resolveDataPath(filename) {
+  if (process.env.DATA_DIR) {
+    const customPath = path.isAbsolute(process.env.DATA_DIR)
+      ? path.join(process.env.DATA_DIR, filename)
+      : path.join(process.cwd(), process.env.DATA_DIR, filename);
+    try {
+      fs.mkdirSync(path.dirname(customPath), { recursive: true });
+    } catch {}
+    return customPath;
+  }
   const candidates = [
     path.resolve(process.cwd(), ".data", filename),
     path.resolve(process.cwd(), "portal", ".data", filename),

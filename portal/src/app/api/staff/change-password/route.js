@@ -5,7 +5,13 @@ import { SESSION_COOKIE_NAME, verifySessionToken, updateStaffPassword } from "@/
 export async function POST(request) {
   try {
     const cookieStore = await cookies();
-    const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    let token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (!token) {
+      const authHeader = request.headers.get("authorization") || "";
+      if (authHeader.toLowerCase().startsWith("bearer ")) {
+        token = authHeader.slice(7).trim();
+      }
+    }
     const currentUser = verifySessionToken(token);
 
     if (!currentUser) {

@@ -72,8 +72,17 @@ export default function Header({ currentUser }) {
       } catch {}
     }
 
+    const pollNotifications = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      loadSystemNotifications();
+    };
+    const handleVisibility = () => {
+      if (!document.hidden) loadSystemNotifications();
+    };
+
     loadSystemNotifications();
-    const pollTimer = setInterval(loadSystemNotifications, 20000);
+    const pollTimer = setInterval(pollNotifications, 20000);
+    document.addEventListener("visibilitychange", handleVisibility);
 
     const handleRealtimeEvent = (e) => {
       try {
@@ -122,6 +131,7 @@ export default function Header({ currentUser }) {
     return () => {
       cancelled = true;
       clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("addp:realtime-event", handleRealtimeEvent);
     };
   }, []);
@@ -373,14 +383,14 @@ export default function Header({ currentUser }) {
                   required
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Nhập mật khẩu cũ (Mặc định: 123456)"
+                  placeholder="Nhập mật khẩu hiện tại..."
                   className="w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Mật khẩu mới (Tối thiểu 6 ký tự)
+                  Mật khẩu mới (Tối thiểu 8 ký tự, gồm chữ và số)
                 </label>
                 <input
                   type="password"

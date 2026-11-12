@@ -17,8 +17,15 @@ import {
  * Mã hóa an toàn Token & Session bằng AES-256-GCM.
  */
 
-const SECRET = process.env.CRM_JWT_SECRET || "ADDP_CRM_DEFAULT_DEV_SECRET_2026";
-const ENC_KEY = crypto.createHash("sha256").update(SECRET).digest(); // 32 bytes
+function getEncryptionKey() {
+  const secret = process.env.CRM_JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "[SECURITY_CONFIG_ERROR] CRM_JWT_SECRET chưa được cấu hình trong biến môi trường. Không thể mã hóa hoặc giải mã dữ liệu kênh (Fail closed)."
+    );
+  }
+  return crypto.createHash("sha256").update(secret).digest(); // 32 bytes
+}
 
 export const PLATFORM_INFO = {
   MAGENTO: {
@@ -81,8 +88,9 @@ export const PLATFORM_INFO = {
 
 export function encryptCredential(plainText) {
   if (!plainText) return "";
+  const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", ENC_KEY, iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   let encrypted = cipher.update(String(plainText), "utf8", "base64");
   encrypted += cipher.final("base64");
   const authTag = cipher.getAuthTag().toString("base64");
@@ -92,10 +100,11 @@ export function encryptCredential(plainText) {
 export function decryptCredential(cipherText) {
   if (!cipherText || !cipherText.includes(":")) return "";
   try {
+    const key = getEncryptionKey();
     const [ivB64, tagB64, encB64] = cipherText.split(":");
     const decipher = crypto.createDecipheriv(
       "aes-256-gcm",
-      ENC_KEY,
+      key,
       Buffer.from(ivB64, "base64")
     );
     decipher.setAuthTag(Buffer.from(tagB64, "base64"));

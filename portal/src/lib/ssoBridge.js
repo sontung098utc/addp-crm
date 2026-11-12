@@ -1,16 +1,24 @@
 import crypto from "crypto";
 import { createSessionToken, verifySessionToken, getStaffByIdOrCode } from "./auth.js";
 import { buildDataScopeFilter } from "./rbac.js";
+import { DEFAULT_DAILY_ZALO_MSG_LIMIT } from "./pilotConfig.js";
 
 /**
  * Cầu nối Xác thực SSO/JWT giữa Next.js Portal (`portal/`) & Javis OS FastAPI (`server/`) (WBS-09)
  * Giúp dùng chung phiên đăng nhập duy nhất trên https://crm.addp.vn
  */
 
-const SECRET = process.env.CRM_JWT_SECRET || "ADDP_CRM_DEFAULT_DEV_SECRET_2026";
 const JAVIS_INTERNAL_URL = process.env.JAVIS_API_URL || "http://127.0.0.1:7777";
 
 export function issueSsoBridgePayload(staffOrCode) {
+  const secret = process.env.CRM_JWT_SECRET;
+  if (!secret) {
+    return {
+      ok: false,
+      error: "[SECURITY_CONFIG_ERROR] CRM_JWT_SECRET chưa được cấu hình trong biến môi trường (Fail closed).",
+    };
+  }
+
   const staff =
     typeof staffOrCode === "string" || typeof staffOrCode === "number"
       ? getStaffByIdOrCode(staffOrCode)
@@ -30,7 +38,7 @@ export function issueSsoBridgePayload(staffOrCode) {
   const nonce = crypto.randomBytes(12).toString("base64url");
   const staffCode = safeUser?.code || safeUser?.id || safeUser?.staffId || "ADMIN";
   const sig = crypto
-    .createHmac("sha256", SECRET)
+    .createHmac("sha256", secret)
     .update(`${staffCode}:${nonce}`)
     .digest("hex")
     .slice(0, 16);
@@ -51,7 +59,7 @@ export function issueSsoBridgePayload(staffOrCode) {
       roleLabel: safeUser?.roleLabel || "Quản trị viên (Toàn quyền)",
       teamName: safeUser?.teamName || "Ban Giám Đốc",
       dailyCareTarget: safeUser?.dailyCareTarget ?? 0,
-      dailyMsgTarget: safeUser?.dailyMsgTarget ?? 200,
+      dailyMsgTarget: safeUser?.dailyMsgTarget ?? DEFAULT_DAILY_ZALO_MSG_LIMIT,
       allowedChannelAccountIds: safeUser?.allowedChannelAccountIds || [],
     },
     rbacScopes: {

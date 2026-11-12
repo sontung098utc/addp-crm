@@ -15,13 +15,36 @@ import { guardApiRequest } from "../../../lib/rbac.js";
  * Lưu trữ mã hóa Token/Session của 7 nền tảng
  */
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const cookieStore = await cookies();
+    const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "SALE", "CSKH", "KHO", "KE_TOAN"],
+      moduleKey: "channels",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const channels = listAllChannels();
+    // Che giấu bí mật / token trong cấu hình kênh để client không đọc được plain secret
+    const safeChannels = channels.map((ch) => {
+      const cfg = ch.config ? { ...ch.config } : {};
+      if (cfg.appSecret) cfg.appSecret = "[CONFIGURED]";
+      if (cfg.clientSecret) cfg.clientSecret = "[CONFIGURED]";
+      if (cfg.accessToken) cfg.accessToken = "[TOKEN_PROTECTED]";
+      if (cfg.refreshToken) cfg.refreshToken = "[TOKEN_PROTECTED]";
+      return {
+        ...ch,
+        config: cfg,
+      };
+    });
+
     return NextResponse.json({
       ok: true,
       platforms: PLATFORM_INFO,
-      channels,
+      channels: safeChannels,
     });
   } catch (error) {
     console.error("[CHANNELS_GET_ERROR]", error);
@@ -40,8 +63,7 @@ export async function POST(request) {
       allowedRoles: ["ADMIN", "SALE_LEADER"],
       moduleKey: "channels",
     });
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 
@@ -73,8 +95,7 @@ export async function PUT(request) {
       allowedRoles: ["ADMIN", "SALE_LEADER"],
       moduleKey: "channels",
     });
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 
@@ -115,8 +136,7 @@ export async function DELETE(request) {
       allowedRoles: ["ADMIN"],
       moduleKey: "channels",
     });
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 

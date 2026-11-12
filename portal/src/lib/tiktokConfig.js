@@ -5,14 +5,10 @@ import crypto from "crypto";
  * Hỗ trợ OAuth 1-Click Multi-Shop, Token Exchange, Refresh Token & Authorized Shops Lookup.
  */
 
-export const TIKTOK_SERVICE_ID =
-  process.env.TIKTOK_SERVICE_ID || "7706525357121636097";
-export const TIKTOK_APP_KEY =
-  process.env.TIKTOK_APP_KEY || "6ls9j0lb830he";
-export const TIKTOK_APP_SECRET =
-  process.env.TIKTOK_APP_SECRET || "b32f208f743dda776a98432d9c8ac714372fda61";
-export const TIKTOK_DEFAULT_SHOP_ID =
-  process.env.TIKTOK_SHOP_ID || "7495657895504611503";
+export const TIKTOK_SERVICE_ID = process.env.TIKTOK_SERVICE_ID || "";
+export const TIKTOK_APP_KEY = process.env.TIKTOK_APP_KEY || "";
+export const TIKTOK_APP_SECRET = process.env.TIKTOK_APP_SECRET || "";
+export const TIKTOK_DEFAULT_SHOP_ID = process.env.TIKTOK_SHOP_ID || "";
 export const TIKTOK_DEFAULT_SHOP_CIPHER =
   process.env.TIKTOK_SHOP_CIPHER || "ROW_ZYiTiAAAAAAKQIKT19iz-hy3D_kGFVJk";
 
@@ -88,6 +84,12 @@ export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?s
  * Base = app_secret + path + sorted(params without sign/access_token) + bodyStr + app_secret
  */
 export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_APP_SECRET, body = "") {
+  const effectiveSecret = appSecret || TIKTOK_APP_SECRET;
+  if (!effectiveSecret) {
+    throw new Error(
+      "[SECURITY_CONFIG_ERROR] TIKTOK_APP_SECRET chưa được cấu hình trong biến môi trường. Chặn ký request (Fail closed)."
+    );
+  }
   const cleanParams = { ...params };
   delete cleanParams.sign;
   delete cleanParams.access_token;
@@ -100,8 +102,8 @@ export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_AP
     }
   }
   const bodyStr = body ? (typeof body === "string" ? body : JSON.stringify(body)) : "";
-  const base = `${appSecret}${reqPath}${paramPart}${bodyStr}${appSecret}`;
-  return crypto.createHmac("sha256", appSecret).update(base).digest("hex");
+  const base = `${effectiveSecret}${reqPath}${paramPart}${bodyStr}${effectiveSecret}`;
+  return crypto.createHmac("sha256", effectiveSecret).update(base).digest("hex");
 }
 
 /**

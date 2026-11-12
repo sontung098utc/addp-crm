@@ -1,18 +1,17 @@
-import { NextResponse } from "next/server";
-import { getSessionStaff } from "@/lib/auth";
-import { filterRecordsByRbac } from "@/lib/rbac";
+import { getSessionStaff } from "../../../../lib/auth.js";
+import { filterRecordsByRbac } from "../../../../lib/rbac.js";
 import {
   getAllCustomers,
   bulkDeleteCustomersByIds,
   bulkAddTagToCustomersByIds,
   normalizePhone,
-} from "@/lib/customerIdentityResolver";
+} from "../../../../lib/customerIdentityResolver.js";
 import {
   getTags,
   addTag,
   bulkAddConversationTag,
   bulkRemoveConversationTags,
-} from "@/lib/tagStore";
+} from "../../../../lib/tagStore.js";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +34,7 @@ export async function POST(request) {
   try {
     const currentStaff = await getSessionStaff(request);
     if (!currentStaff) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, success: false, error: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." },
         { status: 401 }
       );
@@ -49,7 +48,7 @@ export async function POST(request) {
     );
 
     if (requestedIdSet.size === 0) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, success: false, error: "Vui lòng chọn ít nhất 1 khách hàng." },
         { status: 400 }
       );
@@ -63,7 +62,7 @@ export async function POST(request) {
     );
 
     if (matchedCustomers.length === 0) {
-      return NextResponse.json(
+      return Response.json(
         { ok: false, success: false, error: "Không tìm thấy khách hàng phù hợp để xử lý." },
         { status: 404 }
       );
@@ -72,7 +71,7 @@ export async function POST(request) {
     // Kiểm tra RBAC phạm vi dữ liệu: chỉ thao tác trên những khách thuộc quyền nhân viên hiện tại
     const authorizedCustomers = filterRecordsByRbac(currentStaff, matchedCustomers, "customers");
     if (authorizedCustomers.length === 0) {
-      return NextResponse.json(
+      return Response.json(
         {
           ok: false,
           success: false,
@@ -108,7 +107,7 @@ export async function POST(request) {
       }
       bulkRemoveConversationTags(keysToRemove);
 
-      return NextResponse.json({
+      return Response.json({
         ok: true,
         success: true,
         action: "delete",
@@ -124,7 +123,7 @@ export async function POST(request) {
       const rawColor = String(body?.color || "blue").trim();
 
       if (!rawTagId && !rawTagName) {
-        return NextResponse.json(
+        return Response.json(
           { ok: false, success: false, error: "Vui lòng chọn hoặc nhập tên thẻ tag cần gắn." },
           { status: 400 }
         );
@@ -154,7 +153,7 @@ export async function POST(request) {
       }
       bulkAddConversationTag(convKeys, canonicalTag);
 
-      return NextResponse.json({
+      return Response.json({
         ok: true,
         success: true,
         action: "add_tag",
@@ -165,13 +164,13 @@ export async function POST(request) {
       });
     }
 
-    return NextResponse.json(
+    return Response.json(
       { ok: false, success: false, error: `Hành động không hợp lệ: ${action}` },
       { status: 400 }
     );
   } catch (error) {
     console.error("[CUSTOMERS_BULK_ERROR]", error);
-    return NextResponse.json(
+    return Response.json(
       { ok: false, success: false, error: error?.message || "Lỗi xử lý hàng loạt khách hàng." },
       { status: 500 }
     );

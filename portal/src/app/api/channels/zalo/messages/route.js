@@ -99,6 +99,9 @@ export async function GET(request) {
     const pageId = searchParams.get("pageId") || "";
     const accountId = searchParams.get("accountId") || "";
     const homeDirParam = searchParams.get("homeDir") || "";
+    const sinceParam = Math.max(0, Number(searchParams.get("since")) || 0);
+    const beforeParam = Math.max(0, Number(searchParams.get("before")) || 0);
+    const limitParam = Math.min(500, Math.max(10, Number(searchParams.get("limit")) || 100));
 
     if (!threadId) {
       return NextResponse.json({ error: "Thiếu tham số threadId." }, { status: 400 });
@@ -137,8 +140,8 @@ export async function GET(request) {
     const channelUpper = String(channel || "").toUpperCase();
     const threadStr = String(threadId || "").trim();
     const customerNameHint =
-      url.searchParams.get("name") ||
-      url.searchParams.get("customerName") ||
+      searchParams.get("name") ||
+      searchParams.get("customerName") ||
       "";
     const isTikTok =
       channelUpper === "TIKTOK_SHOP" ||
@@ -214,14 +217,48 @@ export async function GET(request) {
     }
 
     if (localMessages.length > 0) {
-      localMessages.sort((a, b) => a.timestamp - b.timestamp);
+      localMessages.sort((a, b) => a.timestamp - b.timestamp || String(a.id).localeCompare(String(b.id)));
+      const totalCount = localMessages.length;
+      const globalLatestTs = localMessages[totalCount - 1]?.timestamp || 0;
+      const threadType = searchParams.get("type") || "DIRECT";
+
+      if (sinceParam > 0) {
+        const incrementalMsgs = localMessages.filter((m) => Number(m.timestamp) > sinceParam);
+        return NextResponse.json({
+          ok: true,
+          source: "realtime_history",
+          incremental: true,
+          threadId,
+          accountId: resolvedAcc.accountId,
+          count: incrementalMsgs.length,
+          totalCount,
+          latestTimestamp: globalLatestTs,
+          oldestTimestamp: incrementalMsgs[0]?.timestamp || 0,
+          hasMore: false,
+          messages: incrementalMsgs,
+          syncStatus: getZaloSyncStatus(targetHome),
+        });
+      }
+
+      const filtered = beforeParam > 0
+        ? localMessages.filter((m) => Number(m.timestamp) < beforeParam)
+        : localMessages;
+      const sliced = filtered.slice(-limitParam);
+      const hasMore = filtered.length > sliced.length;
 
       return NextResponse.json({
         ok: true,
         source: "realtime_history",
+        incremental: false,
         threadId,
-        count: localMessages.length,
-        messages: localMessages,
+        accountId: resolvedAcc.accountId,
+        count: sliced.length,
+        totalCount,
+        latestTimestamp: globalLatestTs,
+        oldestTimestamp: sliced[0]?.timestamp || 0,
+        hasMore,
+        historyLimited: threadType !== "GROUP" && !hasMore,
+        messages: sliced,
         syncStatus: getZaloSyncStatus(targetHome),
       });
     }
@@ -311,7 +348,24 @@ export async function GET(request) {
       }
     }
 
-    return NextResponse.json({ ok: true, threadId, count: 0, messages: [], syncStatus });
+    const isDirectZalo = searchParams.get("type") !== "GROUP";
+    return NextResponse.json({
+      ok: true,
+      source: "empty",
+      threadId,
+      accountId: resolvedAcc.accountId,
+      count: 0,
+      totalCount: 0,
+      latestTimestamp: 0,
+      oldestTimestamp: 0,
+      hasMore: false,
+      historyLimited: isDirectZalo,
+      limitationReason: isDirectZalo
+        ? "Zalo Web chỉ đồng bộ các tin nhắn DM phát sinh gần đây trên cloud; lịch sử cũ chỉ lưu cục bộ trên điện thoại không thể kéo từ cloud."
+        : "",
+      messages: [],
+      syncStatus,
+    });
   } catch (error) {
     console.error("[ZALO_MESSAGES_EXCEPTION]", error);
     return NextResponse.json({ error: "Lỗi khi tải lịch sử tin nhắn." }, { status: 500 });

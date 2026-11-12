@@ -20,6 +20,7 @@ import { getAllConversationTags } from "@/lib/tagStore.js";
 import { normalizePhone } from "@/lib/phone.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import { getStaffByIdOrCode } from "@/lib/auth.js";
+import { isAutoSyncAllowed } from "@/lib/pilotConfig.js";
 import fs from "fs";
 
 function attachConversationTags(conv, allThreadTags) {
@@ -297,12 +298,15 @@ export async function GET(request) {
     const [zaloSyncResults, otherConversations] = await Promise.all([
       Promise.all(
         zaloAccountsToSync.map(async (acc) => {
-          const meta = await syncZaloGroupsAndMetadata(acc.homeDir, forceRefresh);
+          let meta = { friendMap: new Map(), groupMap: new Map(), pinnedSet: new Set(), ownId: acc.ownId };
+          if (isAutoSyncAllowed()) {
+            meta = await syncZaloGroupsAndMetadata(acc.homeDir, forceRefresh);
+          }
           const effectiveOwnId = String(acc.ownId || meta.ownId || "");
           const threadsMap = getLatestThreadsFromAllHistories(acc.homeDir, effectiveOwnId);
 
           const syncStatus = getZaloSyncStatus(acc.homeDir);
-          if (!syncStatus.isSyncing) {
+          if (isAutoSyncAllowed() && !syncStatus.isSyncing) {
             ensureZaloMcpDaemon(acc.homeDir);
           }
 

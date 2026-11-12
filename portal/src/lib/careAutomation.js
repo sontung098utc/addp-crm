@@ -116,6 +116,9 @@ export function savePersistedTasks(tasks) {
 
 export function appendOrderCareTasks(order = {}) {
   const store = getAllCareTasks();
+  if (order?.isDuplicate) {
+    return store.filter((t) => t.orderCode === order.orderCode);
+  }
   const schedule = buildCareSchedule({
     customerName: order.customerName || "Anh/Chị",
     productName:

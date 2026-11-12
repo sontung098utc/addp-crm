@@ -1,5 +1,18 @@
+import fs from "fs";
+import path from "path";
 import crypto from "crypto";
 import { normalizePhone } from "./phone.js";
+import { DEFAULT_DAILY_ZALO_MSG_LIMIT } from "./pilotConfig.js";
+
+export * from "./authConstants.js";
+import {
+  SESSION_COOKIE_NAME,
+  ROLE_METADATA,
+  ROLE_PERMISSIONS,
+  MODULE_TO_ROUTE,
+  getDefaultAllowedTabsForRole,
+  canAccessModule,
+} from "./authConstants.js";
 
 /**
  * Hệ thống Xác thực, Quản lý Nhân sự & Phân quyền RBAC/Channel ACL (WBS-05, WBS-06, WBS-07, WBS-08)
@@ -7,116 +20,104 @@ import { normalizePhone } from "./phone.js";
  * Tuân thủ Điều 3 (normalizePhone), Điều 4 (dailyMsgTarget <= 70) & Điều 5 (RBAC 6 cấp) trong AGENTS.md
  */
 
-export const SESSION_COOKIE_NAME = "addp_crm_session";
-const SECRET = process.env.CRM_JWT_SECRET || "ADDP_CRM_DEFAULT_DEV_SECRET_2026";
-
-export const ROLE_METADATA = {
-  ADMIN: {
-    code: "ADMIN",
-    label: "Quản trị viên (Toàn quyền)",
-    badgeColor: "bg-rose-500/15 text-rose-400 border-rose-500/30",
-    description: "Toàn quyền hệ thống, xem báo cáo lãi/lỗ, giá vốn, cấu hình kênh và phân quyền nhân sự.",
-  },
-  SALE_LEADER: {
-    code: "SALE_LEADER",
-    label: "Trưởng nhóm Kinh doanh",
-    badgeColor: "bg-purple-500/15 text-purple-400 border-purple-500/30",
-    description: "Xem và điều phối toàn bộ khách hàng, hội thoại, đơn hàng và KPI của nhóm mình quản lý.",
-  },
-  SALE: {
-    code: "SALE",
-    label: "Nhân viên Tư vấn (Sale)",
-    badgeColor: "bg-blue-500/15 text-blue-400 border-blue-500/30",
-    description: "Chỉ xem/trả lời các Kênh được gán và Khách hàng do mình phụ trách (staffId == currentUser.id).",
-  },
-  CSKH: {
-    code: "CSKH",
-    label: "Chăm sóc khách hàng (CSKH)",
-    badgeColor: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-    description: "Phụ trách lộ trình chăm sóc Ngày 1-3-7-14-21, theo dõi đường huyết và nhắc tái mua.",
-  },
-  KHO: {
-    code: "KHO",
-    label: "Nhân viên Kho & Vận đơn",
-    badgeColor: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-    description: "Chỉ truy cập module Đơn hàng, Tồn kho, Bóc tách mã Combo và Xuất/Nhập kho.",
-  },
-  KE_TOAN: {
-    code: "KE_TOAN",
-    label: "Kế toán & Đối soát",
-    badgeColor: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-    description: "Truy cập Đơn hàng, Đối soát tài chính đa sàn, Chi phí Ads và Báo cáo Thuế.",
-  },
-};
-
-/**
- * Ma trận phân quyền truy cập Module theo Điều 5 - AGENTS.md
- */
-export const ROLE_PERMISSIONS = {
-  ADMIN: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings", "guide"],
-  SALE_LEADER: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "guide"],
-  SALE: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "guide"],
-  CSKH: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "guide"],
-  KHO: ["dashboard", "orders", "inventory", "reports", "guide"],
-  KE_TOAN: ["dashboard", "orders", "inventory", "reports", "guide"],
-};
-
-export const MODULE_TO_ROUTE = {
-  dashboard: "/",
-  inbox: "/inbox",
-  customers: "/customers",
-  tags: "/settings/tags",
-  "work-tracking": "/work-tracking",
-  broadcast: "/broadcast",
-  orders: "/orders",
-  inventory: "/inventory",
-  channels: "/channels",
-  reports: "/reports",
-  settings: "/settings",
-  guide: "/guide",
-};
-
-export function getDefaultAllowedTabsForRole(role = "SALE") {
-  const mods = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.SALE;
-  return mods.map((m) => MODULE_TO_ROUTE[m]).filter(Boolean);
+export function getAuthSecret() {
+  const secret = process.env.CRM_JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      "[SECURITY_CONFIG_ERROR] Biến môi trường CRM_JWT_SECRET chưa được cấu hình. Hệ thống từ chối tạo hoặc xác thực phiên làm việc (Fail closed)."
+    );
+  }
+  return secret;
 }
 
 export function hashPassword(plainPassword) {
-  return crypto.createHmac("sha256", SECRET).update(String(plainPassword)).digest("hex");
+  const secret = getAuthSecret();
+  return crypto.createHmac("sha256", secret).update(String(plainPassword)).digest("hex");
+}
+
+export function getInitialAdminPassword() {
+  const pwd = process.env.INITIAL_ADMIN_PASSWORD;
+  if (!pwd || typeof pwd !== "string" || pwd.trim().length === 0) {
+    throw new Error(
+      "[SECURITY_CONFIG_ERROR] Biến môi trường bắt buộc INITIAL_ADMIN_PASSWORD chưa được thiết lập. Hệ thống từ chối khởi tạo tài khoản quản trị mặc định (Fail-closed)."
+    );
+  }
+  if (pwd.length < 8 || !/^(?=.*[A-Za-z])(?=.*\d)/.test(pwd)) {
+    throw new Error(
+      "[SECURITY_CONFIG_ERROR] INITIAL_ADMIN_PASSWORD phải có ít nhất 8 ký tự và bao gồm cả chữ và số."
+    );
+  }
+  return pwd;
 }
 
 function getNodeFsAndPath() {
   if (typeof window !== "undefined") return null;
   try {
-    const req = eval("require");
-    const fs = req("fs");
-    const path = req("path");
-    const storagePath = path.join(process.cwd(), ".data", "staff.json");
+    const dataDir = process.env.DATA_DIR || ".data";
+    const storagePath = path.isAbsolute(dataDir)
+      ? path.join(dataDir, "staff.json")
+      : path.join(process.cwd(), dataDir, "staff.json");
     return { fs, path, storagePath };
   } catch {
     return null;
   }
 }
 
+export function _resetStaffStoreForTest() {
+  runtimeStaffStore = loadPersistentStaffStore();
+  return runtimeStaffStore;
+}
+
 function loadPersistentStaffStore() {
-  const map = new Map(DEFAULT_STAFF_ENTRIES);
+  const map = new Map();
   const nodeEnv = getNodeFsAndPath();
-  if (!nodeEnv) return map;
-  try {
-    const { fs, storagePath } = nodeEnv;
-    if (fs.existsSync(storagePath)) {
-      const raw = JSON.parse(fs.readFileSync(storagePath, "utf8"));
-      if (Array.isArray(raw)) {
-        for (const item of raw) {
-          if (item && item.code) {
-            map.set(String(item.code).toUpperCase(), item);
+  if (nodeEnv) {
+    try {
+      const { fs, storagePath } = nodeEnv;
+      if (fs.existsSync(storagePath)) {
+        const raw = JSON.parse(fs.readFileSync(storagePath, "utf8"));
+        if (Array.isArray(raw)) {
+          for (const item of raw) {
+            if (item && item.code) {
+              map.set(String(item.code).toUpperCase(), item);
+            }
           }
         }
       }
+    } catch (err) {
+      console.error("[STAFF_STORAGE_LOAD_ERROR]", err);
     }
-  } catch (err) {
-    console.error("[STAFF_STORAGE_LOAD_ERROR]", err);
   }
+
+  // Khởi tạo tài khoản Quản trị nếu chưa có trong DB/file lưu trữ
+  if (!map.has("ADMIN")) {
+    const initialPwd = process.env.INITIAL_ADMIN_PASSWORD;
+    if (initialPwd && initialPwd.trim().length >= 8 && /^(?=.*[A-Za-z])(?=.*\d)/.test(initialPwd)) {
+      map.set("ADMIN", {
+        id: 1,
+        code: "ADMIN",
+        name: "Quản Trị Viên ADDP",
+        phone: "0901000001",
+        email: "admin@addp.vn",
+        role: "ADMIN",
+        roleLabel: ROLE_METADATA.ADMIN.label,
+        teamName: "Ban Giám Đốc",
+        kpi: 0,
+        revenueTarget: 0,
+        dailyCareTarget: 0,
+        dailyMsgTarget: DEFAULT_DAILY_ZALO_MSG_LIMIT,
+        customerCount: 0,
+        isActive: true,
+        mustChangePassword: true, // Bắt buộc đổi mật khẩu sau đăng nhập đầu tiên
+        passwordHash: hashPassword(initialPwd),
+      });
+      if (nodeEnv) {
+        savePersistentStaffStore(map);
+      }
+    }
+    // Nếu thiếu INITIAL_ADMIN_PASSWORD: Fail-closed, không tạo tài khoản admin với fallback cứng!
+  }
+
   return map;
 }
 
@@ -135,29 +136,6 @@ function savePersistentStaffStore(storeMap) {
     console.error("[STAFF_STORAGE_SAVE_ERROR]", err);
   }
 }
-
-const DEFAULT_STAFF_ENTRIES = [
-  [
-    "ADMIN",
-    {
-      id: 1,
-      code: "ADMIN",
-      name: "Quản Trị Viên ADDP",
-      phone: "0901000001",
-      email: "admin@addp.vn",
-      role: "ADMIN",
-      roleLabel: ROLE_METADATA.ADMIN.label,
-      teamName: "Ban Giám Đốc",
-      kpi: 0,
-      revenueTarget: 0,
-      dailyCareTarget: 0,
-      dailyMsgTarget: 200,
-      customerCount: 0,
-      isActive: true,
-      passwordHash: hashPassword("123456"),
-    },
-  ],
-];
 
 let runtimeStaffStore = loadPersistentStaffStore();
 
@@ -282,6 +260,7 @@ function stripPassword(staff) {
     safe.customerScope || (["ADMIN", "SALE_LEADER"].includes(safe.role) ? "all" : "assigned_only");
   return {
     ...safe,
+    mustChangePassword: Boolean(staff.mustChangePassword),
     username: safe.username || safe.code,
     fullName: safe.fullName || safe.name,
     roleLabel: ROLE_METADATA[safe.role]?.label || safe.role,
@@ -328,10 +307,14 @@ export function updateStaffPassword(code, currentPassword, newPassword) {
   if (staff.passwordHash !== hashPassword(currentPassword)) {
     return { ok: false, error: "Mật khẩu hiện tại không chính xác." };
   }
-  if (!newPassword || String(newPassword).length < 6) {
-    return { ok: false, error: "Mật khẩu mới phải có ít nhất 6 ký tự." };
+  if (!newPassword || String(newPassword).length < 8 || !/^(?=.*[A-Za-z])(?=.*\d)/.test(newPassword)) {
+    return {
+      ok: false,
+      error: "Mật khẩu mới phải có ít nhất 8 ký tự và bao gồm cả chữ và số.",
+    };
   }
   staff.passwordHash = hashPassword(newPassword);
+  staff.mustChangePassword = false; // Đã đổi mật khẩu thành công
   store.set(normalizedCode, staff);
   savePersistentStaffStore(store);
   return { ok: true };
@@ -364,6 +347,14 @@ export function createStaffRecord(input) {
   }
   if (store.has(code)) {
     return { ok: false, error: `Mã nhân viên / Tên đăng nhập '${code}' đã tồn tại trong hệ thống.` };
+  }
+
+  const plainPassword = String(input.password || "").trim();
+  if (!plainPassword || plainPassword.length < 8 || !/^(?=.*[A-Za-z])(?=.*\d)/.test(plainPassword)) {
+    return {
+      ok: false,
+      error: "Mật khẩu đăng nhập là bắt buộc và phải có ít nhất 8 ký tự, bao gồm cả chữ cái và chữ số. Không được để trống hoặc dùng mật khẩu yếu mặc định.",
+    };
   }
 
   const nextId = Math.max(0, ...Array.from(runtimeStaffStore.values()).map((s) => s.id)) + 1;
@@ -405,7 +396,8 @@ export function createStaffRecord(input) {
     allowedTabs,
     assignedChannels,
     customerScope,
-    passwordHash: hashPassword(input.password || "123456"),
+    mustChangePassword: Boolean(input.mustChangePassword),
+    passwordHash: hashPassword(plainPassword),
   };
 
   runtimeStaffStore.set(code, newStaff);
@@ -470,8 +462,15 @@ export function updateStaffRecord(idOrCode, updates) {
   if (updates.isActive !== undefined && target.code !== "ADMIN") {
     target.isActive = Boolean(updates.isActive);
   }
-  if (updates.resetPassword && String(updates.resetPassword).length >= 6) {
-    target.passwordHash = hashPassword(updates.resetPassword);
+  if (updates.resetPassword) {
+    const pw = String(updates.resetPassword).trim();
+    if (pw.length < 8 || !/^(?=.*[A-Za-z])(?=.*\d)/.test(pw)) {
+      return {
+        ok: false,
+        error: "Mật khẩu đặt lại phải có tối thiểu 8 ký tự, bao gồm cả chữ cái và chữ số.",
+      };
+    }
+    target.passwordHash = hashPassword(pw);
   }
 
   store.set(target.code, target);
@@ -579,22 +578,29 @@ export function createSessionToken(user) {
     roleLabel: safeUser?.roleLabel || ROLE_METADATA[safeRole]?.label || safeRole,
     teamName: safeUser?.teamName || "Ban Giám Đốc",
     dailyCareTarget: safeUser?.dailyCareTarget ?? 0,
-    dailyMsgTarget: safeUser?.dailyMsgTarget ?? 200,
+    dailyMsgTarget: safeUser?.dailyMsgTarget ?? DEFAULT_DAILY_ZALO_MSG_LIMIT,
     allowedTabs,
     assignedChannels,
     customerScope,
     allowedChannelAccountIds: getAllowedChannelIdsForStaff(safeId, safeRole),
     exp: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 ngày
   };
+  const secret = getAuthSecret();
   const base64Payload = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  const signature = crypto.createHmac("sha256", SECRET).update(base64Payload).digest("base64url");
+  const signature = crypto.createHmac("sha256", secret).update(base64Payload).digest("base64url");
   return `${base64Payload}.${signature}`;
 }
 
 export function verifySessionToken(token) {
   if (!token || typeof token !== "string" || !token.includes(".")) return null;
+  let secret;
+  try {
+    secret = getAuthSecret();
+  } catch {
+    return null; // Fail closed nếu chưa cấu hình secret
+  }
   const [base64Payload, signature] = token.split(".");
-  const expectedSig = crypto.createHmac("sha256", SECRET).update(base64Payload).digest("base64url");
+  const expectedSig = crypto.createHmac("sha256", secret).update(base64Payload).digest("base64url");
   if (signature !== expectedSig) return null;
 
   try {
@@ -606,26 +612,7 @@ export function verifySessionToken(token) {
   }
 }
 
-export function canAccessModule(roleOrUser, moduleKey) {
-  if (moduleKey === "guide") return true;
 
-  if (roleOrUser && typeof roleOrUser === "object") {
-    if (roleOrUser.role === "ADMIN") return true;
-    if (Array.isArray(roleOrUser.allowedTabs)) {
-      const route = MODULE_TO_ROUTE[moduleKey];
-      return (
-        roleOrUser.allowedTabs.includes(moduleKey) ||
-        (route ? roleOrUser.allowedTabs.includes(route) : false)
-      );
-    }
-    const allowed = ROLE_PERMISSIONS[roleOrUser.role] || ROLE_PERMISSIONS.SALE;
-    return allowed.includes(moduleKey);
-  }
-
-  if (moduleKey === "tags") return true;
-  const allowed = ROLE_PERMISSIONS[roleOrUser] || ROLE_PERMISSIONS.SALE;
-  return allowed.includes(moduleKey);
-}
 
 /**
  * Kiểm tra nhân viên hiện tại có quyền xem dữ liệu của targetStaffId hay không theo Điều 5 AGENTS.md
@@ -655,7 +642,8 @@ export async function getSessionStaff(request) {
     let token = null;
     if (request?.cookies?.get) {
       token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
-    } else if (request?.headers?.get) {
+    }
+    if (!token && request?.headers?.get) {
       const cookieHeader = request.headers.get("cookie") || "";
       const match = cookieHeader.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
       if (match) token = match[1];

@@ -11,8 +11,18 @@ import { guardApiRequest } from "../../../../lib/rbac.js";
  * Quản lý quyền truy cập từng Fanpage, nick Zalo QR, Zalo OA, TikTok Shop, Shopee, KiotViet, Magento 2.4.8
  */
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const cookieStore = await cookies();
+    const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER"],
+      moduleKey: "settings",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const matrix = getChannelPermissionMatrix();
     return NextResponse.json({
       ok: true,
@@ -33,9 +43,9 @@ export async function POST(request) {
     const reqHeaders = await headers();
     const guard = guardApiRequest(cookieStore, reqHeaders, {
       allowedRoles: ["ADMIN", "SALE_LEADER"],
+      moduleKey: "settings",
     });
-    const currentToken = cookieStore.get("addp_crm_session")?.value;
-    if (currentToken && !guard.ok) {
+    if (!guard.ok) {
       return guard.response;
     }
 

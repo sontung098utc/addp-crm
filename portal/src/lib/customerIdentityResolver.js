@@ -17,9 +17,16 @@ export { normalizePhone, isValidVietnamPhone };
 import { calculateVipLevel } from "./customerTiers.js";
 import { routeLeadToStaff } from "./leadRouting.js";
 
-const CUSTOMERS_FILE_PATH = fs.existsSync(path.join(process.cwd(), "portal", "package.json"))
-  ? path.join(process.cwd(), "portal", ".data", "customers.json")
-  : path.join(process.cwd(), ".data", "customers.json");
+export function getCustomersFilePath() {
+  const dataDir =
+    process.env.DATA_DIR ||
+    (fs.existsSync(path.join(process.cwd(), "portal", "package.json"))
+      ? "portal/.data"
+      : ".data");
+  return path.isAbsolute(dataDir)
+    ? path.join(dataDir, "customers.json")
+    : path.join(process.cwd(), dataDir, "customers.json");
+}
 
 export const STANDARD_CUSTOMER_TAGS = [
   "Tiểu Đường Tuýp 2",
@@ -59,7 +66,8 @@ function ensureCustomerTagsArray(customer = {}) {
 }
 
 function ensureStorage() {
-  const dir = path.dirname(CUSTOMERS_FILE_PATH);
+  const filePath = getCustomersFilePath();
+  const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -67,9 +75,10 @@ function ensureStorage() {
 
 function loadPersistedCustomers() {
   ensureStorage();
+  const filePath = getCustomersFilePath();
   try {
-    if (fs.existsSync(CUSTOMERS_FILE_PATH)) {
-      const data = fs.readFileSync(CUSTOMERS_FILE_PATH, "utf8").replace(/^\uFEFF/, "");
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed)) return parsed.map(ensureCustomerTagsArray);
     }
@@ -81,13 +90,19 @@ function loadPersistedCustomers() {
 
 function savePersistedCustomers(customers) {
   ensureStorage();
+  const filePath = getCustomersFilePath();
   try {
-    fs.writeFileSync(CUSTOMERS_FILE_PATH, JSON.stringify(customers, null, 2), "utf8");
+    fs.writeFileSync(filePath, JSON.stringify(customers, null, 2), "utf8");
     return true;
   } catch (err) {
     console.error("Lỗi ghi file customers.json:", err);
     return false;
   }
+}
+
+export function _resetCustomersStoreForTest() {
+  dynamicCustomersStore = loadPersistedCustomers();
+  return dynamicCustomersStore;
 }
 
 // Kho lưu trữ khách hàng 360 thực tế

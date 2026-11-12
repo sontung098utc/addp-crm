@@ -18,12 +18,14 @@ function readPersistedTasksFallback() {
   }
 }
 
+import { DEFAULT_DAILY_ZALO_MSG_LIMIT } from "@/lib/pilotConfig.js";
+
 export async function GET(request) {
   try {
     const currentStaff = await getSessionStaff(request);
     if (!currentStaff) {
       return NextResponse.json(
-        { ok: false, inboxUnreadCount: 0, careTasksCount: 0, channelsCount: 0 },
+        { ok: false, inboxUnreadCount: 0, careTasksCount: 0, channelsCount: 0, dailyZaloMsgLimit: DEFAULT_DAILY_ZALO_MSG_LIMIT },
         { status: 401 }
       );
     }
@@ -91,6 +93,7 @@ export async function GET(request) {
       inboxUnreadCount,
       careTasksCount,
       channelsCount,
+      dailyZaloMsgLimit: DEFAULT_DAILY_ZALO_MSG_LIMIT,
     });
   } catch (error) {
     console.error("GET /api/sidebar-stats error:", error);
@@ -99,6 +102,7 @@ export async function GET(request) {
       inboxUnreadCount: 0,
       careTasksCount: 0,
       channelsCount: 0,
+      dailyZaloMsgLimit: DEFAULT_DAILY_ZALO_MSG_LIMIT,
     });
   }
 }

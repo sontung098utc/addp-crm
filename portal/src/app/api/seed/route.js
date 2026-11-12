@@ -54,15 +54,18 @@ function runStage1AcceptanceChecks() {
   });
 
   // 4. Kiểm tra xác thực & phiên đăng nhập HMAC-SHA256 (WBS-05)
-  const admin = authenticateStaff("ADMIN", "123456") || getStaffByIdOrCode("ADMIN") || FALLBACK_ADMIN_STAFF;
-  const token = createSessionToken(admin);
-  const verified = verifySessionToken(token);
+  const adminPass = process.env.INITIAL_ADMIN_PASSWORD;
+  const admin = adminPass ? authenticateStaff("ADMIN", adminPass) : getStaffByIdOrCode("ADMIN");
+  const token = admin ? createSessionToken(admin) : null;
+  const verified = token ? verifySessionToken(token) : null;
   checks.push({
     id: "CHK-04",
     wbs: "WBS-05",
-    name: "Xác thực đăng nhập & Chữ ký phiên HMAC-SHA256",
+    name: "Xác thực đăng nhập & Chữ ký phiên HMAC-SHA256 (Fail-closed nếu thiếu password)",
     passed: Boolean(verified && (verified.code === "ADMIN" || verified.role === "ADMIN")),
-    detail: `Token hợp lệ cho ${verified?.code || "ADMIN"} (${verified?.role || "ADMIN"})`,
+    detail: verified
+      ? `Token hợp lệ cho ${verified?.code || "ADMIN"} (${verified?.role || "ADMIN"})`
+      : "Chưa cấu hình INITIAL_ADMIN_PASSWORD (Fail-closed).",
   });
 
   // 5. Kiểm tra phân quyền RBAC ẩn giá vốn & lọc theo staffId (WBS-06 / Điều 5)

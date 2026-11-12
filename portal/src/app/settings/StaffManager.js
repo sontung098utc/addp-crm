@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ROLE_PERMISSIONS, getDefaultAllowedTabsForRole } from "../../lib/auth";
+import { ROLE_PERMISSIONS, getDefaultAllowedTabsForRole } from "@/lib/authConstants";
 
 const MODULE_LABELS = {
   dashboard: "📊 Tổng quan",
@@ -44,6 +44,7 @@ const ROLE_OPTIONS = [
 const createDefaultAddForm = (role = "SALE") => ({
   code: "",
   name: "",
+  password: "",
   phone: "",
   email: "",
   role,
@@ -204,8 +205,7 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
           </h3>
           <p className="text-xs text-slate-400 mt-0.5">
             Kế thừa từ <code className="text-blue-400">QuanlyKH/StaffManager.js</code> &{" "}
-            <code className="text-blue-400">quan-ly-kho/users_management_view.php</code> • Mật khẩu mặc định:{" "}
-            <strong className="text-emerald-400">123456</strong>
+            <code className="text-blue-400">quan-ly-kho/users_management_view.php</code> • Phân quyền bảo mật RBAC & Channel ACL
           </p>
         </div>
         <button
@@ -375,7 +375,7 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
               <div>
                 <h3 className="text-base font-bold text-white">Thêm Nhân Sự & Phân Quyền Đa Tầng</h3>
                 <p className="text-xs text-slate-400">
-                  Mật khẩu đăng nhập mặc định sẽ là <strong className="text-emerald-400">123456</strong>
+                  Thiết lập thông tin tài khoản và mật khẩu riêng (tối thiểu 8 ký tự, gồm chữ và số)
                 </p>
               </div>
               <button onClick={() => setIsAddOpen(false)} className="text-slate-400 hover:text-white">
@@ -398,6 +398,23 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                   />
                 </div>
                 <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Mật khẩu đăng nhập riêng (≥8 ký tự, chữ & số) *
+                  </label>
+                  <input
+                    required
+                    type="password"
+                    minLength={8}
+                    value={newForm.password}
+                    onChange={(e) => setNewForm({ ...newForm, password: e.target.value })}
+                    placeholder="Nhập mật khẩu an toàn..."
+                    className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
                   <label className="block text-slate-300 font-semibold mb-1">Số điện thoại (10 số)</label>
                   <input
                     value={newForm.phone}
@@ -406,9 +423,6 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                     className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">Họ và tên nhân viên *</label>
                   <input
@@ -419,6 +433,9 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                     className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">Đội nhóm (Team)</label>
                   <input

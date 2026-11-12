@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { canAccessModule } from "@/lib/auth";
+import { canAccessModule } from "@/lib/authConstants";
 import { useTheme } from "./ThemeProvider";
 import {
   LayoutDashboard,
@@ -46,6 +46,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
     inboxUnreadCount: 0,
     careTasksCount: 0,
     channelsCount: 0,
+    dailyZaloMsgLimit: 70,
   });
 
   useEffect(() => {
@@ -53,6 +54,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
     let cancelled = false;
 
     const loadStats = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       fetch("/api/sidebar-stats", { cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
@@ -61,16 +63,23 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
             inboxUnreadCount: Number(data.inboxUnreadCount) || 0,
             careTasksCount: Number(data.careTasksCount) || 0,
             channelsCount: Number(data.channelsCount) || 0,
+            dailyZaloMsgLimit: Number(data.dailyZaloMsgLimit) || 70,
           });
         })
         .catch(() => {});
     };
 
+    const handleVisibility = () => {
+      if (!document.hidden) loadStats();
+    };
+
     loadStats();
     const timer = setInterval(loadStats, 45000);
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [pathname, currentUser]);
 
@@ -187,7 +196,11 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
           </div>
           <div className="text-[11px] text-slate-400 leading-relaxed">
             Giãn cách: <strong>45–120s</strong> • Hạn mức:{" "}
-            <strong>{currentUser?.dailyMsgTarget || 70} tin/ngày</strong>
+            <strong>
+              {sidebarStats.dailyZaloMsgLimit ||
+                Math.min(Number(currentUser?.dailyMsgTarget) || 70, 70)}{" "}
+              tin/ngày
+            </strong>
           </div>
         </div>
       )}

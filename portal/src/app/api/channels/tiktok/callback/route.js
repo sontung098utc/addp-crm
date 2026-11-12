@@ -16,6 +16,13 @@ function resolvePublicOrigin(request) {
   const fwdHost = (request.headers.get("x-forwarded-host") || request.headers.get("host") || "")
     .split(",")[0]
     .trim();
+
+  const isStaging = process.env.APP_ENV === "staging" || process.env.NODE_ENV !== "production";
+  if (isStaging) {
+    const rawProto = (request.headers.get("x-forwarded-proto") || "http").split(",")[0].trim();
+    return `${rawProto}://${fwdHost || `localhost:${process.env.PORT || 3006}`}`;
+  }
+
   if (
     fwdHost &&
     !fwdHost.includes("0.0.0.0") &&
@@ -27,7 +34,7 @@ function resolvePublicOrigin(request) {
     const proto = rawProto === "http" || rawProto === "https" ? rawProto : "https";
     return `${proto}://${fwdHost}`;
   }
-  return process.env.NEXT_PUBLIC_APP_URL || "https://crm.addp.vn";
+  return process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://crm.addp.vn";
 }
 
 function normalizeExpiryTimestamp(expireInRaw) {
