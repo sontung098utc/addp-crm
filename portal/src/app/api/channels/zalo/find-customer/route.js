@@ -315,6 +315,8 @@ export async function GET(request) {
       return {
         id: uid,
         threadId: uid,
+        recipientId: uid,
+        zaloUid: uid,
         name: convName,
         phone: validVnPhone || profile.phone || "",
         avatar: buildSafeAvatarUrl(profile.avatar || "", uid, convName),
@@ -327,6 +329,7 @@ export async function GET(request) {
         channelBotMode,
         botMode,
         isAccountLevelHuman: channelBotMode === "HUMAN",
+        zaloHome: acc.homeDir,
         lastMessage: lastMsg?.text || lastMsg?.snippet || (lastMsg ? "[Tin nhắn]" : "Sẵn sàng nhắn tin qua Zalo"),
         timestamp: Number(lastMsg?.timestamp || Date.now()),
         lastActive: lastMsg ? "Đã có hội thoại" : "Tìm thấy qua Zalo",

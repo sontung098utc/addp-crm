@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { normalizePhone } from "@/lib/phone.js";
 import {
   runZaloCommand,
+  sendZaloMessageDirect,
   resolveZaloHomeForThread,
   getOwnIdForHome,
   getActiveZaloAccountName,
@@ -28,6 +29,7 @@ export async function POST(request) {
     let {
       recipient,
       recipientId,
+      recipientPhone = "",
       pageId,
       type = "DIRECT",
       message,
@@ -75,7 +77,7 @@ export async function POST(request) {
 
     // Chuẩn hóa số điện thoại nếu là SĐT (Điều 3 AGENTS.md)
     if (/^(\+?84|0)\d{9,10}$/.test(recipient.replace(/[\s.-]/g, ""))) {
-      recipient = normalizePhone(recipient);
+      recipientPhone = normalizePhone(recipient);
     }
 
     // Nếu gửi qua Facebook, Zalo OA hoặc TikTok Shop
@@ -169,15 +171,29 @@ export async function POST(request) {
 
     const startTime = Date.now();
     const isGroup = String(type).toUpperCase() === "GROUP";
-    const sendArgs = ["msg", "send", recipient, message, ...(isGroup ? ["-t", "1"] : ["-t", "0"]), "--json"];
-    const result = await runZaloCommand(sendArgs, {
+
+    // 1. Thử gửi trực tiếp qua zaloDirectSendWorker (<300ms, tự phân giải SĐT sang UID bằng REST)
+    let sendResult = await sendZaloMessageDirect({
       homeDir: activeHome,
-      timeout: 15000,
+      recipient,
+      recipientPhone: recipientPhone || body.recipientPhone || "",
+      message,
+      isGroup,
+      timeout: 25000,
     });
+
+    // 2. Nếu direct worker chưa sẵn sàng hoặc gặp lỗi hệ thống, fallback sang CLI runZaloCommand
+    if (!sendResult.ok && sendResult.error === "WORKER_UNAVAILABLE") {
+      const sendArgs = ["msg", "send", recipient, message, ...(isGroup ? ["-t", "1"] : ["-t", "0"]), "--json"];
+      sendResult = await runZaloCommand(sendArgs, {
+        homeDir: activeHome,
+        timeout: 25000,
+      });
+    }
 
     const elapsedMs = Date.now() - startTime;
 
-    if (!result.ok) {
+    if (!sendResult.ok) {
       recordMessageAudit({
         staffId,
         staffName,
@@ -188,28 +204,32 @@ export async function POST(request) {
         status: "failed",
         provider: "ZALO_CLI_EXPERIMENTAL",
         responseTimeMs: elapsedMs,
-        error: result.error,
+        error: sendResult.error,
       });
       return NextResponse.json(
         {
           ok: false,
           status: "failed",
-          error: `Không thể gửi tin tới '${recipient}': ${result.error}`,
+          error: sendResult.error || `Không thể gửi tin tới '${recipient}'`,
           elapsedMs,
         },
-        { status: 500 }
+        { status: 400 }
       );
     }
 
-    // Tự động ghi ngay tin nhắn vừa gửi vào history.jsonl của đúng tài khoản Zalo đó
+    const finalMsgId = String(
+      sendResult.msgId || sendResult.data?.message?.msgId || sendResult.data?.msgId || `sent_${Date.now()}`
+    );
+
+    // Ghi ngay vào file history.jsonl của đúng tài khoản Zalo đó nếu worker chưa ghi
     try {
       const histDir = path.join(activeHome, ".zalo-agent-cli");
       if (!fs.existsSync(histDir)) fs.mkdirSync(histDir, { recursive: true });
       const histFile = path.join(histDir, "history.jsonl");
       const record =
         JSON.stringify({
-          msgId: String(result.data?.message?.msgId || `sent_${Date.now()}`),
-          threadId: String(recipient),
+          msgId: finalMsgId,
+          threadId: String(sendResult.recipient || recipient),
           threadType: isGroup ? "group" : "dm",
           senderId: String(activeOwnId || "1781287338457243967"),
           senderName: activeSenderName || "Chuyên viên Tư vấn ADDP",
@@ -233,7 +253,7 @@ export async function POST(request) {
       status: "sent",
       provider: "ZALO_CLI_EXPERIMENTAL",
       providerHttpCode: 200,
-      providerMsgId: String(result.data?.message?.msgId || ""),
+      providerMsgId: finalMsgId,
       responseTimeMs: elapsedMs,
       mocked: false,
       safeMode: false,
@@ -243,16 +263,16 @@ export async function POST(request) {
       ok: true,
       status: "sent",
       provider: "ZALO_CLI_EXPERIMENTAL",
-      message: `Đã gửi tin nhắn Zalo (${activeSenderName}) thành công tới ${recipient}!`,
-      recipient,
+      message: `Đã gửi tin nhắn Zalo (${activeSenderName}) thành công!`,
+      recipient: sendResult.recipient || recipient,
+      messageId: finalMsgId,
       accountId: resolvedAcc.accountId,
       accountName: resolvedAcc.accountName,
       channel: "ZALO_PERSONAL",
       sentAt: new Date().toISOString(),
       elapsedMs,
-      experimentalNotice: "Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Không bật gửi hàng loạt.",
       antiBanNote: "Đã tuân thủ Điều 4 AGENTS.md (SmartBroadcastQueue & Safe delay)",
-      data: result.data,
+      data: sendResult.data,
     });
   } catch (error) {
     console.error("[SEND_API_EXCEPTION]", error);

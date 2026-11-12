@@ -429,6 +429,8 @@ export async function GET(request) {
         );
         activeZaloConversations.push({
           id: thread.threadId,
+          recipientId: thread.threadId,
+          zaloUid: isGroup ? "" : thread.threadId,
           name,
           type: isGroup ? "GROUP" : "DIRECT",
           avatar: safeAvatar,
@@ -469,6 +471,7 @@ export async function GET(request) {
           );
           contactOnlyConversations.push({
             id: gid,
+            recipientId: gid,
             name: g.name || "Nhóm Zalo",
             type: "GROUP",
             avatar: safeAvatar,
@@ -505,6 +508,8 @@ export async function GET(request) {
           const contactLastActive = lastAct > 0 ? formatZaloTimeLabel(lastAct) : "Danh bạ";
           contactOnlyConversations.push({
             id: uid,
+            recipientId: uid,
+            zaloUid: uid,
             name: friendName,
             type: "DIRECT",
             avatar: safeAvatar,

@@ -56,6 +56,9 @@ export function findJavisZaloRoot(targetHome = "") {
     path.resolve(process.cwd(), "..", "server", "tools", "javis-zalo", "node_modules", "javis-zalo"),
     path.resolve(process.cwd(), "tools", "javis-zalo", "node_modules", "javis-zalo"),
     path.resolve(process.cwd(), "node_modules", "javis-zalo"),
+    path.resolve(process.cwd(), "..", "node_modules", "javis-zalo"),
+    "/home/addp/domains/crm.addp.vn/public_html/server/tools/javis-zalo/node_modules/javis-zalo",
+    "/home/addp/domains/crm.addp.vn/public_html/portal/node_modules/javis-zalo",
     ...(process.platform === "win32"
       ? ["C:\\addp-crm\\server\\tools\\javis-zalo\\node_modules\\javis-zalo"]
       : []),
@@ -82,6 +85,8 @@ export function findJavisZaloRoot(targetHome = "") {
         path.join(SHARED_NPM_CACHE, "_npx"),
         path.join(os.homedir(), ".npm", "_npx"),
         "/root/.npm/_npx",
+        "/home/addp/.npm/_npx",
+        "/home/addp/.cache/javis-zalo",
         targetHome ? path.join(targetHome, ".npm", "_npx") : "",
         ...extraHomeNpxDirs,
       ].filter(Boolean)
@@ -1918,6 +1923,78 @@ export function hasExistingZaloConnection(targetZaloId = "", customerPhone = "")
 }
 
 /**
+ * Gửi tin nhắn trực tiếp qua zaloDirectSendWorker.mjs (<300ms)
+ * Tự động tìm UID nếu người nhận là SĐT, ghi log ngay vào history.jsonl
+ */
+export async function sendZaloMessageDirect({
+  homeDir = "",
+  recipient = "",
+  recipientPhone = "",
+  message = "",
+  isGroup = false,
+  timeout = 25000,
+}) {
+  const targetHome = homeDir || getActiveZaloHome();
+  if (!targetHome) {
+    return { ok: false, error: "Không tìm thấy thư mục tài khoản Zalo." };
+  }
+
+  const workerCandidates = [
+    path.resolve(process.cwd(), "src", "lib", "zaloDirectSendWorker.mjs"),
+    path.resolve(process.cwd(), "portal", "src", "lib", "zaloDirectSendWorker.mjs"),
+  ];
+  const workerPath = workerCandidates.find((p) => fs.existsSync(p));
+
+  let javisRoot = findJavisZaloRoot(targetHome);
+  if (!javisRoot) {
+    try {
+      await runZaloCommand(["--version"], { homeDir: targetHome, timeout: 20000 });
+      javisRoot = findJavisZaloRoot(targetHome);
+    } catch {}
+  }
+
+  if (!workerPath || !javisRoot) {
+    return { ok: false, error: "WORKER_UNAVAILABLE" };
+  }
+
+  return new Promise((resolve) => {
+    const childEnv = {
+      ...process.env,
+      HOME: targetHome,
+      USERPROFILE: targetHome,
+      JAVIS_ZALO_ROOT: javisRoot,
+      SEND_RECIPIENT: String(recipient || ""),
+      SEND_RECIPIENT_PHONE: String(recipientPhone || ""),
+      SEND_MESSAGE: String(message || ""),
+      SEND_THREAD_TYPE: isGroup ? "1" : "0",
+      ZALO_JSON_MODE: "1",
+    };
+
+    execFile(
+      process.execPath,
+      [workerPath],
+      { env: childEnv, timeout, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err && !stdout) {
+          return resolve({ ok: false, error: err.message || stderr || "Gửi tin nhắn thất bại" });
+        }
+        try {
+          const lines = String(stdout || "")
+            .trim()
+            .split(/\r?\n/)
+            .filter(Boolean);
+          const lastLine = lines[lines.length - 1] || "{}";
+          const res = JSON.parse(lastLine);
+          return resolve(res);
+        } catch {
+          return resolve({ ok: false, error: "Phản hồi từ worker gửi tin không hợp lệ" });
+        }
+      }
+    );
+  });
+}
+
+/**
  * Gửi tin nhắn văn bản qua Zalo Cá Nhân (`zca-js` / Zalo Agent CLI)
  * @param {string} accountPhone - SĐT hoặc định danh tài khoản Zalo gửi
  * @param {string} targetZaloId - ThreadId hoặc SĐT khách nhận
@@ -1933,13 +2010,32 @@ export async function sendTextMessage(accountPhone, targetZaloId, text, options 
 
   const targetHome = options.homeDir || getActiveZaloHome();
   const ownId = getOwnIdForHome(targetHome);
-  const typeFlag = options.isGroup ? "1" : "0";
+  const isGroup = Boolean(options.isGroup);
 
+  // 1. Thử gửi trực tiếp qua zaloDirectSendWorker (<300ms)
+  const directRes = await sendZaloMessageDirect({
+    homeDir: targetHome,
+    recipient,
+    recipientPhone: options.recipientPhone || "",
+    message,
+    isGroup,
+    timeout: 20000,
+  });
+
+  if (directRes?.ok) {
+    console.log(
+      `[Zalo AI Bot] Đã gửi tin nhắn Zalo thành công qua Direct Worker tới ${recipient} (msgId: ${directRes.msgId})`
+    );
+    return directRes;
+  }
+
+  // 2. Fallback sang runZaloCommand nếu worker không khả dụng
+  const typeFlag = isGroup ? "1" : "0";
   const res = await runZaloCommand(
     ["msg", "send", recipient, message, "-t", typeFlag, "--json"],
     {
       homeDir: targetHome,
-      timeout: 15000,
+      timeout: 20000,
     }
   );
 
@@ -1956,7 +2052,7 @@ export async function sendTextMessage(accountPhone, targetZaloId, text, options 
       const lineObj = {
         msgId: sentMsgId,
         threadId: recipient,
-        threadType: options.isGroup ? "group" : "dm",
+        threadType: isGroup ? "group" : "dm",
         senderId: ownId,
         senderName: accountPhone || "Chuyên viên Tư vấn ADDP",
         text: message,

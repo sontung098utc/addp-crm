@@ -1250,6 +1250,7 @@ export default function LiveZaloInbox() {
         body: JSON.stringify({
           recipient: activeConv.id,
           recipientId: activeConv.recipientId || activeConv.id,
+          recipientPhone: activeConv.phone || detectedChatPhone || "",
           pageId: activeConv.pageId || "",
           accountId: activeConv.accountId || "",
           homeDir: activeConv.zaloHome || "",
@@ -1262,8 +1263,13 @@ export default function LiveZaloInbox() {
         }),
       });
 
-      const data = await res.json();
-      if (res.ok && data.ok) {
+      const resText = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(resText);
+      } catch {}
+
+      if (res.ok && data?.ok) {
         const isMocked = Boolean(data.mocked);
         setMessages((prev) => {
           const next = (prev || []).map((m) =>
@@ -1299,13 +1305,22 @@ export default function LiveZaloInbox() {
           return [updatedConv, ...others];
         });
       } else {
-        setToast({ type: "error", text: data.error || "Không thể gửi tin nhắn." });
+        const errorMsg =
+          data?.error ||
+          data?.message ||
+          (resText && resText.length < 160
+            ? resText
+            : `Lỗi gửi tin (${res.status}: ${res.statusText || "Máy chủ không phản hồi"})`);
+        setToast({ type: "error", text: errorMsg });
         setMessages((prev) =>
           (prev || []).map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
         );
       }
-    } catch {
-      setToast({ type: "error", text: "Lỗi kết nối khi gửi tin." });
+    } catch (netErr) {
+      setToast({
+        type: "error",
+        text: `Lỗi kết nối khi gửi tin: ${netErr?.message || "Không thể kết nối máy chủ"}`,
+      });
       setMessages((prev) =>
         (prev || []).map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
       );
