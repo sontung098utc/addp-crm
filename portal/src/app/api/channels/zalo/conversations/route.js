@@ -17,6 +17,7 @@ import {
 import { listAllChannels } from "@/lib/connectionHub.js";
 import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
 import { getAllConversationTags } from "@/lib/tagStore.js";
+import { getAllReadReceipts } from "@/lib/readReceiptStore.js";
 import { normalizePhone } from "@/lib/phone.js";
 import { guardApiRequest } from "@/lib/rbac.js";
 import { getStaffByIdOrCode } from "@/lib/auth.js";
@@ -81,11 +82,13 @@ function cleanMessageSnippet(rawText, msgType) {
 
 /**
  * Đọc toàn bộ luồng tin nhắn thực tế từ các file history JSONL (đã khử trùng lặp theo msgId)
+ * Tự động tính toán số lượng tin nhắn chưa đọc (unreadCount) theo biên nhận đã đọc
  */
-function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967") {
+function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967", readReceipts = {}) {
   const historyFiles = getAllZaloHistoryFiles(zaloHome);
   const threadsMap = new Map();
   const seenMsgIds = new Set();
+  const unreadCounterMap = new Map();
 
   for (const filePath of historyFiles) {
     try {
@@ -112,6 +115,13 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
           const senderName = msg.senderName || "";
           const existing = threadsMap.get(tid);
 
+          // Đếm tin nhắn chưa đọc đối với tin nhắn đến từ khách hàng
+          const tidClean = tid.replace(/^[gu]_/, "");
+          const lastReadTs = Number(readReceipts[tid] || readReceipts[tidClean] || 0);
+          if (!isSelf && (lastReadTs === 0 || ts > lastReadTs)) {
+            unreadCounterMap.set(tid, (unreadCounterMap.get(tid) || 0) + 1);
+          }
+
           // Lưu lại tên khách hàng (nếu tin nhắn chiều đến) để hiển thị đúng tên hội thoại DM
           const peerName = !isSelf && senderName ? senderName : existing?.peerName || "";
 
@@ -134,6 +144,22 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
       }
     } catch (err) {
       console.error("[ZALO_HISTORY_READ_ERROR]", filePath, err.message);
+    }
+  }
+
+  // Gắn số lượng chưa đọc chuẩn xác vào từng thread
+  for (const [tid, thread] of threadsMap.entries()) {
+    const tidClean = tid.replace(/^[gu]_/, "");
+    const lastReadTs = Number(readReceipts[tid] || readReceipts[tidClean] || 0);
+    if (thread.isSelf) {
+      // Tin nhắn gần nhất do chính mình gửi -> đã đọc / đã trả lời
+      thread.unreadCount = 0;
+    } else if (lastReadTs > 0 && thread.timestamp <= lastReadTs) {
+      // Tin nhắn này đã được mở đọc
+      thread.unreadCount = 0;
+    } else {
+      // Chưa đọc: tối thiểu 1 hoặc theo số tin nhắn chưa đọc đếm được
+      thread.unreadCount = Math.max(1, unreadCounterMap.get(tid) || 1);
     }
   }
 
@@ -309,7 +335,8 @@ export async function GET(request) {
             meta = await syncZaloGroupsAndMetadata(acc.homeDir, forceRefresh);
           }
           const effectiveOwnId = String(acc.ownId || meta.ownId || "");
-          const threadsMap = getLatestThreadsFromAllHistories(acc.homeDir, effectiveOwnId);
+          const readReceipts = getAllReadReceipts();
+          const threadsMap = getLatestThreadsFromAllHistories(acc.homeDir, effectiveOwnId, readReceipts);
 
           const syncStatus = getZaloSyncStatus(acc.homeDir);
           if (isAutoSyncAllowed() && !syncStatus.isSyncing) {
@@ -411,6 +438,9 @@ export async function GET(request) {
           lastMessage: snippet,
           lastActive: formatZaloTimeLabel(thread.timestamp),
           timestamp: thread.timestamp,
+          unreadCount: Number(thread.unreadCount || 0),
+          unread: Number(thread.unreadCount || 0),
+          lastMessageFromMe: Boolean(thread.isSelf),
           channel: "ZALO_PERSONAL",
           accountId,
           accountOwnId: ownId,

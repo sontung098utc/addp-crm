@@ -6,6 +6,12 @@ import QuickOrderModal from "../components/QuickOrderModal";
 import BulkMessageModal from "../components/BulkMessageModal";
 import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 import {
+  playNotificationSound,
+  setupAudioUnlockListener,
+  requestNotificationPermission,
+  showBrowserNotification,
+} from "@/lib/soundNotification.js";
+import {
   RefreshCw,
   Settings,
   Search,
@@ -16,6 +22,7 @@ import {
   Zap,
   Send,
   Pin,
+  Bell,
   BellOff,
   ShoppingCart,
   Clock,
@@ -404,6 +411,68 @@ export default function LiveZaloInbox() {
     }
   };
 
+  // Quản lý âm thanh thông báo & Mở khóa audio
+  const [isSoundMuted, setIsSoundMuted] = useState(false);
+  const prevTotalUnreadRef = useRef(-1);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsSoundMuted(localStorage.getItem("addp_inbox_sound_muted") === "true");
+    }
+    const cleanupAudio = setupAudioUnlockListener();
+    requestNotificationPermission();
+    return () => {
+      cleanupAudio();
+    };
+  }, []);
+
+  const toggleSoundMute = () => {
+    const next = !isSoundMuted;
+    setIsSoundMuted(next);
+    try {
+      localStorage.setItem("addp_inbox_sound_muted", String(next));
+    } catch {}
+    if (!next) {
+      playNotificationSound();
+      setToast({ type: "success", text: "🔔 Đã BẬT chuông thông báo tin nhắn mới!" });
+    } else {
+      setToast({ type: "info", text: "🔕 Đã TẮT chuông thông báo tin nhắn." });
+    }
+  };
+
+  const markAsRead = useCallback(async (threadId) => {
+    if (!threadId) return;
+    const now = Date.now();
+    try {
+      localStorage.setItem(`addp_read_${threadId}`, String(now));
+    } catch {}
+    try {
+      await fetch("/api/conversations/mark-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId, timestamp: now }),
+      });
+    } catch (err) {
+      console.warn("[markAsRead error]", err);
+    }
+  }, []);
+
+  // Đồng bộ tiêu đề tab trình duyệt và badge sidebar theo tổng số tin chưa đọc
+  useEffect(() => {
+    const totalUnread = (conversations || []).reduce(
+      (sum, c) => sum + (c.isContactOnly ? 0 : Number(c.unreadCount || c.unread || 0)),
+      0
+    );
+    if (typeof document !== "undefined") {
+      document.title = totalUnread > 0
+        ? `(${totalUnread}) 💬 ADDP CRM — Hộp thư Đa kênh`
+        : "ADDP CRM — Hộp thư Đa kênh";
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("addp:unread-count", { detail: { count: totalUnread } }));
+    }
+  }, [conversations]);
+
   // Kết nối SSE Realtime Stream để nhận tin nhắn tức thì từ mọi kênh
   useEffect(() => {
     let eventSource = null;
@@ -417,6 +486,15 @@ export default function LiveZaloInbox() {
           }
           if (data.type === "NEW_MESSAGE" && data.message) {
             const newMsg = data.message;
+            const isIncoming = !newMsg.isMe;
+
+            // Phát âm thanh chuông ting-ting & Thông báo Desktop nếu là tin nhắn đến từ khách hàng
+            if (isIncoming) {
+              playNotificationSound();
+              if (typeof document !== "undefined" && document.hidden) {
+                showBrowserNotification(newMsg.senderName || "ADDP CRM — Tin nhắn mới", newMsg.text);
+              }
+            }
             if (activeConvRef.current && String(activeConvRef.current.id) === String(newMsg.threadId)) {
               const msgTs = Number(newMsg.timestamp) || Date.now();
               if (msgTs > latestTimestampRef.current) latestTimestampRef.current = msgTs;
@@ -438,9 +516,14 @@ export default function LiveZaloInbox() {
                   },
                 ];
               });
+              markAsRead(newMsg.threadId);
             }
 
             // Cập nhật dòng hội thoại ở cột 1 lên đầu
+            const isCurrentActive =
+              activeConvRef.current && String(activeConvRef.current.id) === String(newMsg.threadId);
+            const addedUnread = (!isCurrentActive && isIncoming) ? 1 : 0;
+
             setConversations((prev) => {
               const list = prev || [];
               const idx = list.findIndex((c) => String(c.id) === String(newMsg.threadId));
@@ -451,12 +534,29 @@ export default function LiveZaloInbox() {
                   lastMessage: newMsg.text,
                   lastActive: "Vài giây",
                   timestamp: Date.now(),
-                  unreadCount: (list[idx].unreadCount || 0) + (newMsg.isMe ? 0 : 1),
+                  unreadCount: isCurrentActive ? 0 : (list[idx].unreadCount || 0) + addedUnread,
+                  unread: isCurrentActive ? 0 : (list[idx].unreadCount || 0) + addedUnread,
                 };
                 const filtered = list.filter((_, i) => i !== idx);
                 return [target, ...filtered];
+              } else {
+                const newConv = {
+                  id: newMsg.threadId,
+                  name: newMsg.senderName || "Khách mới",
+                  type: "DIRECT",
+                  avatar: "",
+                  phone: "",
+                  memberCount: 0,
+                  isPinned: false,
+                  lastMessage: newMsg.text,
+                  lastActive: "Vài giây",
+                  timestamp: Date.now(),
+                  channel: newMsg.channel || "ZALO_PERSONAL",
+                  unreadCount: isCurrentActive ? 0 : addedUnread,
+                  unread: isCurrentActive ? 0 : addedUnread,
+                };
+                return [newConv, ...list];
               }
-              return list;
             });
           }
         } catch {}
@@ -534,6 +634,16 @@ export default function LiveZaloInbox() {
             try {
               sessionStorage.setItem("addp_inbox_conversations", JSON.stringify(list));
             } catch {}
+
+            // Phát chuông thông báo nếu có tin nhắn chưa đọc mới xuất hiện
+            const currentTotalUnread = list.reduce(
+              (sum, c) => sum + (c.isContactOnly ? 0 : Number(c.unreadCount || c.unread || 0)),
+              0
+            );
+            if (prevTotalUnreadRef.current !== -1 && currentTotalUnread > prevTotalUnreadRef.current) {
+              playNotificationSound();
+            }
+            prevTotalUnreadRef.current = currentTotalUnread;
           } else {
             setConversations((prev) => {
               if ((prev || []).length !== list.length) return list;
@@ -2029,6 +2139,8 @@ export default function LiveZaloInbox() {
       activeConv?.id === conv.id &&
       activeConv?.channel === conv.channel &&
       String(activeConv?.accountId || "") === String(conv.accountId || "");
+    const unreadCount = Number(conv.unreadCount || conv.unread || 0);
+    const isUnread = unreadCount > 0 && !isSelected;
     const convMeta = getChannelMeta(conv.channel, conv.pageId, effectivePages);
     const pagePal = conv.channel === "FACEBOOK" ? getFanpagePalette(conv.pageId, effectivePages) : null;
     const isSecondZalo = conv.channel === "ZALO_PERSONAL" && Number(conv.colorIndex || 0) > 0;
@@ -2072,10 +2184,23 @@ export default function LiveZaloInbox() {
           setIsAccountLevelHuman(isConversationAccountHuman(conv));
           setAiMode(isHuman ? "HUMAN_ONLY" : "AUTO_REPLY");
           setActiveConv(conv);
+
+          // Đánh dấu đã đọc ngay lập tức trên UI (xóa badge đỏ)
+          setConversations((prev) =>
+            (prev || []).map((c) =>
+              String(c.id) === String(conv.id) && c.channel === conv.channel
+                ? { ...c, unreadCount: 0, unread: 0 }
+                : c
+            )
+          );
+          // Ghi nhận trạng thái đã đọc vào backend & local
+          markAsRead(conv.id);
         }}
         className={`w-full text-left px-3 py-2.5 transition-colors flex items-start gap-2.5 cursor-pointer ${
           isSelected
             ? "bg-blue-50/90 dark:bg-slate-800/95 border-l-4 border-blue-500"
+            : isUnread
+            ? "bg-sky-50/60 dark:bg-slate-800/70 hover:bg-sky-100/70 dark:hover:bg-slate-800/90 border-l-3 border-rose-500"
             : "hover:bg-slate-100 dark:hover:bg-slate-800/40"
         }`}
       >
@@ -2086,7 +2211,9 @@ export default function LiveZaloInbox() {
             src={getSafeAvatarUrl(conv)}
             alt={conv.name}
             onError={(e) => handleAvatarImgError(e, conv.name)}
-            className="h-10 w-10 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800"
+            className={`h-10 w-10 rounded-full object-cover border ${
+              isUnread ? "border-blue-500 ring-2 ring-blue-500/20" : "border-slate-300 dark:border-slate-700"
+            } bg-slate-800`}
           />
 
           {/* Badge tím AI góc trên avatar nếu Bot đang trực */}
@@ -2112,11 +2239,12 @@ export default function LiveZaloInbox() {
 
         {/* Nội dung card */}
         <div className="flex-1 min-w-0">
+          {/* Dòng 1: Tên + Ghim + Nhóm + Thời gian */}
           <div className="flex items-center justify-between gap-1 mb-0.5">
             <div className="flex items-center gap-1 min-w-0">
               {conv.isPinned && (
                 <Pin
-                  className="w-3 h-3 text-amber-400 shrink-0 rotate-45"
+                  className="w-3.5 h-3.5 text-amber-400 shrink-0 rotate-45"
                   title="Hội thoại đã ghim"
                 />
               )}
@@ -2126,20 +2254,54 @@ export default function LiveZaloInbox() {
                   <span>{conv.memberCount > 0 ? conv.memberCount : "Nhóm"}</span>
                 </span>
               )}
-              <span className="font-semibold text-xs text-slate-900 dark:text-white truncate">
+              <span
+                className={`truncate ${
+                  isUnread
+                    ? "font-bold text-[13px] text-slate-900 dark:text-white"
+                    : "font-semibold text-xs text-slate-800 dark:text-slate-200"
+                }`}
+              >
                 {conv.name}
               </span>
             </div>
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 flex-shrink-0 tabular-nums">
+            <span
+              className={`text-[10px] flex-shrink-0 tabular-nums ${
+                isUnread
+                  ? "font-bold text-blue-600 dark:text-blue-400"
+                  : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
               {conv.lastActive || "Gần đây"}
             </span>
           </div>
 
-          <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate mb-1">
-            {conv.lastMessage || "Chưa có tin nhắn..."}
-          </p>
+          {/* Dòng 2: Nội dung tin nhắn xem trước + HUY HIỆU ĐỎ CHƯA ĐỌC CHUẨN ZALO THẬT */}
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <p
+              className={`truncate flex-1 min-w-0 ${
+                isUnread
+                  ? "font-semibold text-[11.5px] text-slate-900 dark:text-slate-100"
+                  : "text-[11px] text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              {conv.lastMessage || "Chưa có tin nhắn..."}
+            </p>
 
-          {/* Hàng nhãn phân biệt thực chiến: SĐT + Quá SLA + Nguồn */}
+            {isUnread && (
+              <span
+                className={`shrink-0 flex items-center justify-center font-bold text-white shadow-sm ${
+                  unreadCount > 5 && conv.type === "GROUP"
+                    ? "h-4 min-w-[18px] px-1 rounded-full bg-slate-500 text-[10px]"
+                    : "h-5 min-w-[20px] px-1.5 rounded-full bg-[#E11D48] text-[11px] badge-solid-white animate-pulse"
+                }`}
+                title={`${unreadCount} tin nhắn chưa đọc`}
+              >
+                {unreadCount > 99 ? "99+" : unreadCount > 5 && conv.type === "GROUP" ? "5+" : unreadCount}
+              </span>
+            )}
+          </div>
+
+          {/* Dòng 3: Hàng nhãn phân biệt thực chiến: SĐT + Quá SLA + Nguồn + Tags */}
           <div className="flex items-center gap-1 flex-wrap">
             {hasPhone && (
               <span
@@ -2183,11 +2345,6 @@ export default function LiveZaloInbox() {
                   </span>
                 )}
               </>
-            )}
-            {(conv.unreadCount > 0 || conv.unread > 0) && (
-              <span className="rounded-full bg-rose-500 px-1.5 py-0.2 text-[9px] font-bold text-white badge-solid-white tabular-nums ml-auto">
-                {conv.unreadCount || conv.unread}
-              </span>
             )}
           </div>
         </div>
@@ -2300,6 +2457,24 @@ export default function LiveZaloInbox() {
                   className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-400" : ""}`} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleSoundMute}
+                  aria-label={isSoundMuted ? "Bật chuông thông báo" : "Tắt chuông thông báo"}
+                  title={isSoundMuted ? "Chuông thông báo: ĐÃ TẮT (Bấm để BẬT)" : "Chuông thông báo: ĐANG BẬT (Bấm để thử chuông / tắt)"}
+                  className={`rounded-lg border p-1.5 transition-colors cursor-pointer ${
+                    isSoundMuted
+                      ? "border-rose-700/60 bg-rose-950/40 text-rose-400 hover:text-rose-300"
+                      : "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300 hover:bg-slate-700"
+                  }`}
+                >
+                  {isSoundMuted ? (
+                    <BellOff className="w-3.5 h-3.5" />
+                  ) : (
+                    <Bell className="w-3.5 h-3.5" />
+                  )}
                 </button>
 
                 <Link

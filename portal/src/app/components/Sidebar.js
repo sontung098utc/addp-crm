@@ -73,6 +73,14 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
       if (!document.hidden) loadStats();
     };
 
+    const handleRealtimeUnread = (e) => {
+      if (typeof e?.detail?.count === "number") {
+        setSidebarStats((prev) => ({ ...prev, inboxUnreadCount: e.detail.count }));
+      }
+    };
+
+    window.addEventListener("addp:unread-count", handleRealtimeUnread);
+
     loadStats();
     const timer = setInterval(loadStats, 45000);
     document.addEventListener("visibilitychange", handleVisibility);
@@ -80,6 +88,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
       cancelled = true;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("addp:unread-count", handleRealtimeUnread);
     };
   }, [pathname, currentUser]);
 
