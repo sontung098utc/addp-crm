@@ -86,9 +86,35 @@ function getThreadMessagesFromAllHistories(
           const { time, date } = formatMessageTime(ts);
           const isMe = Boolean(msg.isSelf || (ownId && String(msg.senderId) === String(ownId)));
 
+          let rawText = msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]");
+          const isRecalled =
+            rawText &&
+            (String(rawText).startsWith("[chat.undo") ||
+              String(rawText).startsWith("[chat.delete") ||
+              String(rawText).includes("chat.undo") ||
+              String(rawText).includes("chat.delete"));
+
+          if (isRecalled) {
+            rawText = "Tin nhắn đã được thu hồi";
+          } else if (
+            typeof rawText === "string" &&
+            (/^#[A-Za-z0-9+/=]+=\d+,\d+$/.test(rawText) ||
+              (rawText.startsWith("#") && rawText.includes("=") && rawText.length > 20))
+          ) {
+            rawText = "[Nhãn dán]";
+          } else if (rawText && typeof rawText === "string" && rawText.startsWith("{") && rawText.endsWith("}")) {
+            try {
+              const p = JSON.parse(rawText);
+              if (p.actionType || p.deleteMsg !== undefined || p.globalMsgId) {
+                rawText = "Tin nhắn đã được thu hồi";
+              }
+            } catch {}
+          }
+
           messages.push({
             id,
-            text: msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]"),
+            text: rawText,
+            isRecalled: Boolean(isRecalled),
             senderId: String(msg.senderId || ""),
             senderName: msg.senderName || (isMe ? selfSenderName : "Khách"),
             isMe,
@@ -254,10 +280,35 @@ export async function GET(request) {
             const senderName = isMe
               ? selfName
               : friendNames.get(fromUid) || m.senderName || (isGroup ? `Thành viên (${fromUid.slice(-4)})` : "Khách");
-            const text =
+            let text =
               typeof m.content === "string"
                 ? m.content
                 : m.text || m.content?.title || m.content?.href || (m.msgType === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]");
+
+            const isRecalled =
+              text &&
+              (String(text).startsWith("[chat.undo") ||
+                String(text).startsWith("[chat.delete") ||
+                String(text).includes("chat.undo") ||
+                String(text).includes("chat.delete"));
+
+            if (isRecalled) {
+              text = "Tin nhắn đã được thu hồi";
+            } else if (
+              typeof text === "string" &&
+              (/^#[A-Za-z0-9+/=]+=\d+,\d+$/.test(text) ||
+                (text.startsWith("#") && text.includes("=") && text.length > 20))
+            ) {
+              text = "[Nhãn dán]";
+            } else if (text && typeof text === "string" && text.startsWith("{") && text.endsWith("}")) {
+              try {
+                const p = JSON.parse(text);
+                if (p.actionType || p.deleteMsg !== undefined || p.globalMsgId) {
+                  text = "Tin nhắn đã được thu hồi";
+                }
+              } catch {}
+            }
+
             const id = String(m.msgId || m.cliMsgId || ts);
 
             toPersist.push({

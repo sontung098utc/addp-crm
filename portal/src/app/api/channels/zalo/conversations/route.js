@@ -62,8 +62,17 @@ function cleanMessageSnippet(rawText, msgType) {
   const str = String(rawText || "").trim();
   if (!str) {
     if (msgType === "chat.photo" || msgType === "image") return "[Hình ảnh]";
-    if (msgType === "chat.sticker") return "[Nhãn dán]";
+    if (msgType === "chat.sticker" || msgType === "sticker") return "[Nhãn dán]";
     return "[Tin nhắn]";
+  }
+  if (str.startsWith("[chat.undo") || str.includes("chat.undo")) {
+    return "Tin nhắn đã được thu hồi";
+  }
+  if (str.startsWith("[chat.delete") || str.includes("chat.delete")) {
+    return "Tin nhắn đã bị xóa";
+  }
+  if (/^#[A-Za-z0-9+/=]+=\d+,\d+$/.test(str) || (str.startsWith("#") && str.includes("=") && str.length > 20)) {
+    return "[Nhãn dán]";
   }
   if (
     (str.startsWith("http://") || str.startsWith("https://")) &&
@@ -74,8 +83,18 @@ function cleanMessageSnippet(rawText, msgType) {
   if (str.startsWith("{") && str.includes('"phone"') && str.includes('"qrCodeUrl"')) {
     return "[Danh thiếp Zalo]";
   }
-  if (str === "[chat.webcontent]") {
-    return "[Liên kết đính kèm]";
+  if (str === "[chat.webcontent]" || str.startsWith("[chat.webcontent:")) {
+    return "[Liên kết web]";
+  }
+  if (str.startsWith("{") && str.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (parsed.actionType || parsed.deleteMsg !== undefined || parsed.globalMsgId) {
+        return "Tin nhắn đã được thu hồi";
+      }
+      if (parsed.title) return parsed.title;
+      if (parsed.text) return parsed.text;
+    } catch {}
   }
   return str.replace(/\s+/g, " ");
 }

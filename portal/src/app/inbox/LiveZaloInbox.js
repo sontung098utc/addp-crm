@@ -42,6 +42,8 @@ import {
   Check,
   DownloadCloud,
   Tag,
+  Undo2,
+  Smile,
 } from "lucide-react";
 
 /**
@@ -163,6 +165,82 @@ function extractChatPhoneNumbers(messagesList = []) {
   return found;
 }
 
+function formatMessageForDisplay(rawText, msgType) {
+  const str = String(rawText || "").trim();
+  if (!str) {
+    if (msgType === "chat.photo" || msgType === "image") {
+      return { text: "[Hình ảnh]", isPhoto: false, isRecalled: false, isSticker: false };
+    }
+    if (msgType === "chat.sticker" || msgType === "sticker") {
+      return { text: "[Nhãn dán Zalo]", isPhoto: false, isRecalled: false, isSticker: true };
+    }
+    return { text: "[Tin nhắn]", isPhoto: false, isRecalled: false, isSticker: false };
+  }
+
+  // Thu hồi tin nhắn
+  if (
+    str.startsWith("[chat.undo") ||
+    str.includes("chat.undo") ||
+    str.includes('"deleteMsg":') ||
+    str.includes('"globalMsgId":')
+  ) {
+    return { text: "Tin nhắn đã được thu hồi", isPhoto: false, isRecalled: true, isSticker: false };
+  }
+
+  // Tin nhắn đã bị xóa
+  if (str.startsWith("[chat.delete") || str.includes("chat.delete")) {
+    return { text: "Tin nhắn đã bị xóa", isPhoto: false, isRecalled: true, isSticker: false };
+  }
+
+  // Nhãn dán Zalo base64 hash token: #FxdSgDir4HJLBcZnNBE6a7xMu5RM4TIoAPdq1dwrGyfhNmGzwx5kkzYvsjBjR4E=10,873
+  if (
+    /^#[A-Za-z0-9+/=]+=\d+,\d+$/.test(str) ||
+    (str.startsWith("#") && str.includes("=") && str.length > 20) ||
+    msgType === "chat.sticker" ||
+    msgType === "sticker"
+  ) {
+    return { text: "[Nhãn dán Zalo]", isPhoto: false, isRecalled: false, isSticker: true };
+  }
+
+  // Danh thiếp Zalo
+  if (str.startsWith("{") && str.includes('"phone"') && str.includes('"qrCodeUrl"')) {
+    return { text: "[Danh thiếp Zalo]", isPhoto: false, isRecalled: false, isSticker: false };
+  }
+
+  // Web content link
+  if (str === "[chat.webcontent]" || str.startsWith("[chat.webcontent:")) {
+    return { text: "[Liên kết đính kèm]", isPhoto: false, isRecalled: false, isSticker: false };
+  }
+
+  // JSON payload
+  if (str.startsWith("{") && str.endsWith("}")) {
+    try {
+      const p = JSON.parse(str);
+      if (p.actionType || p.deleteMsg !== undefined || p.globalMsgId) {
+        return { text: "Tin nhắn đã được thu hồi", isPhoto: false, isRecalled: true, isSticker: false };
+      }
+      if (p.title) return { text: p.title, isPhoto: false, isRecalled: false, isSticker: false };
+      if (p.text) return { text: p.text, isPhoto: false, isRecalled: false, isSticker: false };
+    } catch {}
+  }
+
+  return { text: str, isPhoto: false, isRecalled: false, isSticker: false };
+}
+
+function formatSnippetForDisplay(rawSnippet) {
+  if (!rawSnippet) return "Chưa có tin nhắn...";
+  let prefix = "";
+  let body = String(rawSnippet).trim();
+  const colonIdx = body.indexOf(":");
+  if (colonIdx > 0 && colonIdx < 30) {
+    prefix = body.substring(0, colonIdx + 1) + " ";
+    body = body.substring(colonIdx + 1).trim();
+  }
+
+  const info = formatMessageForDisplay(body);
+  return `${prefix}${info.text}`;
+}
+
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [connectedPages, setConnectedPages] = useState([]);
@@ -190,6 +268,7 @@ export default function LiveZaloInbox() {
   const [refreshMsgCount, setRefreshMsgCount] = useState(0);
   const channelPopoverRef = useRef(null);
   const [currentUserRole, setCurrentUserRole] = useState("ADMIN");
+  const [currentStaffName, setCurrentStaffName] = useState("Chuyên viên ADDP");
   const deepLinkLookupInFlightRef = useRef(false);
 
   // Hồ Sơ Khách Hàng 360 liên kết với hội thoại
@@ -599,6 +678,9 @@ export default function LiveZaloInbox() {
       }
       if (dataConv.currentUserRole) {
         setCurrentUserRole(dataConv.currentUserRole);
+      }
+      if (dataConv.currentStaffName) {
+        setCurrentStaffName(dataConv.currentStaffName);
       }
       if (dataConv.syncStatus !== undefined) {
         setZaloSyncStatus(dataConv.syncStatus || null);
@@ -1257,8 +1339,8 @@ export default function LiveZaloInbox() {
           type: activeConv.type || "DIRECT",
           message: messageText,
           channel: activeConv.channel || "ZALO_PERSONAL",
-          staffId: currentUser?.code || currentUser?.id || "STAFF",
-          staffName: currentUser?.fullName || currentUser?.name || "Chuyên viên ADDP",
+          staffId: "STAFF",
+          staffName: currentStaffName || "Chuyên viên ADDP",
           staffConfirmed: true,
         }),
       });
@@ -2299,7 +2381,7 @@ export default function LiveZaloInbox() {
                   : "text-[11px] text-slate-500 dark:text-slate-400"
               }`}
             >
-              {conv.lastMessage || "Chưa có tin nhắn..."}
+              {formatSnippetForDisplay(conv.lastMessage)}
             </p>
 
             {isUnread && (
@@ -3577,6 +3659,11 @@ export default function LiveZaloInbox() {
                       const photoUrl = hasValidUrl ? rawUrl : textIsUrl ? m.text : null;
                       const isPhoto = Boolean(photoUrl);
 
+                      const msgInfo = formatMessageForDisplay(m.text, m.type);
+                      const isRecalled = Boolean(m.isRecalled || msgInfo.isRecalled);
+                      const isSticker = Boolean(msgInfo.isSticker);
+                      const displayText = msgInfo.text;
+
                       return (
                         <div
                           key={m.id}
@@ -3595,7 +3682,9 @@ export default function LiveZaloInbox() {
 
                         <div
                           className={`max-w-[70%] rounded-2xl px-4 py-2.5 shadow-sm ${
-                            isMe
+                            isRecalled
+                              ? "bg-slate-100/90 text-slate-500 border border-dashed border-slate-300 dark:bg-slate-800/60 dark:text-slate-400 dark:border-slate-700 italic"
+                              : isMe
                               ? isAi
                                 ? "bg-purple-600 text-white rounded-br-none badge-solid-white"
                                 : "bg-blue-600 text-white rounded-br-none badge-solid-white"
@@ -3616,7 +3705,17 @@ export default function LiveZaloInbox() {
                             </p>
                           )}
 
-                          {isPhoto ? (
+                          {isRecalled ? (
+                            <div className="flex items-center gap-1.5 py-0.5">
+                              <Undo2 className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                              <span className="text-xs">{displayText}</span>
+                            </div>
+                          ) : isSticker ? (
+                            <div className="flex items-center gap-1.5 py-0.5">
+                              <Smile className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                              <span className="text-xs font-medium">{displayText}</span>
+                            </div>
+                          ) : isPhoto ? (
                             <div className="my-1">
                               <a href={photoUrl} target="_blank" rel="noreferrer" className="block">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -3626,12 +3725,12 @@ export default function LiveZaloInbox() {
                                   className="max-h-56 rounded-lg object-contain border border-slate-700 hover:opacity-90 transition"
                                 />
                               </a>
-                              {m.text && m.text !== photoUrl && (
-                                <p className="text-xs leading-relaxed mt-1.5 whitespace-pre-wrap">{m.text}</p>
+                              {displayText && displayText !== photoUrl && (
+                                <p className="text-xs leading-relaxed mt-1.5 whitespace-pre-wrap">{displayText}</p>
                               )}
                             </div>
                           ) : (
-                            <p className="text-xs leading-relaxed whitespace-pre-wrap">{m.text}</p>
+                            <p className="text-xs leading-relaxed whitespace-pre-wrap">{displayText}</p>
                           )}
 
                           <div
