@@ -4,51 +4,102 @@ import { COLOR_VARIANTS, COLOR_OPTIONS } from "./tagConstants.js";
 
 export { COLOR_VARIANTS, COLOR_OPTIONS };
 
-function resolveDataPath(filename) {
+const CANDIDATE_DIRS = [
+  path.resolve(process.cwd(), ".data"),
+  path.resolve(process.cwd(), "portal", ".data"),
+  path.resolve(process.cwd(), "..", ".data"),
+  path.resolve(process.cwd(), "..", "portal", ".data"),
+  "/home/addp/domains/crm.addp.vn/public_html/portal/.data",
+  "/home/addp/domains/crm.addp.vn/public_html/.data",
+  "C:\\addp-crm\\.data",
+  "C:\\addp-crm\\portal\\.data",
+];
+
+function getAllDataDirs() {
+  const dirs = new Set();
   if (process.env.DATA_DIR) {
-    const customPath = path.isAbsolute(process.env.DATA_DIR)
-      ? path.join(process.env.DATA_DIR, filename)
-      : path.join(process.cwd(), process.env.DATA_DIR, filename);
+    const custom = path.isAbsolute(process.env.DATA_DIR)
+      ? process.env.DATA_DIR
+      : path.join(process.cwd(), process.env.DATA_DIR);
+    dirs.add(path.resolve(custom));
+  }
+  for (const d of CANDIDATE_DIRS) {
     try {
-      fs.mkdirSync(path.dirname(customPath), { recursive: true });
+      if (fs.existsSync(d) || fs.existsSync(path.dirname(d))) {
+        dirs.add(path.resolve(d));
+      }
     } catch {}
-    return customPath;
   }
-  const candidates = [
-    path.resolve(process.cwd(), ".data", filename),
-    path.resolve(process.cwd(), "portal", ".data", filename),
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c) || fs.existsSync(path.dirname(c))) {
-      return c;
-    }
-  }
-  const fallback = candidates[0];
-  try {
-    fs.mkdirSync(path.dirname(fallback), { recursive: true });
-  } catch {}
-  return fallback;
+  return Array.from(dirs);
 }
 
+function resolveDataPath(filename) {
+  const allDirs = getAllDataDirs();
+  for (const d of allDirs) {
+    const fp = path.join(d, filename);
+    if (fs.existsSync(fp)) return fp;
+  }
+  const primary = allDirs[0] || path.resolve(process.cwd(), ".data");
+  try {
+    fs.mkdirSync(primary, { recursive: true });
+  } catch {}
+  return path.join(primary, filename);
+}
+
+export const DEFAULT_TAGS = [
+  { id: "tag_vip", name: "Khách VIP", color: "amber", bg: COLOR_VARIANTS.amber },
+  { id: "tag_potential", name: "Khách Tiềm Năng", color: "blue", bg: COLOR_VARIANTS.blue },
+  { id: "tag_purchased", name: "Đã Mua Hàng", color: "emerald", bg: COLOR_VARIANTS.emerald },
+  { id: "tag_care", name: "Cần Chăm Sóc", color: "purple", bg: COLOR_VARIANTS.purple },
+  { id: "tag_diabetes", name: "Tiểu Đường", color: "rose", bg: COLOR_VARIANTS.rose },
+  { id: "tag_bp", name: "Huyết Áp", color: "orange", bg: COLOR_VARIANTS.orange },
+  { id: "tag_used_half", name: "Dùng 1/2 Liệu Trình", color: "indigo", bg: COLOR_VARIANTS.indigo },
+  { id: "tag_used_two_thirds", name: "Dùng 2/3 Liệu Trình", color: "cyan", bg: COLOR_VARIANTS.cyan },
+  { id: "tag_new", name: "Khách Mới", color: "teal", bg: COLOR_VARIANTS.teal },
+];
+
 export function getTags() {
+  let existing = [];
   try {
     const file = resolveDataPath("tags.json");
     if (fs.existsSync(file)) {
       const raw = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        existing = parsed;
+      }
     }
   } catch (err) {
     console.error("[getTags ERROR]", err);
   }
-  return [];
+
+  // Tự động đảm bảo tất cả các thẻ chuẩn DEFAULT_TAGS đều có mặt trong hệ thống
+  let updated = false;
+  const merged = [...existing];
+  for (const def of DEFAULT_TAGS) {
+    if (!merged.some((t) => t.name === def.name || t.id === def.id)) {
+      merged.push(def);
+      updated = true;
+    }
+  }
+
+  if (updated || existing.length === 0) {
+    saveTags(merged);
+  }
+
+  return merged;
 }
 
 export function saveTags(tags) {
   try {
-    const file = resolveDataPath("tags.json");
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(tags, null, 2), "utf8");
+    const content = JSON.stringify(tags, null, 2);
+    const dirs = getAllDataDirs();
+    for (const d of dirs) {
+      try {
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, "tags.json"), content, "utf8");
+      } catch {}
+    }
     return true;
   } catch (err) {
     console.error("[saveTags ERROR]", err);
@@ -128,62 +179,92 @@ export function deleteTag(id) {
   return filtered;
 }
 
-export function getAllConversationTags() {
+export function saveConversationTags(map) {
   try {
-    const file = resolveDataPath("conversation_tags.json");
-    if (fs.existsSync(file)) {
-      const raw = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
-      return JSON.parse(raw);
+    const content = JSON.stringify(map, null, 2);
+    const dirs = getAllDataDirs();
+    for (const d of dirs) {
+      try {
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, "conversation_tags.json"), content, "utf8");
+      } catch {}
     }
+    return true;
   } catch (err) {
-    console.error("[getAllConversationTags ERROR]", err);
+    console.error("[saveConversationTags ERROR]", err);
+    return false;
   }
-  return {};
+}
+
+export function getAllConversationTags() {
+  const merged = {};
+  const dirs = getAllDataDirs();
+  for (const d of dirs) {
+    const file = path.join(d, "conversation_tags.json");
+    if (fs.existsSync(file)) {
+      try {
+        const raw = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          Object.assign(merged, parsed);
+        }
+      } catch {}
+    }
+  }
+  return merged;
 }
 
 export function getConversationTags(threadId) {
   if (!threadId) return [];
   const map = getAllConversationTags();
-  return Array.isArray(map[threadId]) ? map[threadId] : [];
+  const tidStr = String(threadId).trim();
+  const tidClean = tidStr.replace(/^[gu]_/, "");
+  return Array.isArray(map[tidStr])
+    ? map[tidStr]
+    : Array.isArray(map[tidClean])
+    ? map[tidClean]
+    : [];
 }
 
-export function updateConversationTags(threadId, tags) {
+export function updateConversationTags(threadId, tags, phone = "") {
   if (!threadId) return [];
   const map = getAllConversationTags();
   const cleanTags = Array.isArray(tags)
     ? Array.from(new Set(tags.map((t) => String(t || "").trim()).filter(Boolean)))
     : [];
 
+  const tidStr = String(threadId).trim();
+  const tidClean = tidStr.replace(/^[gu]_/, "");
+
   if (cleanTags.length > 0) {
-    map[threadId] = cleanTags;
+    map[tidStr] = cleanTags;
+    if (tidClean) map[tidClean] = cleanTags;
+    if (phone) {
+      const cleanPhone = String(phone).replace(/\D/g, "");
+      if (cleanPhone) map[cleanPhone] = cleanTags;
+    }
   } else {
-    delete map[threadId];
+    delete map[tidStr];
+    if (tidClean) delete map[tidClean];
+    if (phone) {
+      const cleanPhone = String(phone).replace(/\D/g, "");
+      if (cleanPhone) delete map[cleanPhone];
+    }
   }
 
-  try {
-    const file = resolveDataPath("conversation_tags.json");
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
-  } catch (err) {
-    console.error("[updateConversationTags ERROR]", err);
-  }
+  saveConversationTags(map);
   return cleanTags;
 }
 
 export function removeConversationTags(threadId) {
   if (!threadId) return false;
   const map = getAllConversationTags();
-  if (!(threadId in map)) return true;
-  delete map[threadId];
-  try {
-    const file = resolveDataPath("conversation_tags.json");
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(map, null, 2), "utf8");
-    return true;
-  } catch (err) {
-    console.error("[removeConversationTags ERROR]", err);
-    return false;
-  }
+  const tidStr = String(threadId).trim();
+  const tidClean = tidStr.replace(/^[gu]_/, "");
+  delete map[tidStr];
+  if (tidClean) delete map[tidClean];
+  saveConversationTags(map);
+  return true;
 }
 
 export function bulkAddConversationTag(keys = [], tagValue = "") {

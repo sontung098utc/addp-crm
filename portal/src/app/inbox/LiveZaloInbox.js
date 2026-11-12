@@ -234,10 +234,12 @@ export default function LiveZaloInbox() {
   // Quản lý Thẻ Tag Khách Hàng (Customer Tags Management)
   const [availableTags, setAvailableTags] = useState([]);
   const [isTagPopoverOpen, setIsTagPopoverOpen] = useState(false);
+  const [isRightTagPopoverOpen, setIsRightTagPopoverOpen] = useState(false);
+  const tagPopoverRef = useRef(null);
+  const rightTagPopoverRef = useRef(null);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("blue");
   const [selectedTagFilter, setSelectedTagFilter] = useState("ALL");
-  const tagPopoverRef = useRef(null);
 
   // Modal Gửi Tin Nhắn Hàng Loạt (BulkMessageModal)
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
@@ -324,14 +326,17 @@ export default function LiveZaloInbox() {
     loadTags();
   }, [loadTags]);
 
-  // Click outside hook để tự động đóng Dropdown Popover thẻ tag
+  // Click outside hook để tự động đóng Dropdown Popover thẻ tag (cả 2 vị trí top bar và cột phải)
   useEffect(() => {
     function handleClickOutsideTag(event) {
       if (tagPopoverRef.current && !tagPopoverRef.current.contains(event.target)) {
         setIsTagPopoverOpen(false);
       }
+      if (rightTagPopoverRef.current && !rightTagPopoverRef.current.contains(event.target)) {
+        setIsRightTagPopoverOpen(false);
+      }
     }
-    if (isTagPopoverOpen) {
+    if (isTagPopoverOpen || isRightTagPopoverOpen) {
       document.addEventListener("mousedown", handleClickOutsideTag);
       document.addEventListener("touchstart", handleClickOutsideTag);
     }
@@ -339,7 +344,7 @@ export default function LiveZaloInbox() {
       document.removeEventListener("mousedown", handleClickOutsideTag);
       document.removeEventListener("touchstart", handleClickOutsideTag);
     };
-  }, [isTagPopoverOpen]);
+  }, [isTagPopoverOpen, isRightTagPopoverOpen]);
 
   // Bật/tắt thẻ tag cho active conversation
   const handleToggleTagOnActiveConv = async (tagNameOrId) => {
@@ -357,7 +362,7 @@ export default function LiveZaloInbox() {
     setActiveConv((prev) => (prev ? { ...prev, tags: updatedTags } : prev));
     setConversations((prev) =>
       (prev || []).map((c) =>
-        c.id === activeConv.id && c.channel === activeConv.channel
+        String(c.id) === String(activeConv.id)
           ? { ...c, tags: updatedTags }
           : c
       )
@@ -369,6 +374,7 @@ export default function LiveZaloInbox() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           thread_id: activeConv.id,
+          phone: activeConv.phone || detectedChatPhone || "",
           tags: updatedTags,
         }),
       });
@@ -3141,100 +3147,100 @@ export default function LiveZaloInbox() {
                         +{(activeConv.tags || []).length - 3}
                       </button>
                     )}
+                  </div>
 
-                    {/* Nút + Gắn Thẻ Popover */}
-                    <div className="relative inline-block shrink-0" ref={tagPopoverRef}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsTagPopoverOpen(!isTagPopoverOpen);
-                        }}
-                        className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+                  {/* Nút + Gắn Thẻ Popover - đặt NGOÀI container overflow-x-auto để không bị clip */}
+                  <div className="relative inline-block shrink-0" ref={tagPopoverRef}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsTagPopoverOpen(!isTagPopoverOpen);
+                      }}
+                      className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+                    >
+                      + Gắn Thẻ
+                    </button>
+
+                    {isTagPopoverOpen && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
                       >
-                        + Gắn Thẻ
-                      </button>
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
+                          <span>Gắn Thẻ Khách Hàng</span>
+                          <Link
+                            className="text-[10px] text-blue-600 hover:underline font-normal inline-flex items-center gap-0.5"
+                            href="/settings/tags"
+                            target="_blank"
+                          >
+                            ⚙️ Quản lý thẻ
+                          </Link>
+                        </div>
 
-                      {isTagPopoverOpen && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
-                        >
-                          <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
-                            <span>Gắn Thẻ Khách Hàng</span>
-                            <Link
-                              className="text-[10px] text-blue-600 hover:underline font-normal inline-flex items-center gap-0.5"
-                              href="/settings/tags"
-                              target="_blank"
-                            >
-                              ⚙️ Quản lý thẻ
-                            </Link>
-                          </div>
-
-                          {/* Danh sách thẻ thực tế trong hệ thống */}
-                          <div className="max-h-44 overflow-y-auto space-y-1 mb-2 pr-0.5">
-                            {availableTags.length === 0 ? (
-                              <p className="text-[11px] text-slate-400 italic text-center py-2">
-                                Chưa có thẻ nào trong hệ thống
-                              </p>
-                            ) : (
-                              availableTags.map((tag) => {
-                                const isChecked =
-                                  (activeConv?.tags || []).includes(tag.name) ||
-                                  (activeConv?.tags || []).includes(tag.id);
-                                return (
-                                  <label
-                                    key={tag.id || tag.name}
-                                    className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-lg cursor-pointer transition-colors"
+                        {/* Danh sách thẻ thực tế trong hệ thống */}
+                        <div className="max-h-44 overflow-y-auto space-y-1 mb-2 pr-0.5">
+                          {availableTags.length === 0 ? (
+                            <p className="text-[11px] text-slate-400 italic text-center py-2">
+                              Chưa có thẻ nào trong hệ thống
+                            </p>
+                          ) : (
+                            availableTags.map((tag) => {
+                              const isChecked =
+                                (activeConv?.tags || []).includes(tag.name) ||
+                                (activeConv?.tags || []).includes(tag.id);
+                              return (
+                                <label
+                                  key={tag.id || tag.name}
+                                  className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-lg cursor-pointer transition-colors"
+                                >
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                                      tag.bg || "bg-slate-100 text-slate-700 border-slate-200"
+                                    }`}
                                   >
-                                    <span
-                                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${
-                                        tag.bg || "bg-slate-100 text-slate-700 border-slate-200"
-                                      }`}
-                                    >
-                                      {tag.name}
-                                    </span>
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={() => handleToggleTagOnActiveConv(tag.name || tag.id)}
-                                      className="rounded text-blue-600 focus:ring-0 cursor-pointer h-3.5 w-3.5"
-                                    />
-                                  </label>
-                                );
-                              })
-                            )}
-                          </div>
+                                    {tag.name}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => handleToggleTagOnActiveConv(tag.name || tag.id)}
+                                    className="rounded text-blue-600 focus:ring-0 cursor-pointer h-3.5 w-3.5"
+                                  />
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
 
-                          {/* Form thêm nhanh thẻ mới tại chỗ */}
-                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-                            <div className="flex gap-1.5">
-                              <input
-                                type="text"
-                                placeholder="Tên thẻ mới..."
-                                value={newTagName}
-                                onChange={(e) => setNewTagName(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    handleCreateAndAttachTag();
-                                  }
-                                }}
-                                className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-blue-500 text-slate-900 dark:text-white"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleCreateAndAttachTag}
-                                disabled={!newTagName.trim()}
-                                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
-                              >
-                                Thêm
-                              </button>
-                            </div>
+                        {/* Form thêm nhanh thẻ mới tại chỗ */}
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              placeholder="Tên thẻ mới..."
+                              value={newTagName}
+                              onChange={(e) => setNewTagName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleCreateAndAttachTag();
+                                }
+                              }}
+                              className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleCreateAndAttachTag}
+                              disabled={!newTagName.trim()}
+                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
+                            >
+                              Thêm
+                            </button>
                           </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3557,7 +3563,7 @@ export default function LiveZaloInbox() {
                     ? `SĐT: ${activeConv.phone || detectedChatPhone}`
                     : `ID: ${activeConv.id}`}
                 </p>
-                <div className="flex flex-wrap justify-center gap-1 mt-1.5">
+                <div className="flex flex-wrap items-center justify-center gap-1 mt-1.5">
                   {activeConv?.tags && activeConv.tags.length > 0 ? (
                     activeConv.tags.map((tagId) => {
                       const tag = availableTags.find((t) => t.id === tagId || t.name === tagId);
@@ -3586,6 +3592,101 @@ export default function LiveZaloInbox() {
                   ) : (
                     <span className="text-[11px] text-slate-400 italic">Chưa gắn thẻ tag nào</span>
                   )}
+
+                  {/* Nút + Gắn Thẻ ngay trên Hồ sơ Khách hàng */}
+                  <div className="relative inline-block" ref={rightTagPopoverRef}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsRightTagPopoverOpen(!isRightTagPopoverOpen);
+                      }}
+                      className="text-[10px] font-semibold text-blue-400 hover:text-blue-300 bg-blue-950/60 hover:bg-blue-900/80 border border-blue-700/60 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap ml-1"
+                      title="Gắn thẻ cho khách hàng này"
+                    >
+                      + Gắn thẻ
+                    </button>
+
+                    {isRightTagPopoverOpen && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200 text-left"
+                      >
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
+                          <span>Gắn Thẻ Khách Hàng</span>
+                          <Link
+                            className="text-[10px] text-blue-600 hover:underline font-normal inline-flex items-center gap-0.5"
+                            href="/settings/tags"
+                            target="_blank"
+                          >
+                            ⚙️ Quản lý thẻ
+                          </Link>
+                        </div>
+
+                        {/* Danh sách thẻ */}
+                        <div className="max-h-48 overflow-y-auto space-y-1 mb-2 pr-0.5">
+                          {availableTags.length === 0 ? (
+                            <p className="text-[11px] text-slate-400 italic text-center py-2">
+                              Chưa có thẻ nào trong hệ thống
+                            </p>
+                          ) : (
+                            availableTags.map((tag) => {
+                              const isChecked =
+                                (activeConv?.tags || []).includes(tag.name) ||
+                                (activeConv?.tags || []).includes(tag.id);
+                              return (
+                                <label
+                                  key={tag.id || tag.name}
+                                  className="flex items-center justify-between p-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-lg cursor-pointer transition-colors"
+                                >
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${
+                                      tag.bg || "bg-slate-100 text-slate-700 border-slate-200"
+                                    }`}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => handleToggleTagOnActiveConv(tag.name || tag.id)}
+                                    className="rounded text-blue-600 focus:ring-0 cursor-pointer h-3.5 w-3.5"
+                                  />
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Form thêm nhanh thẻ mới tại chỗ */}
+                        <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <div className="flex gap-1.5">
+                            <input
+                              type="text"
+                              placeholder="Tên thẻ mới..."
+                              value={newTagName}
+                              onChange={(e) => setNewTagName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleCreateAndAttachTag();
+                                }
+                              }}
+                              className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleCreateAndAttachTag}
+                              disabled={!newTagName.trim()}
+                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors"
+                            >
+                              Thêm
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

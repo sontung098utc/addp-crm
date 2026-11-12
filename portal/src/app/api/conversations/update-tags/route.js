@@ -5,6 +5,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const threadId = body?.thread_id || body?.threadId || body?.id;
+    const phone = body?.phone || body?.customerPhone || "";
     const tags = body?.tags || [];
 
     if (!threadId) {
@@ -14,7 +15,7 @@ export async function POST(request) {
       );
     }
 
-    const updatedTags = updateConversationTags(threadId, tags);
+    const updatedTags = updateConversationTags(threadId, tags, phone);
     return NextResponse.json({
       ok: true,
       thread_id: threadId,

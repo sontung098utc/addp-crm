@@ -24,7 +24,13 @@ import { isAutoSyncAllowed } from "@/lib/pilotConfig.js";
 import fs from "fs";
 
 function attachConversationTags(conv, allThreadTags) {
-  const byId = Array.isArray(allThreadTags[conv.id]) ? allThreadTags[conv.id] : [];
+  const idStr = String(conv.id || "").trim();
+  const idClean = idStr.replace(/^[gu]_/, "");
+  const byId = Array.isArray(allThreadTags[idStr])
+    ? allThreadTags[idStr]
+    : Array.isArray(allThreadTags[idClean])
+    ? allThreadTags[idClean]
+    : [];
   const normPhone = normalizePhone(conv.phone || conv.zaloPhone || "");
   const byPhone = normPhone && Array.isArray(allThreadTags[normPhone]) ? allThreadTags[normPhone] : [];
   const existing = Array.isArray(conv.tags) ? conv.tags : [];
