@@ -434,6 +434,10 @@ export function getAllZaloHomes() {
     path.resolve(process.cwd(), "server", "connector-home"),
     path.resolve(process.cwd(), "connector-home"),
     "/home/addp/domains/crm.addp.vn/public_html/server/connector-home",
+    "/home/addp/domains/crm.addp.vn/public_html",
+    os.homedir(),
+    "/home/addp",
+    "/root",
     path.resolve(os.tmpdir(), "addp-crm-zalo-homes"),
     ...(process.platform === "win32" ? ["C:\\addp-crm\\server\\connector-home"] : []),
   ].filter(Boolean);
@@ -791,6 +795,7 @@ export function resolveZaloHomeForThread(threadId = "", preferredHomeDir = "", p
 
   // 3. Tự động dò trong history.jsonl và crm-meta-cache.json của từng tài khoản Zalo
   const tid = String(threadId || "").trim();
+  const tidClean = tid.replace(/^[gu]_/, "");
   if (tid) {
     let bestMatch = null;
     let bestTimestamp = -1;
@@ -801,14 +806,23 @@ export function resolveZaloHomeForThread(threadId = "", preferredHomeDir = "", p
         if (!fs.existsSync(fp)) continue;
         try {
           const raw = fs.readFileSync(fp, "utf8");
-          if (!raw.includes(`"${tid}"`)) continue;
+          if (!raw.includes(tid) && (!tidClean || !raw.includes(tidClean))) continue;
           const lines = raw.split("\n");
           for (let i = lines.length - 1; i >= 0; i--) {
             const l = lines[i].trim();
-            if (!l || !l.includes(`"${tid}"`)) continue;
+            if (!l || (!l.includes(tid) && (!tidClean || !l.includes(tidClean)))) continue;
             try {
               const parsed = JSON.parse(l);
-              if (String(parsed.threadId) === tid) {
+              const pTid = String(parsed.threadId || "").trim();
+              const pSender = String(parsed.senderId || parsed.fromId || "").trim();
+              const pTidClean = pTid.replace(/^[gu]_/, "");
+
+              const isMatch =
+                pTid === tid ||
+                (tidClean && pTidClean === tidClean) ||
+                (parsed.threadType === "dm" && pSender === tid);
+
+              if (isMatch) {
                 const ts = Number(parsed.timestamp) || 1;
                 if (ts > bestTimestamp) {
                   bestTimestamp = ts;
@@ -826,8 +840,14 @@ export function resolveZaloHomeForThread(threadId = "", preferredHomeDir = "", p
         if (fs.existsSync(metaPath)) {
           try {
             const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-            const inFriends = (meta?.friends || []).some((f) => String(f?.userId) === tid);
-            const inGroups = (meta?.groups || []).some((g) => String(g?.threadId) === tid);
+            const inFriends = (meta?.friends || []).some((f) => {
+              const fid = String(f?.userId || "").trim();
+              return fid === tid || (tidClean && fid === tidClean);
+            });
+            const inGroups = (meta?.groups || []).some((g) => {
+              const gid = String(g?.threadId || "").trim();
+              return gid === tid || (tidClean && gid.replace(/^[gu]_/, "") === tidClean);
+            });
             if (inFriends || inGroups) {
               bestMatch = acc;
             }
@@ -912,7 +932,7 @@ export function getActiveZaloAccountName(homeDir) {
  * Lấy danh sách các file history JSONL thuộc về ĐÚNG tài khoản Zalo `primaryHome` (cô lập theo `ownId`).
  * TUYỆT ĐỐI KHÔNG trộn lịch sử của nick Lê Quyên sang nick Sơn Tùng hoặc ngược lại.
  */
-export function getAllZaloHistoryFiles(primaryHome) {
+export function getAllZaloHistoryFiles(primaryHome, includeAllHomes = false) {
   const targetHome = primaryHome || getActiveZaloHome();
   const targetOwnId = getOwnIdForHome(targetHome);
   const files = [];
@@ -920,36 +940,66 @@ export function getAllZaloHistoryFiles(primaryHome) {
 
   const addIfExist = (p) => {
     if (!p) return;
-    const resolved = path.resolve(p);
-    if (!seen.has(resolved) && fs.existsSync(resolved)) {
-      seen.add(resolved);
-      files.push(resolved);
-    }
+    try {
+      const resolved = path.resolve(p);
+      if (!seen.has(resolved) && fs.existsSync(resolved)) {
+        seen.add(resolved);
+        files.push(resolved);
+      }
+    } catch {}
   };
 
-  // 1. Chỉ nạp file lịch sử gốc zalo_history_1781287338457243967.jsonl nếu đây đúng là tài khoản Sơn Tùng (ownId === 1781287338457243967)
-  if (String(targetOwnId) === "1781287338457243967") {
-    addIfExist(path.resolve(process.cwd(), "data", "zalo_history_1781287338457243967.jsonl"));
-    addIfExist(path.resolve(process.cwd(), "portal", "data", "zalo_history_1781287338457243967.jsonl"));
+  // 1. Quét toàn diện các file lịch sử zalo_history_*.jsonl trong tất cả các thư mục data khả dĩ
+  const candidateDataDirs = [
+    path.resolve(process.cwd(), "data"),
+    path.resolve(process.cwd(), "portal", "data"),
+    path.resolve(process.cwd(), "..", "portal", "data"),
+    path.resolve(process.cwd(), "..", "data"),
+    "/home/addp/domains/crm.addp.vn/public_html/portal/data",
+    "/home/addp/domains/crm.addp.vn/public_html/data",
+    "C:\\addp-crm\\portal\\data",
+    "C:\\addp-crm\\data",
+  ];
+
+  for (const dir of candidateDataDirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const entries = fs.readdirSync(dir);
+      for (const ent of entries) {
+        if (ent.startsWith("zalo_history_") && ent.endsWith(".jsonl")) {
+          if (
+            includeAllHomes ||
+            !targetOwnId ||
+            ent.includes(String(targetOwnId)) ||
+            String(targetOwnId) === "1781287338457243967"
+          ) {
+            addIfExist(path.join(dir, ent));
+          }
+        }
+      }
+    } catch {}
   }
 
-  // 2. Chỉ gộp các thư mục connector-home có CÙNG ownId với targetHome
+  // 2. Gộp các thư mục connector-home
   const allHomesOldestFirst = [...getAllZaloHomes()].reverse();
   for (const h of allHomesOldestFirst) {
     const hOwnId = getOwnIdForHome(h);
     if (
+      includeAllHomes ||
       path.resolve(h) === path.resolve(targetHome) ||
       (targetOwnId && hOwnId && String(targetOwnId) === String(hOwnId))
     ) {
       addIfExist(path.join(h, ".zalo-agent-cli", "crm-group-history.jsonl"));
       addIfExist(path.join(h, ".zalo-agent-cli", "history.jsonl"));
+      addIfExist(path.join(h, "history.jsonl"));
     }
   }
 
-  // 3. Thư mục chính hiện tại (đặt cuối để ghi đè trạng thái mới nhất nếu trùng)
+  // 3. Thư mục chính hiện tại
   if (targetHome) {
     addIfExist(path.join(targetHome, ".zalo-agent-cli", "crm-group-history.jsonl"));
     addIfExist(path.join(targetHome, ".zalo-agent-cli", "history.jsonl"));
+    addIfExist(path.join(targetHome, "history.jsonl"));
   }
 
   return files;
@@ -979,14 +1029,39 @@ export function getZaloSyncStatus(homeDir) {
     } catch {}
   }
 
-  const inMemory = globalThis.__zaloSyncInFlight?.has(targetHome);
+  const inMemory = Boolean(globalThis.__zaloSyncInFlight?.has(targetHome));
   const ageMs = progress?.updatedAt ? Date.now() - Number(progress.updatedAt) : Infinity;
-  const pidRunning = progress?.pid ? isPidAlive(progress.pid) : false;
+  const startedAgeMs = progress?.startedAt ? Date.now() - Number(progress.startedAt) : Infinity;
+
+  // Kiểm tra PID tiến trình đồng bộ
+  let pidAlive = false;
+  if (progress?.pid) {
+    pidAlive = isPidAlive(progress.pid);
+  }
+
+  // Trạng thái đang đồng bộ chỉ hợp lệ khi:
+  // 1. In-memory promise đang chạy trong tiến trình Node hiện tại
+  // 2. HOẶC file progress ghi status === "syncing" VÀ:
+  //    - Nếu có PID: PID bắt buộc phải còn sống (pidAlive === true) và age < 60s
+  //    - Nếu không có PID: chỉ cho phép trong 45s kể từ lúc bắt đầu
   const fileSyncing =
-    progress?.status === "syncing" && (pidRunning || ageMs < 4 * 60 * 1000);
+    progress?.status === "syncing" &&
+    ((progress?.pid && pidAlive && ageMs < 60 * 1000) ||
+      (!progress?.pid && startedAgeMs < 45 * 1000 && ageMs < 30 * 1000));
+
+  const isSyncing = Boolean(inMemory || fileSyncing);
+
+  // Nếu progress ghi status === "syncing" nhưng worker đã chết hoặc quá hạn -> xóa trạng thái treo để không khóa UI
+  if (progress?.status === "syncing" && !isSyncing) {
+    try {
+      progress.status = "done";
+      progress.phase = "idle";
+      fs.writeFileSync(progressPath, JSON.stringify(progress), "utf8");
+    } catch {}
+  }
 
   return {
-    isSyncing: Boolean(inMemory || fileSyncing),
+    isSyncing,
     phase: progress?.phase || (state?.initialSyncCompleted ? "done" : "idle"),
     friendsCount: progress?.friendsCount || 0,
     groupsCount: progress?.groupsCount || 0,
@@ -1137,11 +1212,9 @@ export async function syncZaloGroupsAndMetadata(homeDir, forceRefresh = false) {
         cached = JSON.parse(fs.readFileSync(metaCachePath, "utf8"));
       } catch {}
     }
-  } else if (hasCredentials && !wsBackfillDone) {
-    // Nếu tài khoản đã có credentials nhưng chưa hoàn thành kéo lịch sử DM + Nhóm qua WebSocket -> chạy ngầm CHỈ ĐỌC
-    ensureAccountHistorySynced(targetHome, cached?.ownId || "").catch(() => {});
-  } else if ((!cached || cacheAge > 20000) && hasCredentials) {
-    // Kích hoạt đồng bộ ngầm không chặn phản hồi UI để danh sách hội thoại mở tức thì (<50ms)
+  } else if (!cached && hasCredentials) {
+    // Chỉ kích hoạt đồng bộ worker khi CHƯA TỪNG CÓ CACHE (lần đầu đăng nhập)
+    // Tuyệt đối không tự động chạy worker định kỳ trong các lượt đọc passive API để tránh giật lag UI và tải lại trang
     triggerDirectSyncWorker(targetHome, { forceFull: false, runWsBackfill: false }).catch(() => {});
   }
 

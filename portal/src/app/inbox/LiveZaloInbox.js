@@ -591,13 +591,16 @@ export default function LiveZaloInbox() {
 
     loadConversations(!hasLocal, false);
 
+    // Chu kỳ làm mới danh sách hội thoại ngầm ổn định (30 giây), chỉ cập nhật khi tab đang hiển thị
     const pollTimer = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       loadConversations(false, false);
-    }, 12000);
+    }, 30000);
 
+    let lastVisibilityCheck = Date.now();
     const handleVisibility = () => {
-      if (!document.hidden) {
+      if (!document.hidden && Date.now() - lastVisibilityCheck > 25000) {
+        lastVisibilityCheck = Date.now();
         loadConversations(false, false);
       }
     };
@@ -609,25 +612,18 @@ export default function LiveZaloInbox() {
     };
   }, []);
 
-  // Tự động làm mới nhanh hơn (4s/lần) khi tài khoản Zalo mới đăng nhập đang kéo lịch sử tin nhắn cũ
-  useEffect(() => {
-    if (!zaloSyncStatus?.isSyncing) return;
-    const fastSyncTimer = setInterval(() => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      loadConversations(false, false);
-    }, 4000);
-    return () => clearInterval(fastSyncTimer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zaloSyncStatus?.isSyncing]);
-
   // Tự động chọn hội thoại đầu tiên phù hợp khi đổi Dropdown tài khoản
   useEffect(() => {
     if ((conversations || []).length === 0) return;
 
     const matchesCurrentFilter = (c) => {
+      if (!c) return false;
       if (channelFilter !== "ALL" && c.channel !== channelFilter) return false;
       if (selectedZaloAccountId !== "ALL") {
-        if (c.channel !== "ZALO_PERSONAL" || String(c.accountId) !== String(selectedZaloAccountId)) {
+        if (c.channel !== "ZALO_PERSONAL") return false;
+        const cAcc = String(c.accountId || c.accountOwnId || "").trim();
+        const selAcc = String(selectedZaloAccountId || "").trim();
+        if (cAcc && selAcc && cAcc !== selAcc && !cAcc.includes(selAcc) && !selAcc.includes(cAcc)) {
           return false;
         }
       }
@@ -643,7 +639,8 @@ export default function LiveZaloInbox() {
         (conversations || []).find((c) => matchesCurrentFilter(c));
       if (firstMatch) setActiveConv(firstMatch);
     }
-  }, [channelFilter, selectedPageId, selectedZaloAccountId, conversations, activeConv]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelFilter, selectedPageId, selectedZaloAccountId]);
 
   // 2. Tải lịch sử tin nhắn khi đổi người chat & đồng bộ tăng dần (cursor since + chống chồng lặp + pause khi ẩn tab)
   useEffect(() => {
@@ -720,16 +717,44 @@ export default function LiveZaloInbox() {
               historyLimited: Boolean(data.historyLimited),
               limitationReason: data.limitationReason || "",
             });
-            messageCacheRef.current.set(convCacheKey, data.messages);
+
+            // Nếu API trả về 0 tin nhưng hội thoại có snippet xem trước (lastMessage) -> giữ tin nhắn preview để không bị trắng màn hình
+            let incoming = data.messages;
+            if (incoming.length === 0 && activeConv?.lastMessage) {
+              const rawSnippet = String(activeConv.lastMessage || "").trim();
+              if (rawSnippet && rawSnippet !== "[Tin nhắn]") {
+                const isMe = rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf);
+                const cleanText = rawSnippet.replace(/^Bạn:\s*|^[^:]+:\s*/, "");
+                incoming = [
+                  {
+                    id: `preview_${activeConv.id}_${activeConv.timestamp || Date.now()}`,
+                    text: cleanText || rawSnippet,
+                    isMe,
+                    senderId: isMe ? String(activeConv.accountOwnId || "") : String(activeConv.id || ""),
+                    senderName: isMe
+                      ? (activeConv.accountDisplayName || "Bạn")
+                      : (activeConv.name || "Khách"),
+                    timestamp: activeConv.timestamp || Date.now(),
+                    time: activeConv.lastActive || "Gần đây",
+                    date: "Gần đây",
+                    type: "text",
+                    status: "sent",
+                    isFallbackPreview: true,
+                  },
+                ];
+              }
+            }
+
+            messageCacheRef.current.set(convCacheKey, incoming);
             setMessages((prev) => {
               if (
                 silent &&
-                (prev || []).length === data.messages.length &&
-                prev[prev.length - 1]?.id === data.messages[data.messages.length - 1]?.id
+                (prev || []).length === incoming.length &&
+                prev[prev.length - 1]?.id === incoming[incoming.length - 1]?.id
               ) {
                 return prev;
               }
-              return data.messages;
+              return incoming;
             });
           }
         } else if (!silent) {
@@ -752,6 +777,32 @@ export default function LiveZaloInbox() {
       const maxCachedTs = cachedMsgs.reduce((mx, m) => Math.max(mx, Number(m.timestamp) || 0), 0);
       latestTimestampRef.current = maxCachedTs;
       fetchMessagesForActive(true);
+    } else if (
+      activeConv?.lastMessage &&
+      String(activeConv.lastMessage).trim() &&
+      String(activeConv.lastMessage).trim() !== "[Tin nhắn]"
+    ) {
+      // Nạp ngay tin nhắn preview trong lúc fetch API để người dùng không thấy màn hình trống
+      const rawSnippet = String(activeConv.lastMessage).trim();
+      const isMe = rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf);
+      const cleanText = rawSnippet.replace(/^Bạn:\s*|^[^:]+:\s*/, "");
+      const previewMsg = [
+        {
+          id: `preview_${activeConv.id}_${activeConv.timestamp || Date.now()}`,
+          text: cleanText || rawSnippet,
+          isMe,
+          senderId: isMe ? String(activeConv.accountOwnId || "") : String(activeConv.id || ""),
+          senderName: isMe ? (activeConv.accountDisplayName || "Bạn") : (activeConv.name || "Khách"),
+          timestamp: activeConv.timestamp || Date.now(),
+          time: activeConv.lastActive || "Gần đây",
+          date: "Gần đây",
+          type: "text",
+          status: "sent",
+          isFallbackPreview: true,
+        },
+      ];
+      setMessages(previewMsg);
+      fetchMessagesForActive(false);
     } else {
       fetchMessagesForActive(false);
     }
@@ -3289,31 +3340,50 @@ export default function LiveZaloInbox() {
                           </>
                         )}
                       </p>
+                      <div className="pt-2 flex justify-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLoadingMessages(true);
+                            setRefreshMsgCount((c) => c + 1);
+                          }}
+                          className="px-3 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          <span>Làm mới & Nạp tin nhắn</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  messages.map((m) => {
-                    const isMe = Boolean(m.isMe || m.sender === "STAFF" || m.senderRole === "SHOP");
-                    const isAi = m.isAi || m.fromBot || (isMe && m.senderName?.includes("AI"));
-                    const rawUrl = m.url || m.thumb || m.mediaUrl || "";
-                    const hasValidUrl =
-                      typeof rawUrl === "string" &&
-                      (rawUrl.startsWith("http://") ||
-                        rawUrl.startsWith("https://") ||
-                        rawUrl.startsWith("data:"));
-                    const textIsUrl =
-                      typeof m.text === "string" &&
-                      (m.text.startsWith("http://") || m.text.startsWith("https://")) &&
-                      (m.text.includes(".jpg") ||
-                        m.text.includes(".png") ||
-                        m.text.includes(".webp") ||
-                        m.text.includes("zdn.vn"));
-                    const photoUrl = hasValidUrl ? rawUrl : textIsUrl ? m.text : null;
-                    const isPhoto = Boolean(photoUrl);
+                  <>
+                    {messages.some((m) => m.isFallbackPreview) && (
+                      <div className="mx-auto max-w-md px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-[11px] text-amber-800 dark:text-amber-300 text-center flex items-center justify-center gap-1.5 shadow-2xs">
+                        <span>Đang đồng bộ thêm lịch sử từ Zalo. Đã nạp tin nhắn mới nhất từ bộ nhớ đệm.</span>
+                      </div>
+                    )}
+                    {messages.map((m) => {
+                      const isMe = Boolean(m.isMe || m.sender === "STAFF" || m.senderRole === "SHOP");
+                      const isAi = m.isAi || m.fromBot || (isMe && m.senderName?.includes("AI"));
+                      const rawUrl = m.url || m.thumb || m.mediaUrl || "";
+                      const hasValidUrl =
+                        typeof rawUrl === "string" &&
+                        (rawUrl.startsWith("http://") ||
+                          rawUrl.startsWith("https://") ||
+                          rawUrl.startsWith("data:"));
+                      const textIsUrl =
+                        typeof m.text === "string" &&
+                        (m.text.startsWith("http://") || m.text.startsWith("https://")) &&
+                        (m.text.includes(".jpg") ||
+                          m.text.includes(".png") ||
+                          m.text.includes(".webp") ||
+                          m.text.includes("zdn.vn"));
+                      const photoUrl = hasValidUrl ? rawUrl : textIsUrl ? m.text : null;
+                      const isPhoto = Boolean(photoUrl);
 
-                    return (
-                      <div
-                        key={m.id}
+                      return (
+                        <div
+                          key={m.id}
                         className={`flex items-end gap-2.5 ${isMe ? "justify-end" : "justify-start"}`}
                       >
                         {!isMe && (
@@ -3393,7 +3463,8 @@ export default function LiveZaloInbox() {
                         </div>
                       </div>
                     );
-                  })
+                  })}
+                  </>
                 )}
                 <div ref={messagesEndRef} />
               </div>
