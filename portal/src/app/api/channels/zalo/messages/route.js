@@ -7,6 +7,8 @@ import {
   ensureZaloMcpDaemon,
   getAllZaloHistoryFiles,
   getZaloSyncStatus,
+  startZaloRealtimeAiWatcher,
+  scanAndAutoReplyZaloHistories,
 } from "../../../../../lib/zaloRunner.js";
 import { getThreadMessages } from "@/lib/unifiedMessageRouter.js";
 import fs from "fs";
@@ -234,6 +236,8 @@ export async function GET(request) {
     if (!getZaloSyncStatus(targetHome).isSyncing) {
       ensureZaloMcpDaemon(targetHome);
     }
+    startZaloRealtimeAiWatcher();
+    scanAndAutoReplyZaloHistories(targetHome, ownId).catch(() => {});
 
     // 2. Ưu tiên đọc lịch sử tin nhắn thật từ các file history JSONL của đúng tài khoản Zalo này
     let localMessages = getThreadMessagesFromAllHistories(targetHome, threadId, ownId, selfName);

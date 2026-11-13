@@ -178,9 +178,9 @@ export function ensureZaloMcpDaemon(homeDir) {
       } catch {}
     }
 
-    // 0. Không tự động kích hoạt vòng lặp auto-reply nền nếu chưa bật cờ ZALO_ENABLE_AUTO_REPLY_WATCHER=1
-    if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER === "1") {
-      startZaloRealtimeAiWatcher(targetHome);
+    // 0. Kích hoạt vòng lặp auto-reply nền (trừ khi cố ý tắt bằng ZALO_ENABLE_AUTO_REPLY_WATCHER=0)
+    if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER !== "0") {
+      startZaloRealtimeAiWatcher();
     }
 
     const targetOwnId = getOwnIdForHome(targetHome);
@@ -1679,16 +1679,12 @@ export async function processIncomingZaloMessageWithBot({
  */
 export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "") {
   try {
-    if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER !== "1") {
+    if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER === "0") {
       return;
     }
     const targetHome = homeDir || getActiveZaloHome();
     const ownId = String(ownIdOverride || getOwnIdForHome(targetHome));
     const specificChannelId = ownId ? `zalo_${ownId}` : "ZALO_PERSONAL";
-    const accountCheck = isBotActiveForThread("", specificChannelId);
-    if (accountCheck.accountMode !== "AI") {
-      return;
-    }
 
     const activeAccountName = getActiveZaloAccountName(targetHome);
     const cliDir = path.join(targetHome, ".zalo-agent-cli");
@@ -1764,7 +1760,8 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
             );
             const text = String(msg.text || "").trim();
 
-            if (isInitialSeed || ts < globalThis.__zaloAutoReplyBootAt) {
+            // Chỉ coi là đã trả lời nếu tin nhắn đã cũ hơn 30 phút
+            if (ts < now - 30 * 60 * 1000) {
               globalThis.__zaloBotRepliedMsgIds.add(`${tid}_${msgId}`);
             }
 
@@ -1794,17 +1791,25 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
       if (!msgs || msgs.length === 0) continue;
       if (ownId && tid === ownId) continue;
 
+      // 1. Kiểm tra trạng thái AI cho riêng hội thoại này (hoặc kế thừa toàn nick)
+      const threadBotCheck = isBotActiveForThread(tid, specificChannelId);
+      if (!threadBotCheck.active) {
+        continue;
+      }
+
       const sortedMsgs = [...msgs].sort((a, b) => a.timestamp - b.timestamp || a.seq - b.seq);
       const lastMsg = sortedMsgs[sortedMsgs.length - 1];
 
-      // Chỉ phản hồi tin nhắn MỚI THẬT từ khách trong 2 phút gần đây và sau thời điểm boot
+      // 2. Phản hồi tin nhắn hợp lệ từ khách chưa được trả lời (trong vòng 30 phút gần nhất)
+      const dedupKey = `${tid}_${lastMsg.id}`;
       if (
         lastMsg &&
         !lastMsg.isMe &&
         lastMsg.text &&
         lastMsg.type === "text" &&
-        lastMsg.timestamp >= globalThis.__zaloAutoReplyBootAt &&
-        now - lastMsg.timestamp < 2 * 60 * 1000
+        !globalThis.__zaloBotRepliedMsgIds.has(dedupKey) &&
+        !globalThis.__zaloBotInFlightMsgIds.has(dedupKey) &&
+        now - lastMsg.timestamp < 30 * 60 * 1000
       ) {
         const friendInfo = friendMap.get(tid);
         const resolvedCustomerName =
@@ -1838,10 +1843,10 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
 }
 
 /**
- * Khởi động vòng lặp theo dõi ngầm history.jsonl (chỉ chạy khi ZALO_ENABLE_AUTO_REPLY_WATCHER=1).
+ * Khởi động vòng lặp theo dõi ngầm history.jsonl (tự động chạy 24/7).
  */
 export function startZaloRealtimeAiWatcher() {
-  if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER !== "1") {
+  if (process.env.ZALO_ENABLE_AUTO_REPLY_WATCHER === "0") {
     return;
   }
   if (
