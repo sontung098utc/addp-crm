@@ -601,7 +601,6 @@ export async function createKiotVietOrder(orderInput = {}) {
 
   const payload = {
     branchId,
-    purchaseDate: new Date().toISOString(),
     ...(customerId
       ? { customerId }
       : {
