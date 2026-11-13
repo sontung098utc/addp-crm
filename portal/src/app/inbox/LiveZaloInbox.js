@@ -958,16 +958,20 @@ export default function LiveZaloInbox() {
             if (incoming.length === 0 && activeConv?.lastMessage) {
               const rawSnippet = String(activeConv.lastMessage || "").trim();
               if (rawSnippet && rawSnippet !== "[Tin nhắn]") {
-                const isMe = rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf);
-                const cleanText = rawSnippet.replace(/^Bạn:\s*|^[^:]+:\s*/, "");
+                const isSystem = rawSnippet.startsWith("[Hệ thống]");
+                const isMe = !isSystem && (rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf));
+                const cleanText = rawSnippet.replace(/^Bạn:\s*|^\[Hệ thống\]\s*|^[^:]+:\s*/, "");
                 incoming = [
                   {
                     id: `preview_${activeConv.id}_${activeConv.timestamp || Date.now()}`,
                     text: cleanText || rawSnippet,
                     isMe,
+                    isSystem,
                     senderId: isMe ? String(activeConv.accountOwnId || "") : String(activeConv.id || ""),
                     senderName: isMe
                       ? (activeConv.accountDisplayName || "Bạn")
+                      : isSystem
+                      ? "Hệ thống"
                       : (activeConv.name || "Khách"),
                     timestamp: activeConv.timestamp || Date.now(),
                     time: activeConv.lastActive || "Gần đây",
@@ -1019,15 +1023,17 @@ export default function LiveZaloInbox() {
     ) {
       // Nạp ngay tin nhắn preview trong lúc fetch API để người dùng không thấy màn hình trống
       const rawSnippet = String(activeConv.lastMessage).trim();
-      const isMe = rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf);
-      const cleanText = rawSnippet.replace(/^Bạn:\s*|^[^:]+:\s*/, "");
+      const isSystem = rawSnippet.startsWith("[Hệ thống]");
+      const isMe = !isSystem && (rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf));
+      const cleanText = rawSnippet.replace(/^Bạn:\s*|^\[Hệ thống\]\s*|^[^:]+:\s*/, "");
       const previewMsg = [
         {
           id: `preview_${activeConv.id}_${activeConv.timestamp || Date.now()}`,
           text: cleanText || rawSnippet,
           isMe,
+          isSystem,
           senderId: isMe ? String(activeConv.accountOwnId || "") : String(activeConv.id || ""),
-          senderName: isMe ? (activeConv.accountDisplayName || "Bạn") : (activeConv.name || "Khách"),
+          senderName: isMe ? (activeConv.accountDisplayName || "Bạn") : isSystem ? "Hệ thống" : (activeConv.name || "Khách"),
           timestamp: activeConv.timestamp || Date.now(),
           time: activeConv.lastActive || "Gần đây",
           date: "Gần đây",
@@ -1869,12 +1875,8 @@ export default function LiveZaloInbox() {
 
     const matchesLocalCustomer = (c) => {
       if (!c) return false;
-      if (rawZaloUid) {
-        const cid = String(c.id || "").trim();
-        const tid = String(c.threadId || "").trim();
-        const cuid = String(c.zaloUid || "").trim();
-        if (cid === rawZaloUid || tid === rawZaloUid || cuid === rawZaloUid) return true;
-      }
+      // 1. Nếu có số điện thoại từ URL/khách hàng: BẮT BUỘC CHỈ KHỚP THEO SỐ ĐIỆN THOẠI (10 số chuẩn VN).
+      // TUYỆT ĐỐI không tìm theo tên khi có số điện thoại để tránh nhảy nhầm sang khách hàng khác!
       if (cleanPhone) {
         const phones = [
           c.phone,
@@ -1884,11 +1886,21 @@ export default function LiveZaloInbox() {
           c.id,
           c.threadId,
         ];
-        if (phones.some((p) => p && normalizePhone(p) === cleanPhone)) return true;
+        return phones.some((p) => p && normalizePhone(p) === cleanPhone);
       }
+      // 2. Nếu không có số điện thoại nhưng có Zalo UID cụ thể
+      if (rawZaloUid) {
+        const cid = String(c.id || "").trim();
+        const tid = String(c.threadId || "").trim();
+        const cuid = String(c.zaloUid || "").trim();
+        if (cid === rawZaloUid || tid === rawZaloUid || cuid === rawZaloUid) return true;
+      }
+      // 3. CHỈ KHI hoàn toàn KHÔNG CÓ SĐT và KHÔNG CÓ UID thì mới so sánh tên,
+      // và BẮT BUỘC so sánh CHÍNH XÁC 100% (cName === targetNameNorm),
+      // TUYỆT ĐỐI không dùng .includes() để không nhầm "Hoàng Hải Luyến" sang "Hoàng Hải"!
       if (targetNameNorm) {
         const cName = stripVietnamese(c.name || c.displayName || c.customerName || "");
-        if (cName && (cName === targetNameNorm || (cName.length > 3 && targetNameNorm.length > 3 && (cName.includes(targetNameNorm) || targetNameNorm.includes(cName))))) {
+        if (cName && cName === targetNameNorm) {
           return true;
         }
       }
@@ -4058,6 +4070,16 @@ export default function LiveZaloInbox() {
                       const isRecalled = Boolean(m.isRecalled || msgInfo.isRecalled);
                       const isSticker = Boolean(msgInfo.isSticker);
                       const displayText = msgInfo.text;
+
+                      if (m.isSystem || m.sender === "SYSTEM") {
+                        return (
+                          <div key={m.id} className="flex justify-center my-2">
+                            <div className="max-w-[85%] rounded-full px-3.5 py-1 bg-slate-100/90 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 text-[11px] text-center shadow-2xs border border-slate-200/80 dark:border-slate-700/60 flex items-center justify-center gap-1.5">
+                              <span>{displayText}</span>
+                            </div>
+                          </div>
+                        );
+                      }
 
                       return (
                         <div

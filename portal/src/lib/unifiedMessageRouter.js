@@ -422,6 +422,11 @@ function tryParseJsonObject(val) {
 
 export function parseTikTokMessageText(msg) {
   if (!msg) return "[Tin nhắn]";
+  // 1. Ưu tiên plaintext dịch sẵn từ TikTok Shop Open API khi truyền need_plaintext=true
+  if (msg.plaintext && typeof msg.plaintext === "string" && msg.plaintext.trim()) {
+    return msg.plaintext.trim();
+  }
+
   const rawContent = msg.content ?? msg.text ?? "";
   let text = "";
 
@@ -433,17 +438,26 @@ export function parseTikTokMessageText(msg) {
         if (typeof parsed === "string") {
           try {
             const inner = JSON.parse(parsed);
-            text = inner?.content || inner?.text || inner?.msg || parsed;
+            text = inner?.plaintext || inner?.content || inner?.text || inner?.msg || parsed;
           } catch {
             text = parsed;
           }
         } else if (parsed && typeof parsed === "object") {
-          text = parsed?.content || parsed?.text || parsed?.msg || "";
-          if (!text && (parsed.url || parsed.image_url)) text = "[Hình ảnh / Sản phẩm]";
-          if (!text && (parsed.product_name || parsed.product_id)) {
-            text = `[Sản phẩm${parsed.product_name ? `: ${parsed.product_name}` : ""}]`;
+          text = parsed?.plaintext || parsed?.content || parsed?.text || parsed?.msg || "";
+          // Bóc tách thẻ sản phẩm
+          if (!text && (parsed.title || parsed.product_name || parsed.name || parsed.product_id)) {
+            const prodTitle = parsed.title || parsed.product_name || parsed.name || "";
+            const price = parsed.price || parsed.sale_price || "";
+            text = `[Sản phẩm${prodTitle ? `: ${prodTitle}` : ""}${price ? ` - ${price}` : ""}]`;
           }
-          if (!text && parsed.order_id) text = `[Đơn hàng #${parsed.order_id}]`;
+          // Bóc tách thẻ đơn hàng
+          if (!text && parsed.order_id) {
+            text = `[Đơn hàng #${parsed.order_id}${parsed.order_status ? ` - ${parsed.order_status}` : ""}]`;
+          }
+          // Bóc tách hình ảnh
+          if (!text && (parsed.url || parsed.image_url || parsed.img_url)) {
+            text = "[Hình ảnh]";
+          }
         }
       } catch {
         text = rawContent;
@@ -452,10 +466,17 @@ export function parseTikTokMessageText(msg) {
       text = rawContent;
     }
   } else if (rawContent && typeof rawContent === "object") {
-    text = rawContent.content || rawContent.text || rawContent.msg || "";
-    if (!text && (rawContent.url || rawContent.image_url)) text = "[Hình ảnh / Sản phẩm]";
-    if (!text && (rawContent.product_name || rawContent.product_id)) {
-      text = `[Sản phẩm${rawContent.product_name ? `: ${rawContent.product_name}` : ""}]`;
+    text = rawContent.plaintext || rawContent.content || rawContent.text || rawContent.msg || "";
+    if (!text && (rawContent.title || rawContent.product_name || rawContent.name || rawContent.product_id)) {
+      const prodTitle = rawContent.title || rawContent.product_name || rawContent.name || "";
+      const price = rawContent.price || rawContent.sale_price || "";
+      text = `[Sản phẩm${prodTitle ? `: ${prodTitle}` : ""}${price ? ` - ${price}` : ""}]`;
+    }
+    if (!text && rawContent.order_id) {
+      text = `[Đơn hàng #${rawContent.order_id}${rawContent.order_status ? ` - ${rawContent.order_status}` : ""}]`;
+    }
+    if (!text && (rawContent.url || rawContent.image_url || rawContent.img_url)) {
+      text = "[Hình ảnh]";
     }
   } else {
     text = String(rawContent || "");
@@ -469,11 +490,12 @@ export function parseTikTokMessageText(msg) {
     cleanStr.includes("seller center")
   ) {
     const msgType = String(msg.type || "").toUpperCase();
-    if (msgType === "IMAGE" || msgType === "PHOTO") return "[Hình ảnh / Sản phẩm]";
-    if (msgType === "PRODUCT_CARD" || msgType === "PRODUCT") return "[Hình ảnh / Sản phẩm]";
+    if (msgType === "IMAGE" || msgType === "PHOTO") return "[Hình ảnh]";
+    if (msgType === "PRODUCT_CARD" || msgType === "PRODUCT") return "[Thẻ sản phẩm]";
     if (msgType === "ORDER_CARD" || msgType === "ORDER") return "[Thẻ đơn hàng]";
+    if (msgType === "SYSTEM" || msgType === "NOTIFY") return "[Thông báo hệ thống]";
     if (!cleanStr) return "[Tin nhắn]";
-    return "[Hình ảnh / Sản phẩm]";
+    return cleanStr;
   }
 
   return cleanStr;
@@ -1011,12 +1033,30 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
               return r === "BUYER" || r === "USER" || r === "CUSTOMER";
             }) || c.participants[0]
           : null;
-        const cleanConvId = cleanTikTokConversationId(c.id);
+        const rawConvId = c.id || c.conversation_id || c.conv_id || "";
+        const cleanConvId = cleanTikTokConversationId(rawConvId);
         const buyerName =
           String(buyer?.nickname || buyer?.name || buyer?.user_name || "").trim() ||
           (cleanConvId ? `Khách TikTok (${cleanConvId.slice(-4)})` : "Khách TikTok Shop");
         const buyerAvatar = buyer?.avatar || "";
-        const previewText = parseTikTokMessageText(c.latest_message);
+
+        const lastSenderRole = String(c.latest_message?.sender?.role || "").toUpperCase();
+        const isLastCustomer =
+          lastSenderRole === "USER" ||
+          lastSenderRole === "BUYER" ||
+          lastSenderRole === "CUSTOMER" ||
+          (buyer &&
+            (String(c.latest_message?.sender?.im_user_id || "") === String(buyer?.im_user_id || "") ||
+              String(c.latest_message?.sender?.user_id || "") === String(buyer?.user_id || "")));
+        const isLastSystem = lastSenderRole === "SYSTEM" || lastSenderRole === "PLATFORM";
+        const isLastMe = !isLastCustomer && !isLastSystem && Boolean(c.latest_message);
+
+        let parsedLastMsg = parseTikTokMessageText(c.latest_message);
+        if (isLastMe) {
+          parsedLastMsg = `Bạn: ${parsedLastMsg}`;
+        } else if (isLastSystem) {
+          parsedLastMsg = `[Hệ thống] ${parsedLastMsg}`;
+        }
 
         results.push({
           id: cleanConvId,
@@ -1035,7 +1075,8 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
           customerName: buyerName,
           type: "DIRECT",
           avatar: buyerAvatar,
-          lastMessage: previewText,
+          lastMessage: parsedLastMsg,
+          lastMessageFromMe: isLastMe,
           timestamp: updatedAt,
           updatedAt,
           lastActive: formatTimeAgo(updatedAt),
@@ -1123,7 +1164,8 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
       let shopMsgCount = 0;
 
       for (const conv of convList) {
-        const convId = cleanTikTokConversationId(conv.id);
+        const rawConvId = conv.id || conv.conversation_id || conv.conv_id || "";
+        const convId = cleanTikTokConversationId(rawConvId);
         if (!convId) continue;
         syncedConversations += 1;
         collectedConvs.push(conv);
@@ -1142,14 +1184,33 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
 
         let convMsgs = [];
         try {
-          const msgAttempt = await callTikTokShopApi(ch, {
+          let msgAttempt = await callTikTokShopApi(ch, {
             method: "GET",
             reqPath: `/customer_service/202309/conversations/${encodeURIComponent(
               convId
             )}/messages`,
-            queryParams: { page_size: "20" },
+            queryParams: {
+              page_size: "10",
+              need_plaintext: "true",
+              need_data: "true",
+              sort_order: "ASC",
+              sort_field: "create_time",
+            },
             timeoutMs: 8000,
           });
+
+          // Fallback nếu API yêu cầu queryParams đơn giản hơn
+          if (!msgAttempt?.json || Number(msgAttempt?.json?.code) !== 0) {
+            msgAttempt = await callTikTokShopApi(ch, {
+              method: "GET",
+              reqPath: `/customer_service/202309/conversations/${encodeURIComponent(
+                convId
+              )}/messages`,
+              queryParams: { page_size: "10" },
+              timeoutMs: 8000,
+            });
+          }
+
           const rawMsgs =
             msgAttempt?.json?.data?.messages ||
             msgAttempt?.json?.data?.message_list ||
@@ -1171,11 +1232,21 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
           const isFromCustomer =
             senderRole === "USER" ||
             senderRole === "BUYER" ||
-            senderRole === "CUSTOMER";
-          const isMe = !isFromCustomer;
-          const ts = parseTikTokTime(m.create_time || conv.create_time);
+            senderRole === "CUSTOMER" ||
+            (buyer &&
+              (String(m.sender?.im_user_id || "") === String(buyer?.im_user_id || "") ||
+                String(m.sender?.user_id || "") === String(buyer?.user_id || "")));
+          const isSystem = senderRole === "SYSTEM" || senderRole === "PLATFORM";
+          const isMe = !isFromCustomer && !isSystem;
+          const ts = parseTikTokTime(m.create_time || m.create_timestamp || conv.create_time);
           const msgId = String(m.id || m.message_id || `${convId}_${ts}`);
           const text = parseTikTokMessageText(m);
+
+          let mediaUrl = null;
+          const parsedCont = tryParseJsonObject(m.content) || m.content;
+          if (parsedCont && typeof parsedCont === "object") {
+            mediaUrl = parsedCont.url || parsedCont.image_url || parsedCont.img_url || null;
+          }
 
           messagesToMerge.push({
             id: msgId,
@@ -1183,12 +1254,14 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
             channelId: chShopId,
             channelName: shopName,
             threadId: convId,
-            sender: isFromCustomer ? "CUSTOMER" : "STAFF",
+            sender: isFromCustomer ? "CUSTOMER" : isSystem ? "SYSTEM" : "STAFF",
             senderId: String(m.sender?.im_user_id || m.sender?.user_id || (isMe ? "me" : buyerId)),
-            senderName: isMe ? (shopName || "ADDP Dược Phẩm") : buyerName,
+            senderName: isFromCustomer ? buyerName : isSystem ? "Hệ thống TikTok" : (shopName || "ADDP Dược Phẩm"),
             text,
             type: String(m.type || "text").toLowerCase(),
+            mediaUrl,
             isMe,
+            isSystem,
             timestamp: ts,
             status: "sent",
             metadata: {
@@ -1465,12 +1538,29 @@ export async function getThreadMessages(
       const chShopId = String(ch.shopId || ch.config?.shopId || ch.externalId || ch.id || "").trim();
       const shopName = String(ch.name || ch.sellerName || "TikTok Shop").trim();
       try {
-        const apiRes = await callTikTokShopApi(ch, {
+        let apiRes = await callTikTokShopApi(ch, {
           method: "GET",
           reqPath: `/customer_service/202309/conversations/${encodeURIComponent(rawTid)}/messages`,
-          queryParams: { page_size: "20" },
+          queryParams: {
+            page_size: "10",
+            need_plaintext: "true",
+            need_data: "true",
+            sort_order: "ASC",
+            sort_field: "create_time",
+          },
           timeoutMs: 8000,
         });
+
+        // Fallback retry với queryParams tối giản nếu TikTok trả về code lỗi
+        if (!apiRes?.json || Number(apiRes?.json?.code) !== 0) {
+          apiRes = await callTikTokShopApi(ch, {
+            method: "GET",
+            reqPath: `/customer_service/202309/conversations/${encodeURIComponent(rawTid)}/messages`,
+            queryParams: { page_size: "10" },
+            timeoutMs: 8000,
+          });
+        }
+
         const resData = apiRes?.json;
         const rawMsgs =
           resData?.data?.messages ||
@@ -1485,10 +1575,17 @@ export async function getThreadMessages(
               senderRole === "USER" ||
               senderRole === "BUYER" ||
               senderRole === "CUSTOMER";
-            const isMe = !isFromCustomer;
+            const isSystem = senderRole === "SYSTEM" || senderRole === "PLATFORM";
+            const isMe = !isFromCustomer && !isSystem;
             const ts = parseTikTokTime(m.create_time || m.create_timestamp);
             const msgId = String(m.id || m.message_id || `${rawTid}_${ts}`);
             const text = parseTikTokMessageText(m);
+
+            let mediaUrl = null;
+            const parsedCont = tryParseJsonObject(m.content) || m.content;
+            if (parsedCont && typeof parsedCont === "object") {
+              mediaUrl = parsedCont.url || parsedCont.image_url || parsedCont.img_url || null;
+            }
 
             const msgObj = {
               id: msgId,
@@ -1496,14 +1593,18 @@ export async function getThreadMessages(
               channelId: chShopId,
               channelName: shopName,
               threadId: rawTid,
-              sender: isFromCustomer ? "CUSTOMER" : "STAFF",
+              sender: isFromCustomer ? "CUSTOMER" : isSystem ? "SYSTEM" : "STAFF",
               senderId: String(m.sender?.im_user_id || m.sender?.user_id || (isMe ? "me" : rawTid)),
               senderName: isFromCustomer
                 ? (customerNameHint || "Khách hàng")
+                : isSystem
+                ? "Hệ thống TikTok"
                 : (shopName || "ADDP Dược Phẩm"),
               text,
               type: String(m.type || "text").toLowerCase(),
+              mediaUrl,
               isMe,
+              isSystem,
               timestamp: ts,
               status: "sent",
             };
