@@ -1,0 +1,7 @@
+tinh_huong,khach_hoi,nhan_vien_tra_loi
+HOI_GIA,"[Dán nguyên văn câu khách hỏi giá]","[Dán nguyên văn câu nhân viên đã trả lời]"
+HOI_CACH_DUNG,"[Câu khách hỏi cách dùng]","[Câu nhân viên trả lời]"
+CHE_DAT,"[Câu khách chê đắt / hỏi khuyến mãi]","[Câu nhân viên trả lời]"
+BAO_CHI_SO,"[Câu khách báo chỉ số đường huyết]","[Câu nhân viên trả lời]"
+CHOT_DON,"[Câu khách đồng ý mua]","[Câu nhân viên xin SĐT/địa chỉ chốt đơn]"
+HOI_SHIP,"[Câu khách hỏi phí ship / thời gian giao]","[Câu nhân viên trả lời]"

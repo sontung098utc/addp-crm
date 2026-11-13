@@ -24,6 +24,15 @@ export default function AiBotsPage() {
   // Bot Profiles
   const [profiles, setProfiles] = useState([]);
   const [savingBotKey, setSavingBotKey] = useState(null);
+  const [showAddBot, setShowAddBot] = useState(false);
+  const [newBot, setNewBot] = useState({
+    channel: "ZALO_PERSONAL",
+    accountId: "",
+    accountName: "",
+    botName: "",
+    mode: "COPILOT",
+  });
+  const [addingBot, setAddingBot] = useState(false);
 
   // Knowledge Docs & Vector Search
   const [docs, setDocs] = useState([]);
@@ -69,6 +78,7 @@ export default function AiBotsPage() {
         fetch("/api/ai/settings").then((r) => r.json()),
       ]);
       if (pRes.ok) setProfiles(pRes.profiles || []);
+      else showToast("error", pRes.error || "Không tải được danh sách Bot.");
       if (kRes.ok) setDocs(kRes.docs || []);
       if (sRes.ok) {
         if (sRes.settings) setAiSettings(sRes.settings);
@@ -107,6 +117,50 @@ export default function AiBotsPage() {
       showToast("error", err.message);
     } finally {
       setSavingBotKey(null);
+    }
+  };
+
+  const handleAddBot = async (e) => {
+    e.preventDefault();
+    if (!newBot.accountName.trim()) {
+      showToast("error", "Vui lòng nhập tên tài khoản kênh.");
+      return;
+    }
+    try {
+      setAddingBot(true);
+      const res = await fetch("/api/ai/bot-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newBot,
+          botName: newBot.botName || `Bot ${newBot.accountName}`,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error);
+      showToast("success", data.message);
+      setNewBot({ channel: "ZALO_PERSONAL", accountId: "", accountName: "", botName: "", mode: "COPILOT" });
+      setShowAddBot(false);
+      await loadAll();
+    } catch (err) {
+      showToast("error", err.message);
+    } finally {
+      setAddingBot(false);
+    }
+  };
+
+  const handleDeleteBot = async (accountKey) => {
+    if (!confirm("Xóa cấu hình Bot này?")) return;
+    try {
+      const res = await fetch(`/api/ai/bot-profiles?accountKey=${encodeURIComponent(accountKey)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error);
+      showToast("success", data.message);
+      await loadAll();
+    } catch (err) {
+      showToast("error", err.message);
     }
   };
 
@@ -302,6 +356,84 @@ export default function AiBotsPage() {
             Đang tải cấu hình AI Bot & Kho Tri Thức...
           </div>
         ) : activeTab === "bots" ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+              <div className="text-sm text-slate-600">
+                Hệ thống tự nhận diện các nick <strong>Zalo Cá Nhân</strong> đang đăng nhập. Bạn có thể thêm Bot thủ công cho bất kỳ tài khoản nào.
+              </div>
+              <button
+                onClick={() => setShowAddBot((v) => !v)}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold cursor-pointer"
+              >
+                {showAddBot ? "✕ Đóng" : "➕ Thêm Bot Mới"}
+              </button>
+            </div>
+
+            {showAddBot && (
+              <form
+                onSubmit={handleAddBot}
+                className="bg-white rounded-2xl border border-blue-200 p-5 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-3 items-end"
+              >
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-500 block mb-1">Kênh</label>
+                  <select
+                    value={newBot.channel}
+                    onChange={(e) => setNewBot((b) => ({ ...b, channel: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                  >
+                    {Object.entries(CHANNEL_LABEL).map(([k, v]) => (
+                      <option key={k} value={k}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-500 block mb-1">Tên tài khoản kênh *</label>
+                  <input
+                    type="text"
+                    placeholder="VD: Zalo Ngọc Linh - Addp"
+                    value={newBot.accountName}
+                    onChange={(e) => setNewBot((b) => ({ ...b, accountName: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-500 block mb-1">ID tài khoản (UID/Page ID)</label>
+                  <input
+                    type="text"
+                    placeholder="Để trống sẽ tự sinh"
+                    value={newBot.accountId}
+                    onChange={(e) => setNewBot((b) => ({ ...b, accountId: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-500 block mb-1">Chế độ</label>
+                  <select
+                    value={newBot.mode}
+                    onChange={(e) => setNewBot((b) => ({ ...b, mode: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs"
+                  >
+                    {MODE_OPTIONS.map((m) => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingBot}
+                  className="py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
+                >
+                  {addingBot ? "Đang tạo..." : "✓ Tạo Bot"}
+                </button>
+              </form>
+            )}
+
+            {profiles.length === 0 && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-sm text-slate-500">
+                Chưa có Bot nào. Bấm <strong>➕ Thêm Bot Mới</strong> để tạo.
+              </div>
+            )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {profiles.map((p) => (
               <div
@@ -397,7 +529,13 @@ export default function AiBotsPage() {
                   />
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => handleDeleteBot(p.accountKey)}
+                    className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold cursor-pointer"
+                  >
+                    Xóa
+                  </button>
                   <button
                     onClick={() => handleSaveProfile(p)}
                     disabled={savingBotKey === p.accountKey}
@@ -409,6 +547,7 @@ export default function AiBotsPage() {
               </div>
             ))}
           </div>
+          </div>
         ) : activeTab === "knowledge" ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             {/* Upload form */}
@@ -419,6 +558,18 @@ export default function AiBotsPage() {
               <h3 className="text-base font-bold text-slate-900">
                 ➕ Nạp Tài Liệu Sản Phẩm / Quy Trình
               </h3>
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 space-y-1.5">
+                <div className="text-xs font-bold text-amber-800">📥 Tải file mẫu để điền thông tin:</div>
+                <a href="/templates/mau_tai_lieu_san_pham.txt" download className="block text-xs text-blue-700 hover:underline">
+                  • Mẫu tài liệu sản phẩm (.txt)
+                </a>
+                <a href="/templates/mau_quy_trinh_cskh.txt" download className="block text-xs text-blue-700 hover:underline">
+                  • Mẫu quy trình chăm sóc khách hàng (.txt)
+                </a>
+                <a href="/templates/mau_hoi_thoai_sale.csv" download className="block text-xs text-blue-700 hover:underline">
+                  • Mẫu hội thoại Sale để Bot học văn phong (.csv)
+                </a>
+              </div>
               <div>
                 <label className="text-xs font-semibold text-slate-600 block mb-1">
                   Tên tài liệu *

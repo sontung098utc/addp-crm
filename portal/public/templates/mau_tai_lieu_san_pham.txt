@@ -1,0 +1,21 @@
+MẪU TÀI LIỆU SẢN PHẨM — ADDP CRM (Nạp vào Kho Tri Thức AI)
+Hướng dẫn: Mỗi sản phẩm là 1 khối bắt đầu bằng "### SẢN PHẨM:". Thay toàn bộ nội dung trong [ngoặc vuông] bằng thông tin thật của công ty. Có thể nhân bản khối cho nhiều sản phẩm trong cùng 1 file.
+
+### SẢN PHẨM: [Tên sản phẩm đầy đủ]
+- Mã SKU (KiotViet): [VD: SP000xxx]
+- Quy cách đóng gói: [VD: Hộp x gói / Lon x gram]
+- Giá bán lẻ niêm yết: [xxx.000đ / hộp]
+- Combo / Ưu đãi đang áp dụng: [VD: Combo 2 hộp giá ..., tặng ...]
+- Đối tượng phù hợp: [VD: Người tiểu đường tuýp 2, tiền tiểu đường...]
+- Đối tượng không nên dùng / Lưu ý: [VD: Phụ nữ có thai, người dị ứng thành phần ...]
+- Thành phần chính: [Liệt kê thành phần theo nhãn sản phẩm]
+- Công dụng (theo giấy phép công bố): [Ghi đúng nội dung được phép quảng cáo]
+- Cách dùng & Liều lượng: [VD: Ngày x lần, mỗi lần x gói, pha với x ml nước ấm ...]
+- Thời gian dùng 1 liệu trình: [VD: 1 hộp dùng được x ngày]
+- Số giấy công bố / Giấy phép: [Số công bố]
+- Câu hỏi khách hay hỏi & cách trả lời chuẩn:
+  + Hỏi: [Câu hỏi thường gặp 1]
+    Đáp: [Câu trả lời chuẩn của công ty]
+  + Hỏi: [Câu hỏi thường gặp 2]
+    Đáp: [Câu trả lời chuẩn của công ty]
+- Điều TUYỆT ĐỐI KHÔNG được nói: [VD: Không nói "chữa khỏi bệnh", "thay thế thuốc" ...]

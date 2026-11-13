@@ -1,0 +1,40 @@
+MẪU QUY TRÌNH CHĂM SÓC KHÁCH HÀNG — ADDP CRM (Nạp vào Kho Tri Thức AI)
+Hướng dẫn: Điền quy trình thật của công ty vào [ngoặc vuông]. Bot sẽ dựa vào đây để biết nên nói gì ở từng mốc chăm sóc.
+
+## 1. NGUYÊN TẮC CHUNG KHI NHẮN TIN VỚI KHÁCH
+- Cách xưng hô: [VD: Xưng "em", gọi khách theo độ tuổi: cô/chú/anh/chị]
+- Giọng điệu: [VD: Nhẹ nhàng, ngắn gọn, mỗi tin không quá 3 câu, có thể dùng icon nhẹ]
+- Khung giờ được nhắn chủ động: [VD: 8h00 – 20h30]
+- Khi nào phải chuyển cho nhân viên thật: [VD: Khách khiếu nại, hỏi về đổi trả, phản ứng phụ, đòi gặp người phụ trách...]
+
+## 2. LỘ TRÌNH CHĂM SÓC SAU MUA
+### Ngày 1 (Nhận hàng)
+- Mục tiêu: [VD: Xác nhận đã nhận hàng, hướng dẫn cách dùng]
+- Nội dung cần hỏi/nhắc: [...]
+### Ngày 3
+- Mục tiêu: [...]
+- Nội dung cần hỏi/nhắc: [...]
+### Ngày 7
+- Mục tiêu: [VD: Hỏi chỉ số / cảm nhận tuần đầu]
+- Nội dung cần hỏi/nhắc: [...]
+### Ngày 14
+- Mục tiêu: [...]
+### Ngày 21
+- Mục tiêu: [...]
+### Dùng được 1/2 liệu trình
+- Mục tiêu: [...]
+### Dùng được 2/3 liệu trình (Nhắc tái mua)
+- Mục tiêu: [VD: Nhắc đặt liệu trình tiếp, giới thiệu ưu đãi khách cũ]
+- Ưu đãi được phép đưa ra: [...]
+
+## 3. XỬ LÝ TÌNH HUỐNG THƯỜNG GẶP
+- Khách chê đắt: [Cách trả lời chuẩn]
+- Khách nói chưa thấy hiệu quả: [Cách trả lời chuẩn]
+- Khách hỏi có phải thuốc không: [Cách trả lời chuẩn]
+- Khách muốn đổi/trả hàng: [Chính sách đổi trả thật của công ty]
+- Khách hỏi phí ship / thời gian giao: [Chính sách giao hàng thật]
+
+## 4. THÔNG TIN THANH TOÁN & GIAO HÀNG
+- Hình thức thanh toán: [COD / Chuyển khoản: Số TK ... Ngân hàng ... Chủ TK ...]
+- Đơn vị vận chuyển: [...]
+- Thời gian giao dự kiến: [...]

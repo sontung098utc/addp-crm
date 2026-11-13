@@ -564,7 +564,17 @@ export default function WorkTrackingPage() {
                           />
                         </td>
 
-                        <td className="py-3 px-3 text-center">
+                        <td className="py-3 px-3 text-center space-y-1.5">
+                          <Link
+                            href={`/inbox?phone=${encodeURIComponent(row.phone || "")}&name=${encodeURIComponent(
+                              row.fullName || ""
+                            )}&customerId=${encodeURIComponent(row.id || "")}&staff=${encodeURIComponent(
+                              row.staffName || ""
+                            )}&autoOpen=true`}
+                            className="block w-full px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
+                          >
+                            💬 Chăm sóc
+                          </Link>
                           <button
                             onClick={() => handleCompleteRow(row)}
                             disabled={savingRowId === row.id}

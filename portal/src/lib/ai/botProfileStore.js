@@ -41,33 +41,45 @@ export function listBotProfiles() {
     if (item?.accountKey) byKey.set(item.accountKey, item);
   }
 
-  // Tự động phát hiện các tài khoản Zalo Cá nhân đang kết nối
+  // Tự động phát hiện các tài khoản Zalo Cá nhân đang kết nối (an toàn, không làm hỏng API nếu lỗi)
   let zaloHomes = [];
   try {
     zaloHomes = getAllActiveZaloHomes() || [];
-  } catch {}
+  } catch (err) {
+    console.error("[BOT_PROFILE_ZALO_HOMES_ERR]", err?.message);
+  }
 
-  for (const homeDir of zaloHomes) {
-    const ownId = getOwnIdForHome(homeDir) || "";
-    const accName = getActiveZaloAccountName(homeDir) || path.basename(homeDir);
-    const accountId = String(ownId || path.basename(homeDir) || "default");
-    const accountKey = `ZALO_PERSONAL:${accountId}`;
-    if (!byKey.has(accountKey)) {
-      byKey.set(accountKey, {
-        accountKey,
-        channel: "ZALO_PERSONAL",
-        accountId,
-        accountName: accName,
-        homeDir,
-        botName: `Bot ${accName}`,
-        mode: "COPILOT", // HUMAN | COPILOT | AUTO
-        personaPrompt: DEFAULT_PERSONA,
-        assignedDocIds: ["ALL"],
-        replyDelayMin: 5,
-        replyDelayMax: 15,
-        takeoverMinutes: 45,
-        updatedAt: new Date().toISOString(),
-      });
+  for (const rawHome of Array.isArray(zaloHomes) ? zaloHomes : []) {
+    try {
+      const homeDir =
+        typeof rawHome === "string" ? rawHome : rawHome?.homeDir || rawHome?.path || "";
+      if (!homeDir) continue;
+      let ownId = "";
+      let accName = "";
+      try { ownId = getOwnIdForHome(homeDir) || ""; } catch {}
+      try { accName = getActiveZaloAccountName(homeDir) || ""; } catch {}
+      if (!accName) accName = (typeof rawHome === "object" && rawHome?.name) || path.basename(homeDir);
+      const accountId = String(ownId || path.basename(homeDir) || "default");
+      const accountKey = `ZALO_PERSONAL:${accountId}`;
+      if (!byKey.has(accountKey)) {
+        byKey.set(accountKey, {
+          accountKey,
+          channel: "ZALO_PERSONAL",
+          accountId,
+          accountName: accName,
+          homeDir,
+          botName: `Bot ${accName}`,
+          mode: "COPILOT", // HUMAN | COPILOT | AUTO
+          personaPrompt: DEFAULT_PERSONA,
+          assignedDocIds: ["ALL"],
+          replyDelayMin: 5,
+          replyDelayMax: 15,
+          takeoverMinutes: 45,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error("[BOT_PROFILE_ZALO_ITEM_ERR]", err?.message);
     }
   }
 
@@ -100,6 +112,16 @@ export function listBotProfiles() {
   }
 
   return Array.from(byKey.values());
+}
+
+export function deleteBotProfile(accountKey) {
+  const saved = readJsonFile("ai_bot_profiles.json", []);
+  const next = (Array.isArray(saved) ? saved : []).filter((p) => p.accountKey !== accountKey);
+  writeJsonFile("ai_bot_profiles.json", next);
+  try {
+    runMariaDbSql(`DELETE FROM ai_bot_profiles WHERE account_key = ${sqlEscape(accountKey)};`);
+  } catch {}
+  return true;
 }
 
 export function upsertBotProfile(input = {}) {
