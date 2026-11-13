@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import KeywordAutoReplyTab from "./KeywordAutoReplyTab";
 
 const TAG_BADGE_STYLES = {
   "Tiểu Đường Tuýp 2": "bg-rose-500/15 text-rose-300 border-rose-500/30",
@@ -57,6 +58,7 @@ function renderSpinPreviewClient(template = "", sample = {}) {
 }
 
 export default function BroadcastPage() {
+  const [activeMainTab, setActiveMainTab] = useState("broadcast"); // 'broadcast' | 'keyword_auto_reply'
   const [campaigns, setCampaigns] = useState([]);
   const [sentToday, setSentToday] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -429,8 +431,45 @@ export default function BroadcastPage() {
         </div>
       </div>
 
-      {/* Khối chính: Cột trái Form Tạo Chiến Dịch + Cột phải Màn hình Điện thoại Xem trước */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      {/* Điều Hướng 2 Phân Hệ: Gửi Hàng Loạt vs Tự Động Trả Lời Theo Từ Khóa */}
+      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("broadcast")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            activeMainTab === "broadcast"
+              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 ring-1 ring-blue-400/40"
+              : "bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+          }`}
+        >
+          <span>📢 Chiến Dịch Gửi Hàng Loạt</span>
+          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold">
+            {campaigns.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("keyword_auto_reply")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            activeMainTab === "keyword_auto_reply"
+              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 ring-1 ring-blue-400/40"
+              : "bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+          }`}
+        >
+          <span>⚡ Tự Động Trả Lời Theo Từ Khóa (Auto-Reply)</span>
+          <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 px-2 py-0.5 text-[10px] font-bold animate-pulse">
+            Mới
+          </span>
+        </button>
+      </div>
+
+      {activeMainTab === "keyword_auto_reply" ? (
+        <KeywordAutoReplyTab />
+      ) : (
+        <>
+          {/* Khối chính: Cột trái Form Tạo Chiến Dịch + Cột phải Màn hình Điện thoại Xem trước */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         <form
           onSubmit={handleCreateCampaign}
           className="xl:col-span-8 rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-6 shadow-xl"
@@ -1200,6 +1239,8 @@ export default function BroadcastPage() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* MODAL POPUP: GỬI THỬ 1 TIN NHẮN (TEST SEND MODAL) */}
       {showTestModal && (
