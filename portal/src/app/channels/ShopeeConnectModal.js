@@ -123,7 +123,7 @@ export default function ShopeeConnectModal({ isOpen, onClose, onConnected }) {
                   type="text"
                   value={partnerId}
                   onChange={(e) => setPartnerId(e.target.value)}
-                  placeholder="Ví dụ: 1253327"
+                  placeholder="Ví dụ: 1253327 (Test) hoặc Live Partner ID"
                   className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3.5 py-2.5 text-sm text-white font-mono focus:border-orange-500 focus:outline-hidden"
                 />
               </div>
@@ -147,17 +147,23 @@ export default function ShopeeConnectModal({ isOpen, onClose, onConnected }) {
               </p>
             </div>
 
-            <div className="flex items-center gap-2 pt-1">
-              <input
-                type="checkbox"
-                id="shopee_sandbox"
-                checked={isSandbox}
-                onChange={(e) => setIsSandbox(e.target.checked)}
-                className="rounded border-slate-700 bg-slate-950 text-orange-500 focus:ring-orange-500"
-              />
-              <label htmlFor="shopee_sandbox" className="text-xs text-slate-300 cursor-pointer">
-                Sử dụng môi trường Test (Sandbox)
-              </label>
+            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="shopee_sandbox"
+                  checked={isSandbox}
+                  onChange={(e) => setIsSandbox(e.target.checked)}
+                  className="rounded border-slate-700 bg-slate-950 text-orange-500 focus:ring-orange-500 cursor-pointer"
+                />
+                <label htmlFor="shopee_sandbox" className="text-xs font-semibold text-slate-200 cursor-pointer">
+                  Sử dụng môi trường Test (Sandbox)
+                </label>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                • Nếu dùng mã <strong>Test Partner_id</strong> (như <code className="text-amber-300">1253327</code>): <strong>BẮT BUỘC TÍCH CHỌN</strong> ô này để tránh lỗi <em>invalid_partner_id</em>.<br />
+                • Nếu kết nối <strong>Shop thật</strong> của công ty: Hãy đợi Shopee duyệt Go Live xong, lấy <strong>Live Partner_id</strong> và <strong>BỎ TÍCH</strong> ô này.
+              </p>
             </div>
           </div>
 
