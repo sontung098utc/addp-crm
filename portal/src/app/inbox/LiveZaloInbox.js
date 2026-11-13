@@ -4,6 +4,11 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import QuickOrderModal from "../components/QuickOrderModal";
 import BulkMessageModal from "../components/BulkMessageModal";
+import QuickRepliesModal from "./QuickRepliesModal";
+import ProductPickerModal from "./ProductPickerModal";
+import AudioRecorderBar from "./AudioRecorderBar";
+import QuickTagBar from "./QuickTagBar";
+import ChatToolbar from "./ChatToolbar";
 import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 import {
   playNotificationSound,
@@ -44,6 +49,8 @@ import {
   Tag,
   Undo2,
   Smile,
+  FileText,
+  Volume2,
 } from "lucide-react";
 
 /**
@@ -316,6 +323,12 @@ export default function LiveZaloInbox() {
 
   // Lên đơn hàng nhanh trong chat (QuickOrderModal)
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+
+  // Vpage Enhanced Chat States (Trả lời nhanh, Sản phẩm, Ghi âm, File đính kèm)
+  const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
+  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+  const [isAudioRecordingOpen, setIsAudioRecordingOpen] = useState(false);
+  const [attachedFiles, setAttachedFiles] = useState([]);
 
   // Quản lý Thẻ Tag Khách Hàng (Customer Tags Management)
   const [availableTags, setAvailableTags] = useState([]);
@@ -1281,12 +1294,16 @@ export default function LiveZaloInbox() {
     }
   };
 
-  // Gửi tin nhắn 2 chiều
-  const handleSendMessage = async (e) => {
-    if (e) e.preventDefault();
-    if (!inputMessage.trim() || !activeConv || sending) return;
+  // Gửi tin nhắn 2 chiều (Hỗ trợ text, ảnh, file đính kèm, hoặc gửi trực tiếp)
+  const handleSendMessage = async (e, customText = null) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!activeConv || sending) return;
 
-    const messageText = inputMessage.trim();
+    const primaryAtt = attachedFiles.length > 0 ? attachedFiles[0] : null;
+    const messageText = typeof customText === "string" ? customText.trim() : inputMessage.trim();
+
+    if (!messageText && !primaryAtt) return;
+
     const tempId = `temp_${Date.now()}`;
     const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 
@@ -1306,7 +1323,12 @@ export default function LiveZaloInbox() {
 
     const optimisticMsg = {
       id: tempId,
-      text: messageText,
+      text: messageText || (primaryAtt?.isImage ? "[Hình ảnh]" : primaryAtt?.isAudio ? "[Ghi âm]" : `[Tập tin: ${primaryAtt?.name || ""}]`),
+      url: primaryAtt?.previewUrl || primaryAtt?.url || "",
+      isPhoto: Boolean(primaryAtt?.isImage),
+      isAudio: Boolean(primaryAtt?.isAudio),
+      fileName: primaryAtt?.name || "",
+      type: primaryAtt?.isImage ? "chat.photo" : primaryAtt?.isAudio ? "chat.voice" : "text",
       isMe: true,
       isAi: false,
       senderName: activeConv.accountDisplayName || activeConv.accountName || "Chuyên viên ADDP",
@@ -1322,7 +1344,11 @@ export default function LiveZaloInbox() {
       messageCacheRef.current.set(convCacheKey, next);
       return next;
     });
-    setInputMessage("");
+
+    if (!customText) {
+      setInputMessage("");
+    }
+    setAttachedFiles([]);
     setSending(true);
 
     try {
@@ -1338,6 +1364,11 @@ export default function LiveZaloInbox() {
           homeDir: activeConv.zaloHome || "",
           type: activeConv.type || "DIRECT",
           message: messageText,
+          mediaUrl: primaryAtt?.url || "",
+          filePath: primaryAtt?.filePath || "",
+          isImage: Boolean(primaryAtt?.isImage),
+          isAudio: Boolean(primaryAtt?.isAudio),
+          fileName: primaryAtt?.name || "",
           channel: activeConv.channel || "ZALO_PERSONAL",
           staffId: "STAFF",
           staffName: currentStaffName || "Chuyên viên ADDP",
@@ -1379,7 +1410,7 @@ export default function LiveZaloInbox() {
           const updatedConv = {
             ...list[idx],
             isContactOnly: false,
-            lastMessage: `Bạn: ${messageText}`,
+            lastMessage: `Bạn: ${messageText || (primaryAtt?.isImage ? "[Hình ảnh]" : "[Tập tin]")}`,
             lastActive: "Vài giây",
             timestamp: Date.now(),
           };
@@ -1415,6 +1446,176 @@ export default function LiveZaloInbox() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "q") {
+      e.preventDefault();
+      setIsQuickRepliesOpen(true);
+    }
+  };
+
+  // Vpage Handlers: Icon, Trả lời nhanh, Sản phẩm, Audio, File upload
+  const handleSelectEmoji = (emoji) => {
+    setInputMessage((prev) => (prev ? `${prev} ${emoji}` : emoji));
+  };
+
+  const handleSelectQuickReply = (text) => {
+    setInputMessage((prev) => (prev ? `${prev}\n${text}` : text));
+  };
+
+  const handleSendQuickReplyDirect = (text) => {
+    handleSendMessage(null, text);
+  };
+
+  const handleSelectProduct = (snippet) => {
+    setInputMessage((prev) => (prev ? `${prev}\n\n${snippet}` : snippet));
+  };
+
+  const handleSendProductDirect = (snippet) => {
+    handleSendMessage(null, snippet);
+  };
+
+  const handleFileSelected = async (files, isImage = true) => {
+    for (const file of files) {
+      const localPreview = isImage ? URL.createObjectURL(file) : null;
+      const attId = `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const pendingAtt = {
+        id: attId,
+        file,
+        name: file.name,
+        size: file.size,
+        isImage,
+        previewUrl: localPreview,
+        uploading: true,
+      };
+
+      setAttachedFiles((prev) => [...prev, pendingAtt]);
+
+      // Upload file lên máy chủ
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        const res = await fetch("/api/media/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setAttachedFiles((prev) =>
+            prev.map((a) =>
+              a.id === attId
+                ? {
+                    ...a,
+                    uploading: false,
+                    url: data.url,
+                    filePath: data.filePath,
+                  }
+                : a
+            )
+          );
+        } else {
+          setToast({ type: "error", text: data.error || "Không thể tải file lên." });
+          setAttachedFiles((prev) => prev.filter((a) => a.id !== attId));
+        }
+      } catch (err) {
+        setToast({ type: "error", text: `Lỗi upload: ${err.message}` });
+        setAttachedFiles((prev) => prev.filter((a) => a.id !== attId));
+      }
+    }
+  };
+
+  const handleRemoveAttachment = (index) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSendAudio = async (audioBlob, duration, localAudioUrl) => {
+    if (!activeConv) return;
+    const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, {
+      type: audioBlob.type || "audio/webm",
+    });
+
+    const formData = new FormData();
+    formData.append("file", audioFile);
+
+    let uploadedData = null;
+    try {
+      const res = await fetch("/api/media/upload", {
+        method: "POST",
+        body: formData,
+      });
+      uploadedData = await res.json();
+    } catch {}
+
+    const tempId = `temp_audio_${Date.now()}`;
+    const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+
+    const optimisticMsg = {
+      id: tempId,
+      text: "[Ghi âm giọng nói]",
+      url: uploadedData?.url || localAudioUrl,
+      type: "chat.voice",
+      isMe: true,
+      isAudio: true,
+      senderName: activeConv.accountDisplayName || activeConv.accountName || "Chuyên viên ADDP",
+      time: nowTime,
+      date: "Hôm nay",
+      status: "sending",
+    };
+
+    setMessages((prev) => [...(prev || []), optimisticMsg]);
+
+    try {
+      const res = await fetch("/api/channels/zalo/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: activeConv.id,
+          recipientId: activeConv.recipientId || activeConv.id,
+          recipientPhone: activeConv.phone || detectedChatPhone || "",
+          pageId: activeConv.pageId || "",
+          accountId: activeConv.accountId || "",
+          homeDir: activeConv.zaloHome || "",
+          type: activeConv.type || "DIRECT",
+          message: "[Ghi âm giọng nói]",
+          mediaUrl: uploadedData?.url || "",
+          filePath: uploadedData?.filePath || "",
+          isAudio: true,
+          channel: activeConv.channel || "ZALO_PERSONAL",
+          staffId: "STAFF",
+          staffName: currentStaffName || "Chuyên viên ADDP",
+          staffConfirmed: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data?.ok) {
+        setMessages((prev) =>
+          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "sent" } : m))
+        );
+      } else {
+        setMessages((prev) =>
+          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
+        );
+        setToast({ type: "error", text: data?.error || "Lỗi gửi ghi âm." });
+      }
+    } catch (err) {
+      setMessages((prev) =>
+        (prev || []).map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
+      );
+      setToast({ type: "error", text: `Lỗi kết nối: ${err.message}` });
+    }
+  };
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (file) {
+          handleFileSelected([file], true);
+          e.preventDefault();
+          break;
+        }
+      }
     }
   };
 
@@ -3664,6 +3865,21 @@ export default function LiveZaloInbox() {
                       const isSticker = Boolean(msgInfo.isSticker);
                       const displayText = msgInfo.text;
 
+                      const isAudioMsg = Boolean(
+                        m.type === "chat.voice" ||
+                        m.type === "voice" ||
+                        m.isAudio ||
+                        (m.url && (m.url.endsWith(".mp3") || m.url.endsWith(".wav") || m.url.endsWith(".ogg") || m.url.endsWith(".webm") || m.url.endsWith(".m4a")))
+                      );
+                      const audioMsgUrl = m.url || "";
+
+                      const isFileMsg = Boolean(
+                        m.type === "chat.file" ||
+                        m.isFile ||
+                        (m.url && !isPhoto && !isAudioMsg)
+                      );
+                      const fileMsgUrl = m.url || "";
+
                       return (
                         <div
                           key={m.id}
@@ -3729,6 +3945,29 @@ export default function LiveZaloInbox() {
                                 <p className="text-xs leading-relaxed mt-1.5 whitespace-pre-wrap">{displayText}</p>
                               )}
                             </div>
+                          ) : isAudioMsg ? (
+                            <div className="my-1.5 p-2 rounded-xl bg-black/25 flex flex-col gap-1.5 min-w-[220px]">
+                              <div className="flex items-center gap-2">
+                                <Volume2 className="w-4 h-4 text-rose-400 shrink-0" />
+                                <span className="text-[11px] font-semibold text-rose-300">Tin nhắn thoại</span>
+                              </div>
+                              <audio controls src={audioMsgUrl} className="h-7 w-full max-w-[240px]" />
+                            </div>
+                          ) : isFileMsg ? (
+                            <div className="my-1.5 flex items-center gap-2.5 p-2 rounded-xl bg-black/20 border border-white/10 max-w-xs">
+                              <FileText className="w-6 h-6 text-blue-400 shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <a
+                                  href={fileMsgUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-xs font-semibold hover:underline truncate block"
+                                >
+                                  {m.fileName || displayText || "Tài liệu đính kèm"}
+                                </a>
+                                <span className="text-[10px] opacity-70">Bấm để tải về</span>
+                              </div>
+                            </div>
                           ) : (
                             <p className="text-xs leading-relaxed whitespace-pre-wrap">{displayText}</p>
                           )}
@@ -3764,15 +4003,31 @@ export default function LiveZaloInbox() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Composer (Ô nhập tin nhắn & Gửi) */}
-              <div className="border-t border-slate-800 bg-slate-900/80 p-3 space-y-2 flex-shrink-0">
+              {/* Message Composer (Ô nhập tin nhắn & Gửi chuẩn Vpage) */}
+              <div className="border-t border-slate-800 bg-slate-900/90 p-2.5 space-y-1.5 flex-shrink-0">
+                {/* 1. Thanh gắn thẻ nhanh chuẩn Vpage (Cấp 1 | Cấp 2 | Cấp 3 | Đã chốt | Bám đuổi...) */}
+                <QuickTagBar
+                  currentTags={activeConv.tags || []}
+                  availableTags={availableTags}
+                  onToggleTag={handleToggleTagOnActiveConv}
+                  onOpenTagManager={() => setIsTagPopoverOpen(true)}
+                />
+
+                {/* 2. Thanh Ghi Âm Giọng Nói (khi bấm Ghi âm) */}
+                <AudioRecorderBar
+                  isOpen={isAudioRecordingOpen}
+                  onClose={() => setIsAudioRecordingOpen(false)}
+                  onSendAudio={handleSendAudio}
+                />
+
                 <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 gap-2">
                   <span className="truncate">
                     Nhắn tin trực tiếp qua <strong className="text-slate-300">{activeChannelName}</strong>
                   </span>
-                  <span className="whitespace-nowrap hidden sm:inline">Enter để gửi • Shift+Enter xuống dòng</span>
+                  <span className="whitespace-nowrap hidden sm:inline">Enter để gửi • Shift+Enter xuống dòng • Ctrl+Q mở Trả lời nhanh</span>
                 </div>
 
+                {/* 3. Khung soạn thảo tin nhắn */}
                 <form onSubmit={handleSendMessage} className="flex items-end gap-2">
                   <div className="flex-1 relative">
                     <textarea
@@ -3780,8 +4035,9 @@ export default function LiveZaloInbox() {
                       value={inputMessage}
                       onChange={(e) => setInputMessage(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder={`Nhập tin nhắn gửi tới ${activeConv.name}...`}
-                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none"
+                      onPaste={handlePaste}
+                      placeholder={`Nhập tin nhắn gửi tới ${activeConv.name}... (Nhấn Ctrl+Q hoặc / để mở Trả lời nhanh)`}
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none leading-relaxed"
                     />
                   </div>
 
@@ -3791,7 +4047,7 @@ export default function LiveZaloInbox() {
                     onClick={handleAiCompose}
                     disabled={aiComposing || sending}
                     title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
-                    className="h-11 px-3.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
+                    className="h-10 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
                   >
                     {aiComposing ? (
                       <>
@@ -3801,7 +4057,7 @@ export default function LiveZaloInbox() {
                     ) : (
                       <>
                         <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                        <span>✨ AI Gợi Ý</span>
+                        <span className="hidden sm:inline">✨ AI Gợi Ý</span>
                       </>
                     )}
                   </button>
@@ -3809,8 +4065,8 @@ export default function LiveZaloInbox() {
                   {/* Nút Gửi */}
                   <button
                     type="submit"
-                    disabled={sending || !inputMessage.trim()}
-                    className="h-11 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
+                    disabled={sending || (!inputMessage.trim() && attachedFiles.length === 0)}
+                    className="h-10 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
                   >
                     {sending ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -3822,6 +4078,19 @@ export default function LiveZaloInbox() {
                     )}
                   </button>
                 </form>
+
+                {/* 4. Thanh Công Cụ Nhắn Tin Đa Kênh Chuẩn Vpage (6 Mục theo yêu cầu) */}
+                <ChatToolbar
+                  onOpenQuickReplies={() => setIsQuickRepliesOpen(true)}
+                  onOpenProductPicker={() => setIsProductPickerOpen(true)}
+                  onOpenKiotVietOrder={() => setIsOrderModalOpen(true)}
+                  onToggleVoiceRecorder={() => setIsAudioRecordingOpen(!isAudioRecordingOpen)}
+                  isRecordingVoice={isAudioRecordingOpen}
+                  onSelectEmoji={handleSelectEmoji}
+                  onFileSelected={handleFileSelected}
+                  attachedFiles={attachedFiles}
+                  onRemoveAttachment={handleRemoveAttachment}
+                />
               </div>
             </>
           ) : (
@@ -4198,9 +4467,28 @@ export default function LiveZaloInbox() {
             : null
         }
         onSuccess={(order) => {
-          setToast({ type: "success", text: `Đã tạo đơn hàng ${order.orderCode} thành công!` });
-          setTimeout(() => setToast(null), 3000);
+          setToast({ type: "success", text: `Đã tạo đơn hàng ${order.orderCode} lên KiotViet thành công!` });
+          setTimeout(() => setToast(null), 3500);
+          const orderMsg = `Dạ em đã tạo đơn hàng #${order.orderCode || "KiotViet"} thành công cho mình trên hệ thống Dược Phẩm ADDP rồi ạ! Tổng tiền: ${Number(order.finalAmount || 0).toLocaleString("vi-VN")}đ. Kho đang chuẩn bị đóng gói để gửi sớm nhất cho anh/chị nhé ạ!`;
+          setInputMessage(orderMsg);
         }}
+      />
+
+      {/* Modal Trả lời nhanh (QuickRepliesModal) */}
+      <QuickRepliesModal
+        isOpen={isQuickRepliesOpen}
+        onClose={() => setIsQuickRepliesOpen(false)}
+        onSelect={handleSelectQuickReply}
+        onSendDirect={handleSendQuickReplyDirect}
+        customerName={activeConv?.name || "Khách hàng"}
+      />
+
+      {/* Modal Chọn Sản Phẩm ADDP / KiotViet (ProductPickerModal) */}
+      <ProductPickerModal
+        isOpen={isProductPickerOpen}
+        onClose={() => setIsProductPickerOpen(false)}
+        onSelectProduct={handleSelectProduct}
+        onSendProductDirect={handleSendProductDirect}
       />
 
       {/* Modal Gửi tin nhắn hàng loạt (BulkMessageModal) */}

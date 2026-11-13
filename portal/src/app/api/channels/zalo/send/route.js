@@ -48,11 +48,18 @@ export async function POST(request) {
       );
     }
 
-    if (!message || !String(message).trim()) {
+    const hasMedia = Boolean(body.mediaUrl || body.filePath);
+    if ((!message || !String(message).trim()) && !hasMedia) {
       return NextResponse.json(
         { error: "Nội dung tin nhắn không được để trống." },
         { status: 400 }
       );
+    }
+
+    if (!message && hasMedia) {
+      if (body.isImage) message = "[Hình ảnh]";
+      else if (body.isAudio) message = "[Ghi âm giọng nói]";
+      else message = `[Tài liệu: ${body.fileName || "Tập tin đính kèm"}]`;
     }
 
     // Yêu cầu xác nhận chủ động từ nhân viên trước khi gửi tin nhắn thật (Điều 4 & 5 AGENTS.md)
@@ -172,23 +179,42 @@ export async function POST(request) {
     const startTime = Date.now();
     const isGroup = String(type).toUpperCase() === "GROUP";
 
-    // 1. Thử gửi trực tiếp qua zaloDirectSendWorker (<300ms, tự phân giải SĐT sang UID bằng REST)
-    let sendResult = await sendZaloMessageDirect({
-      homeDir: activeHome,
-      recipient,
-      recipientPhone: recipientPhone || body.recipientPhone || "",
-      message,
-      isGroup,
-      timeout: 25000,
-    });
-
-    // 2. Nếu direct worker chưa sẵn sàng hoặc gặp lỗi hệ thống, fallback sang CLI runZaloCommand
-    if (!sendResult.ok && sendResult.error === "WORKER_UNAVAILABLE") {
-      const sendArgs = ["msg", "send", recipient, message, ...(isGroup ? ["-t", "1"] : ["-t", "0"]), "--json"];
-      sendResult = await runZaloCommand(sendArgs, {
+    // 1. Nếu có file hình ảnh hoặc file đính kèm/ghi âm cục bộ
+    let sendResult = null;
+    if (body.filePath && fs.existsSync(body.filePath)) {
+      if (body.isImage) {
+        const caption = message && message !== "[Hình ảnh]" ? message : "";
+        const imageArgs = ["msg", "send-image", recipient, body.filePath, ...(caption ? ["--caption", caption] : []), "--json"];
+        sendResult = await runZaloCommand(imageArgs, {
+          homeDir: activeHome,
+          timeout: 35000,
+        });
+      } else {
+        const fileArgs = ["msg", "send-file", recipient, body.filePath, "--json"];
+        sendResult = await runZaloCommand(fileArgs, {
+          homeDir: activeHome,
+          timeout: 35000,
+        });
+      }
+    } else {
+      // 2. Gửi tin nhắn văn bản trực tiếp qua zaloDirectSendWorker (<300ms, tự phân giải SĐT sang UID bằng REST)
+      sendResult = await sendZaloMessageDirect({
         homeDir: activeHome,
+        recipient,
+        recipientPhone: recipientPhone || body.recipientPhone || "",
+        message,
+        isGroup,
         timeout: 25000,
       });
+
+      // Nếu direct worker chưa sẵn sàng hoặc gặp lỗi hệ thống, fallback sang CLI runZaloCommand
+      if (!sendResult.ok && sendResult.error === "WORKER_UNAVAILABLE") {
+        const sendArgs = ["msg", "send", recipient, message, ...(isGroup ? ["-t", "1"] : ["-t", "0"]), "--json"];
+        sendResult = await runZaloCommand(sendArgs, {
+          homeDir: activeHome,
+          timeout: 25000,
+        });
+      }
     }
 
     const elapsedMs = Date.now() - startTime;
@@ -229,14 +255,15 @@ export async function POST(request) {
       const record =
         JSON.stringify({
           msgId: finalMsgId,
-          threadId: String(sendResult.recipient || recipient),
+          threadId: String(sendResult?.recipient || recipient),
           threadType: isGroup ? "group" : "dm",
           senderId: String(activeOwnId || "1781287338457243967"),
           senderName: activeSenderName || "Chuyên viên Tư vấn ADDP",
           isSelf: true,
           text: message,
+          url: body.mediaUrl || "",
           timestamp: Date.now(),
-          type: "text",
+          type: body.isImage ? "chat.photo" : body.isAudio ? "chat.voice" : "text",
         }) + "\n";
       fs.appendFileSync(histFile, record, "utf8");
     } catch (saveErr) {
