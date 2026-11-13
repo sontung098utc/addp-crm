@@ -132,6 +132,7 @@ export async function GET(request) {
         taskType: pendingTask?.taskType || "",
         staffId: Number(c.staffId) || 1,
         staffName: c.staffName || staffObj?.name || "Admin Quản Trị",
+        preferredZaloAccountId: c.preferredZaloAccountId || c.zaloAccountId || "",
         vpageUrl: c.vpageUrl || "",
         facebook: c.facebook || "",
         zalo: c.zalo || "",

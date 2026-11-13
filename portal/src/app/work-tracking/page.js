@@ -570,7 +570,7 @@ export default function WorkTrackingPage() {
                               row.fullName || ""
                             )}&customerId=${encodeURIComponent(row.id || "")}&staff=${encodeURIComponent(
                               row.staffName || ""
-                            )}&autoOpen=true`}
+                            )}${row.preferredZaloAccountId ? `&accountId=${encodeURIComponent(row.preferredZaloAccountId)}` : ""}&autoOpen=true`}
                             className="block w-full px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
                           >
                             💬 Chăm sóc

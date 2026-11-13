@@ -171,10 +171,12 @@ export async function GET(request) {
     const rawName = (searchParams.get("name") || "").trim();
     const staffHint = (searchParams.get("staff") || "").trim();
     const customerId = (searchParams.get("customerId") || "").trim();
+    const preferredAccountId = (searchParams.get("accountId") || "").trim();
 
     let normPhone = normalizePhone(rawPhone);
     let effectiveZaloUid = rawZaloUid;
     let effectiveName = rawName;
+    let customerPreferredAccount = preferredAccountId;
 
     // Bổ sung thông tin xác thực từ CRM DB nếu caller chỉ truyền customerId hoặc thiếu zaloUid
     if (customerId || (!normPhone && !effectiveZaloUid)) {
@@ -193,6 +195,9 @@ export async function GET(request) {
             effectiveZaloUid = String(foundCrm.zaloUid || foundCrm.zaloThreadId);
           }
           if (!effectiveName && foundCrm.fullName) effectiveName = String(foundCrm.fullName);
+          if (!customerPreferredAccount && (foundCrm.preferredZaloAccountId || foundCrm.zaloAccountId)) {
+            customerPreferredAccount = String(foundCrm.preferredZaloAccountId || foundCrm.zaloAccountId);
+          }
         }
       } catch {}
     }
@@ -265,8 +270,11 @@ export async function GET(request) {
       });
     }
 
-    // Sắp xếp thứ tự tìm kiếm: nếu có staffHint, ưu tiên nick khớp tên/NV phụ trách lên đầu
+    // Sắp xếp thứ tự tìm kiếm:
+    // 1. Ưu tiên số 1: Nick Zalo đã được gán hoặc từng có lịch sử với khách (customerPreferredAccount)
+    // 2. Ưu tiên số 2: Nick Zalo khớp tên nhân viên/gợi ý nhân viên phụ trách (staffHint)
     const staffNorm = stripVietnamese(staffHint);
+    const prefAccNorm = stripVietnamese(customerPreferredAccount);
     const channelMetaByOwnId = new Map();
     for (const ch of allowedChannels) {
       const oid = String(ch.config?.ownId || ch.externalId || "").trim();
@@ -274,15 +282,24 @@ export async function GET(request) {
     }
 
     const orderedAccounts = [...scopedAccounts].sort((a, b) => {
-      if (!staffNorm) return 0;
-      const aMatch =
-        stripVietnamese(a.displayName || a.name).includes(staffNorm) ||
-        staffNorm.includes(stripVietnamese(a.displayName || a.name));
-      const bMatch =
-        stripVietnamese(b.displayName || b.name).includes(staffNorm) ||
-        staffNorm.includes(stripVietnamese(b.displayName || b.name));
-      if (aMatch && !bMatch) return -1;
-      if (!aMatch && bMatch) return 1;
+      const aOwn = String(a.ownId || a.accountId || "");
+      const bOwn = String(b.ownId || b.accountId || "");
+      const aName = stripVietnamese(a.displayName || a.name || "");
+      const bName = stripVietnamese(b.displayName || b.name || "");
+
+      if (prefAccNorm) {
+        const aPref = aOwn === prefAccNorm || aName.includes(prefAccNorm) || prefAccNorm.includes(aName);
+        const bPref = bOwn === prefAccNorm || bName.includes(prefAccNorm) || prefAccNorm.includes(bName);
+        if (aPref && !bPref) return -1;
+        if (!aPref && bPref) return 1;
+      }
+
+      if (staffNorm) {
+        const aMatch = aName.includes(staffNorm) || staffNorm.includes(aName);
+        const bMatch = bName.includes(staffNorm) || staffNorm.includes(bName);
+        if (aMatch && !bMatch) return -1;
+        if (!aMatch && bMatch) return 1;
+      }
       return 0;
     });
 
@@ -340,6 +357,10 @@ export async function GET(request) {
     };
 
     // BƯỚC 1: Tìm trong cache cục bộ & lịch sử chat (nhanh 0ms)
+    // Ưu tiên cao nhất: nếu nick nào đã có lịch sử chat (lastMsg) với khách này -> Lấy ngay!
+    let historyCandidate = null;
+    let cacheOnlyCandidate = null;
+
     for (const acc of orderedAccounts) {
       const { matchedFriend, effectiveUid, lastMsg } = readAccountCacheAndLastMessage(
         acc.homeDir,
@@ -355,61 +376,78 @@ export async function GET(request) {
           phone: validVnPhone || matchedFriend?.phoneNumber || "",
           ownId: acc.ownId,
         };
-        return NextResponse.json({
-          ok: true,
-          found: true,
-          source: lastMsg ? "history" : "cache",
-          isAdminSearch: isAdmin,
-          searchedAccounts,
-          conversation: buildFoundConversation({ acc, profile, lastMsg }),
-        });
-      }
-    }
-
-    // BƯỚC 2: Gọi pure HTTP-REST api.findUser(phone) / api.getUserInfo(uid) lần lượt trên các tài khoản được phép
-    const javisRoot = findJavisZaloRoot(orderedAccounts[0]?.homeDir);
-    let fallbackCandidate = null;
-
-    for (const acc of orderedAccounts) {
-      const res = await runFindUserWorker({
-        homeDir: acc.homeDir,
-        javisRoot: findJavisZaloRoot(acc.homeDir) || javisRoot,
-        phone: validVnPhone,
-        zaloUid: effectiveZaloUid,
-      });
-
-      if (res?.ok && res?.profile?.uid) {
-        const { lastMsg } = readAccountCacheAndLastMessage(acc.homeDir, res.profile.uid, validVnPhone);
-        const conv = buildFoundConversation({
-          acc,
-          profile: { ...res.profile, ownId: res.ownId || acc.ownId },
-          lastMsg,
-        });
-        // Nếu nick này đã có sẵn lịch sử trò chuyện với khách, trả về ngay lập tức!
+        const conv = buildFoundConversation({ acc, profile, lastMsg });
         if (lastMsg) {
-          return NextResponse.json({
-            ok: true,
-            found: true,
-            source: "findUser_with_history",
-            isAdminSearch: isAdmin,
-            searchedAccounts,
-            conversation: conv,
-          });
+          historyCandidate = conv;
+          break; // Tìm thấy nick thực sự đang chat với khách -> Dừng ngay lập tức!
         }
-        if (!fallbackCandidate) {
-          fallbackCandidate = conv;
+        if (!cacheOnlyCandidate) {
+          cacheOnlyCandidate = conv;
         }
       }
     }
 
-    if (fallbackCandidate) {
+    if (historyCandidate) {
       return NextResponse.json({
         ok: true,
         found: true,
-        source: "findUser",
+        source: "history",
         isAdminSearch: isAdmin,
         searchedAccounts,
-        conversation: fallbackCandidate,
+        conversation: historyCandidate,
+      });
+    }
+
+    if (cacheOnlyCandidate) {
+      return NextResponse.json({
+        ok: true,
+        found: true,
+        source: "cache",
+        isAdminSearch: isAdmin,
+        searchedAccounts,
+        conversation: cacheOnlyCandidate,
+      });
+    }
+
+    // BƯỚC 2: Quét song song (Promise.all) qua pure HTTP-REST api.findUser(phone)
+    // Không chạy tuần tự để tránh chờ đợi lâu khi có 2+ nick
+    const javisRoot = findJavisZaloRoot(orderedAccounts[0]?.homeDir);
+
+    const lookupPromises = orderedAccounts.map(async (acc) => {
+      try {
+        const res = await runFindUserWorker({
+          homeDir: acc.homeDir,
+          javisRoot: findJavisZaloRoot(acc.homeDir) || javisRoot,
+          phone: validVnPhone,
+          zaloUid: effectiveZaloUid,
+        });
+
+        if (res?.ok && res?.profile?.uid) {
+          const { lastMsg } = readAccountCacheAndLastMessage(acc.homeDir, res.profile.uid, validVnPhone);
+          const conv = buildFoundConversation({
+            acc,
+            profile: { ...res.profile, ownId: res.ownId || acc.ownId },
+            lastMsg,
+          });
+          return { conv, hasHistory: Boolean(lastMsg), acc };
+        }
+      } catch {}
+      return null;
+    });
+
+    const results = (await Promise.all(lookupPromises)).filter(Boolean);
+
+    // Ưu tiên kết quả từ nick có lịch sử chat trước, nếu không thì lấy kết quả đầu tiên theo thứ tự orderedAccounts
+    const bestMatch = results.find((r) => r.hasHistory) || results[0];
+
+    if (bestMatch?.conv) {
+      return NextResponse.json({
+        ok: true,
+        found: true,
+        source: bestMatch.hasHistory ? "findUser_with_history" : "findUser",
+        isAdminSearch: isAdmin,
+        searchedAccounts,
+        conversation: bestMatch.conv,
       });
     }
 

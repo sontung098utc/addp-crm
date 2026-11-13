@@ -1853,7 +1853,12 @@ export default function LiveZaloInbox() {
         )
       : conversations || [];
 
+    // Nếu có activeConv từ trước hoặc tìm thấy trên tài khoản khác, ưu tiên nick thực tế đang có lịch sử
     const matchedConv =
+      (preferredAccId &&
+        scopedPool.find(
+          (c) => String(c.accountId || "") === preferredAccId && matchesLocalCustomer(c)
+        )) ||
       (targetAccCheck &&
         scopedPool.find(
           (c) => String(c.accountId || "") === targetAccCheck && matchesLocalCustomer(c)
@@ -1905,6 +1910,7 @@ export default function LiveZaloInbox() {
         if (rawName) qs.set("name", rawName);
         if (rawCustomerId) qs.set("customerId", rawCustomerId);
         if (rawStaff) qs.set("staff", rawStaff);
+        if (preferredAccId) qs.set("accountId", preferredAccId);
 
         const res = await fetch(`/api/channels/zalo/find-customer?${qs.toString()}`);
         const data = await res.json();
