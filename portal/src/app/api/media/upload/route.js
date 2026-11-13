@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { execFileSync } from "child_process";
 
 /**
  * ADDP Omnichannel CRM — API Upload Media (Hình ảnh, Tài liệu, Ghi âm giọng nói)
@@ -57,20 +58,55 @@ export async function POST(request) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
 
-    const filePath = path.join(uploadDir, savedFileName);
-    fs.writeFileSync(filePath, buffer);
+    let finalFileName = savedFileName;
+    let finalFilePath = path.join(uploadDir, savedFileName);
+    let finalMimeType = file.type || "application/octet-stream";
+    let finalSize = buffer.length;
+    fs.writeFileSync(finalFilePath, buffer);
 
     const isImage = file.type?.startsWith("image/") || [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(cleanExt);
     const isAudio = file.type?.startsWith("audio/") || [".mp3", ".wav", ".ogg", ".webm", ".m4a"].includes(cleanExt);
 
+    // Chuyển đổi ghi âm .webm/.ogg sang .m4a (AAC) nếu máy chủ có ffmpeg để Zalo Mobile/PC phát trực tiếp
+    if (isAudio && cleanExt !== ".m4a") {
+      const m4aName = `${baseName}_${uniqueSuffix}.m4a`;
+      const m4aPath = path.join(uploadDir, m4aName);
+      try {
+        execFileSync(
+          "ffmpeg",
+          ["-y", "-i", finalFilePath, "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", m4aPath],
+          { timeout: 15000, stdio: "ignore" }
+        );
+        if (fs.existsSync(m4aPath) && fs.statSync(m4aPath).size > 0) {
+          try { fs.unlinkSync(finalFilePath); } catch {}
+          finalFileName = m4aName;
+          finalFilePath = m4aPath;
+          finalMimeType = "audio/mp4";
+          finalSize = fs.statSync(m4aPath).size;
+        }
+      } catch {
+        // Nếu server không có ffmpeg thì giữ nguyên file gốc
+      }
+    }
+
+    const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+    const proto = request.headers.get("x-forwarded-proto") || "https";
+    const baseUrl =
+      process.env.NEXT_PUBLIC_APP_URL ||
+      (host && !host.includes("localhost") && !host.includes("127.0.0.1")
+        ? `${proto}://${host}`
+        : "https://crm.addp.vn");
+    const relativeUrl = `/api/media/file/${finalFileName}`;
+
     return NextResponse.json({
       ok: true,
-      url: `/api/media/file/${savedFileName}`,
-      filePath,
+      url: relativeUrl,
+      publicUrl: `${baseUrl.replace(/\/$/, "")}${relativeUrl}`,
+      filePath: finalFilePath,
       fileName: originalName,
-      savedFileName,
-      mimeType: file.type || "application/octet-stream",
-      size: buffer.length,
+      savedFileName: finalFileName,
+      mimeType: finalMimeType,
+      size: finalSize,
       isImage,
       isAudio,
     });

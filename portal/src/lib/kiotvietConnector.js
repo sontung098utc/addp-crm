@@ -469,6 +469,70 @@ export async function fetchKiotVietProducts() {
  *   "description": "Đơn hàng tạo từ ADDP CRM qua Zalo/Fanpage"
  * }
  */
+async function resolveOrCreateKiotVietCustomer(cfg, accessToken, { name, contactNumber, address, branchId }) {
+  const headers = {
+    "Content-Type": "application/json",
+    Retailer: cfg.retailer,
+    Authorization: `Bearer ${accessToken}`,
+  };
+
+  if (contactNumber) {
+    try {
+      const searchRes = await fetch(
+        `${KIOTVIET_API_BASE}/customers?contactNumber=${encodeURIComponent(contactNumber)}&pageSize=1`,
+        { headers, signal: AbortSignal.timeout(8000) }
+      );
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const existingId = searchData?.data?.[0]?.id;
+        if (existingId) return Number(existingId);
+      }
+    } catch {}
+  }
+
+  try {
+    const createRes = await fetch(`${KIOTVIET_API_BASE}/customers`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: name || "Khách hàng ADDP",
+        contactNumber: contactNumber || undefined,
+        address: address || undefined,
+        branchId: Number(branchId) || undefined,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (createRes.ok) {
+      const createdData = await createRes.json();
+      const newId = createdData?.id || createdData?.data?.id;
+      if (newId) return Number(newId);
+    }
+  } catch {}
+
+  return null;
+}
+
+async function resolveKiotVietProductId(cfg, accessToken, productCode) {
+  if (!productCode) return null;
+  try {
+    const res = await fetch(
+      `${KIOTVIET_API_BASE}/products/code/${encodeURIComponent(productCode)}`,
+      {
+        headers: {
+          Retailer: cfg.retailer,
+          Authorization: `Bearer ${accessToken}`,
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.id) return Number(data.id);
+    }
+  } catch {}
+  return null;
+}
+
 export async function createKiotVietOrder(orderInput = {}) {
   const cfg = getKiotVietConfig();
   const localCatalog = getLocalProductsInventory();
@@ -484,57 +548,77 @@ export async function createKiotVietOrder(orderInput = {}) {
     orderInput.customer?.address || orderInput.address || ""
   ).trim();
 
-  const rawItems = Array.isArray(orderInput.orderDetail)
+  const tokenRes = await getKiotVietAccessToken(cfg);
+  if (!tokenRes.ok || !cfg.retailer) {
+    return {
+      ok: false,
+      synced: false,
+      mode: "NOT_CONFIGURED",
+      error:
+        tokenRes.error ||
+        "Chưa cấu hình KiotViet Retailer / Client ID / Secret trong mục Kết nối 7 Kênh.",
+    };
+  }
+
+  const rawItems = Array.isArray(orderInput.orderDetails)
+    ? orderInput.orderDetails
+    : Array.isArray(orderInput.orderDetail)
     ? orderInput.orderDetail
     : Array.isArray(orderInput.items)
     ? orderInput.items
     : [];
 
-  const orderDetail = rawItems.map((it, idx) => {
-    const sku = String(it.productCode || it.sku || `SP-${idx + 1}`);
+  const orderDetails = [];
+  for (let idx = 0; idx < rawItems.length; idx++) {
+    const it = rawItems[idx];
+    const sku = String(it.productCode || it.sku || `SP-${idx + 1}`).trim();
     const matchedProd = localCatalog.find(
       (p) => String(p.sku).toUpperCase() === sku.toUpperCase()
     );
-    return {
-      productId: Number(it.productId || matchedProd?.kiotProductId || 98765 + idx),
+    let resolvedPid = Number(it.kiotProductId || matchedProd?.kiotProductId || 0);
+    if (!resolvedPid && Number(it.productId) > 0 && (Number(it.productId) < 98765 || Number(it.productId) > 98799)) {
+      resolvedPid = Number(it.productId);
+    }
+    if (!resolvedPid) {
+      resolvedPid = (await resolveKiotVietProductId(cfg, tokenRes.accessToken, sku)) || 0;
+    }
+    orderDetails.push({
+      ...(resolvedPid ? { productId: resolvedPid } : {}),
       productCode: sku,
       productName: it.productName || it.name || matchedProd?.name || sku,
       quantity: Math.max(1, Number(it.quantity) || 1),
       price: Number(it.price) || 0,
       discount: Number(it.discount) || 0,
-    };
+    });
+  }
+
+  const customerId = await resolveOrCreateKiotVietCustomer(cfg, tokenRes.accessToken, {
+    name: customerName,
+    contactNumber,
+    address,
+    branchId,
   });
 
   const payload = {
     branchId,
-    customer: {
-      name: customerName,
-      contactNumber,
-      address,
-    },
-    orderDetail,
+    purchaseDate: new Date().toISOString(),
+    ...(customerId
+      ? { customerId }
+      : {
+          customer: {
+            name: customerName,
+            contactNumber,
+            address,
+          },
+        }),
+    orderDetails,
+    discount: Number(orderInput.discount) || 0,
     status: Number(orderInput.status) || 1,
-    method: orderInput.method || "Cash",
     description:
       orderInput.description ||
       orderInput.note ||
       `Đơn hàng tạo từ ADDP CRM qua ${orderInput.channel || "Zalo/Fanpage"}`,
   };
-
-  // Nếu chưa cấu hình Client ID / Secret thực tế trên KiotViet -> Lưu hàng đợi đồng bộ & trả về mã KiotViet giả lập chuẩn
-  const tokenRes = await getKiotVietAccessToken(cfg);
-  if (!tokenRes.ok || !cfg.retailer) {
-    const simulatedKiotCode = `KV-${String(Date.now()).slice(-6)}`;
-    return {
-      ok: true,
-      synced: true,
-      mode: "READY_QUEUE",
-      kiotOrderId: Date.now(),
-      kiotOrderCode: simulatedKiotCode,
-      payload,
-      message: `Đã chuẩn hóa payload KiotViet (${simulatedKiotCode}) và trừ tồn kho tại chỗ.`,
-    };
-  }
 
   try {
     const res = await fetch(`${KIOTVIET_API_BASE}/orders`, {
@@ -556,6 +640,7 @@ export async function createKiotVietOrder(orderInput = {}) {
         mode: "LIVE_ERROR",
         error:
           data?.responseStatus?.message ||
+          data?.message ||
           `KiotViet từ chối tạo đơn (HTTP ${res.status})`,
         payload,
       };

@@ -38,6 +38,7 @@ async function main() {
   let recipient = String(process.env.SEND_RECIPIENT || "").trim();
   const recipientPhone = String(process.env.SEND_RECIPIENT_PHONE || "").trim();
   const messageText = String(process.env.SEND_MESSAGE || "").trim();
+  const voiceUrl = String(process.env.SEND_VOICE_URL || "").trim();
   const threadType = Number(process.env.SEND_THREAD_TYPE || 0); // 0: DM, 1: Group
 
   if (!javisRoot || !homeDir) {
@@ -121,12 +122,21 @@ async function main() {
       }
     }
 
-    // Gửi tin nhắn qua Zalo API chính thức
-    const sendResult = await withTimeout(
-      api.sendMessage(messageText, targetUid, threadType),
-      15000,
-      "SEND_MESSAGE_TIMEOUT"
-    );
+    // Gửi tin nhắn qua Zalo API chính thức (Voice bubble nếu có voiceUrl, ngược lại gửi Text)
+    let sendResult;
+    if (voiceUrl) {
+      sendResult = await withTimeout(
+        api.sendVoice({ voiceUrl, ttl: 0 }, targetUid, threadType),
+        20000,
+        "SEND_VOICE_TIMEOUT"
+      );
+    } else {
+      sendResult = await withTimeout(
+        api.sendMessage(messageText, targetUid, threadType),
+        15000,
+        "SEND_MESSAGE_TIMEOUT"
+      );
+    }
 
     const msgId = String(sendResult?.message?.msgId || sendResult?.msgId || `sent_${Date.now()}`);
 
@@ -140,9 +150,10 @@ async function main() {
         senderId: ownId,
         senderName: "Bạn",
         isSelf: true,
-        text: messageText,
+        text: voiceUrl ? "[Ghi âm giọng nói]" : messageText,
+        ...(voiceUrl ? { url: voiceUrl } : {}),
         timestamp: Date.now(),
-        type: "text",
+        type: voiceUrl ? "chat.voice" : "text",
       };
       fs.appendFileSync(histPath, JSON.stringify(record) + "\n", "utf8");
     } catch {}

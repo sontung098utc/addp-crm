@@ -3,6 +3,7 @@ import { normalizePhone } from "@/lib/phone.js";
 import {
   runZaloCommand,
   sendZaloMessageDirect,
+  sendZaloVoiceDirect,
   sendZaloFileViaMcp,
   resolveZaloHomeForThread,
   getOwnIdForHome,
@@ -180,9 +181,44 @@ export async function POST(request) {
     const startTime = Date.now();
     const isGroup = String(type).toUpperCase() === "GROUP";
 
-    // 1. Nếu có file hình ảnh hoặc file đính kèm/ghi âm cục bộ
+    // 1. Nếu là ghi âm giọng nói (Voice Message), ưu tiên gửi qua api.sendVoice để hiện bong bóng phát trực tiếp trên Zalo
     let sendResult = null;
-    if (body.filePath && fs.existsSync(body.filePath)) {
+    if (body.isAudio && (body.mediaUrl || body.publicUrl)) {
+      const host = request.headers.get("x-forwarded-host") || request.headers.get("host") || "";
+      const proto = request.headers.get("x-forwarded-proto") || "https";
+      const baseOrigin =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        (host && !host.includes("localhost") && !host.includes("127.0.0.1")
+          ? `${proto}://${host}`
+          : "https://crm.addp.vn");
+      const rawUrl = String(body.publicUrl || body.mediaUrl || "").trim();
+      const voiceUrl = rawUrl.startsWith("http")
+        ? rawUrl
+        : `${baseOrigin.replace(/\/$/, "")}${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`;
+
+      sendResult = await sendZaloVoiceDirect({
+        homeDir: activeHome,
+        recipient,
+        recipientPhone: recipientPhone || body.recipientPhone || "",
+        voiceUrl,
+        isGroup,
+        timeout: 25000,
+      });
+
+      // Fallback gửi file đính kèm qua MCP nếu sendVoice thất bại và có file cục bộ
+      if (!sendResult?.ok && body.filePath && fs.existsSync(body.filePath)) {
+        sendResult = await sendZaloFileViaMcp({
+          homeDir: activeHome,
+          recipient,
+          recipientPhone: recipientPhone || body.recipientPhone || "",
+          filePath: body.filePath,
+          caption: "",
+          isGroup,
+          isImage: false,
+        });
+      }
+    } else if (body.filePath && fs.existsSync(body.filePath)) {
+      // 2. Nếu có file hình ảnh hoặc file đính kèm cục bộ
       const caption =
         message && message !== "[Hình ảnh]" && message !== "[Ghi âm giọng nói]"
           ? message

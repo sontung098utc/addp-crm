@@ -266,7 +266,45 @@ export function createOrder({
 export async function createOrderWithKiotVietSync(input = {}) {
   const cleanPhone = normalizePhone(input.phone);
 
-  // 1. Đồng bộ & cập nhật Hồ sơ Khách hàng 360
+  // 1. Nếu chọn đẩy sang KiotViet (KIOTVIET hoặc ALL), gọi KiotViet Connector TRƯỚC
+  let kiotResult = null;
+  const targetPlatform = input.targetPlatform || "KIOTVIET";
+  if (targetPlatform === "KIOTVIET" || targetPlatform === "ALL") {
+    kiotResult = await createKiotVietOrder({
+      branchId: input.branchId || 1,
+      customer: {
+        name: input.customerName || "Khách hàng ADDP",
+        contactNumber: cleanPhone,
+        address: input.address || "",
+      },
+      orderDetails: (input.items || []).map((it, idx) => ({
+        kiotProductId: it.kiotProductId ? Number(it.kiotProductId) : undefined,
+        productId: it.productId ? Number(it.productId) : undefined,
+        productCode: it.sku || it.productCode || `SP-${idx + 1}`,
+        productName: it.name || it.productName || it.sku || `SP-${idx + 1}`,
+        quantity: Number(it.quantity) || 1,
+        price: Number(it.price) || 0,
+      })),
+      discount: Number(input.discount) || 0,
+      status: 1,
+      method: input.paymentMethod || "Cash",
+      channel: input.channel || "ZALO_PERSONAL",
+      description:
+        input.note ||
+        `Đơn hàng tạo từ ADDP CRM qua ${input.channel || "Zalo/Fanpage"}`,
+    });
+
+    if (!kiotResult?.ok) {
+      return {
+        ok: false,
+        order: null,
+        kiotViet: kiotResult,
+        error: kiotResult?.error || "Không thể đẩy đơn hàng sang KiotViet.",
+      };
+    }
+  }
+
+  // 2. Đồng bộ & cập nhật Hồ sơ Khách hàng 360
   if (cleanPhone) {
     try {
       const cust = await getOrCreateCustomerByPhone({
@@ -306,31 +344,6 @@ export async function createOrderWithKiotVietSync(input = {}) {
     }
   }
 
-  // 2. Nếu chọn đẩy sang KiotViet (KIOTVIET hoặc ALL), gọi KiotViet Connector
-  let kiotResult = null;
-  const targetPlatform = input.targetPlatform || "KIOTVIET";
-  if (targetPlatform === "KIOTVIET" || targetPlatform === "ALL") {
-    kiotResult = await createKiotVietOrder({
-      branchId: input.branchId || 1,
-      customer: {
-        name: input.customerName || "Khách hàng ADDP",
-        contactNumber: cleanPhone,
-        address: input.address || "",
-      },
-      orderDetail: (input.items || []).map((it, idx) => ({
-        productId: Number(it.kiotProductId || it.productId || 98765 + idx),
-        productCode: it.sku || it.productCode || `SP-${idx + 1}`,
-        quantity: Number(it.quantity) || 1,
-        price: Number(it.price) || 0,
-      })),
-      status: 1,
-      method: input.paymentMethod || "Cash",
-      description:
-        input.note ||
-        `Đơn hàng tạo từ ADDP CRM qua ${input.channel || "Zalo/Fanpage"}`,
-    });
-  }
-
   const order = createOrder({
     ...input,
     phone: cleanPhone,
@@ -340,6 +353,7 @@ export async function createOrderWithKiotVietSync(input = {}) {
   });
 
   return {
+    ok: true,
     order,
     kiotViet: kiotResult,
   };

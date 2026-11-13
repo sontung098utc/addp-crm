@@ -1931,6 +1931,7 @@ export async function sendZaloMessageDirect({
   recipient = "",
   recipientPhone = "",
   message = "",
+  voiceUrl = "",
   isGroup = false,
   timeout = 25000,
 }) {
@@ -1966,6 +1967,7 @@ export async function sendZaloMessageDirect({
       SEND_RECIPIENT: String(recipient || ""),
       SEND_RECIPIENT_PHONE: String(recipientPhone || ""),
       SEND_MESSAGE: String(message || ""),
+      SEND_VOICE_URL: String(voiceUrl || ""),
       SEND_THREAD_TYPE: isGroup ? "1" : "0",
       ZALO_JSON_MODE: "1",
     };
@@ -1994,9 +1996,26 @@ export async function sendZaloMessageDirect({
   });
 }
 
+export async function sendZaloVoiceDirect({
+  homeDir = "",
+  recipient = "",
+  recipientPhone = "",
+  voiceUrl = "",
+  isGroup = false,
+  timeout = 25000,
+}) {
+  return sendZaloMessageDirect({
+    homeDir,
+    recipient,
+    recipientPhone,
+    voiceUrl,
+    isGroup,
+    timeout,
+  });
+}
+
 /**
  * Gửi tin nhắn văn bản qua Zalo Cá Nhân (`zca-js` / Zalo Agent CLI)
- * @param {string} accountPhone - SĐT hoặc định danh tài khoản Zalo gửi
  * @param {string} targetZaloId - ThreadId hoặc SĐT khách nhận
  * @param {string} text - Nội dung tin nhắn đã cá nhân hóa
  * @param {object} [options] - Tùy chọn { homeDir, isGroup }

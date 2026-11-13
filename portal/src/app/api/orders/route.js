@@ -74,7 +74,7 @@ export async function POST(req) {
       );
     }
 
-    const { order, kiotViet } = await createOrderWithKiotVietSync({
+    const result = await createOrderWithKiotVietSync({
       customerName: body.customerName,
       phone: body.phone,
       address: body.address,
@@ -90,6 +90,19 @@ export async function POST(req) {
       branchId: body.branchId || 1,
       paymentMethod: body.paymentMethod || "Cash",
     });
+
+    if (!result.ok || !result.order) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: result.error || "Không thể đẩy đơn hàng lên KiotViet.",
+          kiotViet: result.kiotViet || null,
+        },
+        { status: 400 }
+      );
+    }
+
+    const { order, kiotViet } = result;
 
     return NextResponse.json({
       ok: true,

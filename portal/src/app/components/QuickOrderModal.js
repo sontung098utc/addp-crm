@@ -111,7 +111,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
         return p
           ? {
               id: p.id,
-              kiotProductId: p.kiotProductId || 98765,
+              kiotProductId: p.kiotProductId || null,
               name: p.name,
               sku: p.sku,
               price: Number(p.price) || 0,
