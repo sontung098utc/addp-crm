@@ -156,7 +156,7 @@ export function getChannelBotMode(channelOrAccountId = "") {
  */
 export function isChannelBotEnabled(channelId = "DEFAULT") {
   const mode = getChannelBotMode(channelId);
-  return mode !== "HUMAN";
+  return mode === "AI";
 }
 
 /**
@@ -275,8 +275,10 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
   const tid = String(threadId || "").trim();
   const accountMode = getChannelBotMode(channelOrAccountId);
 
-  // 1. CẤP HỘI THOẠI RIÊNG BIỆT (Explicit Thread Override):
-  // Nếu nhân viên đã chủ động Bật AI hoặc Tắt AI riêng cho khách hàng này, ưu tiên quyết định của nhân viên.
+  // 1. CẤP HỘI THOẠI RIÊNG BIỆT (Per-customer Explicit Selection):
+  // Theo quy tắc cốt lõi: Mặc định tất cả mọi khách hàng là Nhân viên trực (HUMAN).
+  // CHỈ khi người dùng tự tay chỉ định cho khách hàng này chat AI (convState.mode === 'AI'),
+  // thì khách hàng đó mới được kích hoạt AI Bot.
   if (tid) {
     const convState = getConversationBotState(tid);
     if (convState && convState.mode === "AI") {
@@ -290,40 +292,38 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
         isExplicit: true,
       };
     }
-    if (convState && convState.mode === "HUMAN") {
-      return {
-        active: false,
-        mode: "HUMAN",
-        reason: "THREAD_LEVEL_PAUSED",
-        pausedUntil: convState.pausedUntil,
-        staffId: convState.staffId,
-        accountMode,
-        isExplicit: true,
-      };
-    }
-  }
-
-  // 2. CẤP TÀI KHOẢN (Channel-level Fallback):
-  if (accountMode === "HUMAN") {
+    // Mọi khách hàng khác chưa được chỉ định hoặc đã tắt -> Luôn luôn là Nhân viên trực (HUMAN)
     return {
       active: false,
       mode: "HUMAN",
-      reason: "ACCOUNT_LEVEL_HUMAN",
+      reason: convState?.mode === "HUMAN" ? "THREAD_LEVEL_PAUSED" : "DEFAULT_HUMAN",
+      pausedUntil: convState?.pausedUntil || null,
+      staffId: convState?.staffId || "STAFF",
+      accountMode,
+      isExplicit: Boolean(convState),
+    };
+  }
+
+  // 2. CẤP TÀI KHOẢN (Khi không truyền threadId - chỉ kiểm tra toàn nick):
+  if (accountMode === "AI") {
+    return {
+      active: true,
+      mode: "AI",
+      reason: "ACCOUNT_LEVEL_AI",
       pausedUntil: null,
-      staffId: "STAFF",
-      accountMode: "HUMAN",
+      staffId: null,
+      accountMode: "AI",
       isExplicit: false,
     };
   }
 
-  // 3. Mặc định kênh đang bật AI
   return {
-    active: true,
-    mode: "AI",
-    reason: "DEFAULT_AI",
+    active: false,
+    mode: "HUMAN",
+    reason: "ACCOUNT_LEVEL_HUMAN",
     pausedUntil: null,
-    staffId: null,
-    accountMode: "AI",
+    staffId: "STAFF",
+    accountMode: "HUMAN",
     isExplicit: false,
   };
 }
@@ -345,7 +345,7 @@ export function syncBotStatesWithChannels() {
     const store = getStore();
     for (const ch of channels) {
       if (!ch || !ch.id) continue;
-      const isEnabled = ch.botMode !== "HUMAN";
+      const isEnabled = ch.botMode === "AI";
       store.channels[String(ch.id)] = {
         enabled: isEnabled,
         updatedAt: Date.now(),

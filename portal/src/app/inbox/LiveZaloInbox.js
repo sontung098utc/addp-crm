@@ -310,10 +310,10 @@ export default function LiveZaloInbox() {
   const [visibleCount, setVisibleCount] = useState(40);
   const messageCacheRef = useRef(new Map());
 
-  // Chế độ AI & Toggle Switch từng khách
-  const [aiMode, setAiMode] = useState("AUTO_REPLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
-  const [convBotMode, setConvBotMode] = useState("AI"); // 'AI' | 'HUMAN'
-  const [isAccountLevelHuman, setIsAccountLevelHuman] = useState(false);
+  // Chế độ AI & Toggle Switch từng khách (Mặc định Nhân viên trực)
+  const [aiMode, setAiMode] = useState("HUMAN_ONLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
+  const [convBotMode, setConvBotMode] = useState("HUMAN"); // 'AI' | 'HUMAN'
+  const [isAccountLevelHuman, setIsAccountLevelHuman] = useState(true);
   const [togglingBot, setTogglingBot] = useState(false);
   const [aiComposing, setAiComposing] = useState(false);
 
@@ -1210,22 +1210,20 @@ export default function LiveZaloInbox() {
         if (isCancelled) return;
 
         if (data.ok && data.state) {
-          const effective = data.effectiveMode || data.state.mode || (data.accountMode === "HUMAN" ? "HUMAN" : "AI");
+          const effective = data.effectiveMode || data.state.mode || "HUMAN";
           setConvBotMode(effective);
-          setIsAccountLevelHuman(effective === "HUMAN" && data.accountMode === "HUMAN");
+          setIsAccountLevelHuman(effective === "HUMAN");
           setAiMode(effective === "HUMAN" ? "HUMAN_ONLY" : "AUTO_REPLY");
         } else {
-          const fallbackHuman = isConversationAccountHuman(activeConv);
-          setConvBotMode(fallbackHuman ? "HUMAN" : "AI");
-          setIsAccountLevelHuman(fallbackHuman);
-          setAiMode(fallbackHuman ? "HUMAN_ONLY" : "AUTO_REPLY");
+          setConvBotMode("HUMAN");
+          setIsAccountLevelHuman(true);
+          setAiMode("HUMAN_ONLY");
         }
       } catch {
         if (!isCancelled) {
-          const fallbackHuman = isConversationAccountHuman(activeConv);
-          setConvBotMode(fallbackHuman ? "HUMAN" : "AI");
-          setIsAccountLevelHuman(fallbackHuman);
-          setAiMode(fallbackHuman ? "HUMAN_ONLY" : "AUTO_REPLY");
+          setConvBotMode("HUMAN");
+          setIsAccountLevelHuman(true);
+          setAiMode("HUMAN_ONLY");
         }
       }
     }
@@ -1264,8 +1262,8 @@ export default function LiveZaloInbox() {
         ? {
             ...prev,
             botMode: nextMode,
-            channelBotMode: nextEnabled ? "AI" : prev.channelBotMode,
-            isAccountLevelHuman: false,
+            isExplicitThreadBot: nextEnabled,
+            isAccountLevelHuman: !nextEnabled,
           }
         : prev
     );
@@ -1277,8 +1275,8 @@ export default function LiveZaloInbox() {
           ? {
               ...c,
               botMode: nextMode,
-              channelBotMode: nextEnabled ? "AI" : c.channelBotMode,
-              isAccountLevelHuman: false,
+              isExplicitThreadBot: nextEnabled,
+              isAccountLevelHuman: !nextEnabled,
               aiMode: nextEnabled ? "AUTO_REPLY" : "HUMAN_ONLY",
             }
           : c
@@ -2743,9 +2741,9 @@ export default function LiveZaloInbox() {
         key={`${conv.channel}_${conv.accountId || ""}_${conv.id}`}
         type="button"
         onClick={() => {
-          const isAi = conv.botMode === "AI" || (!isConversationAccountHuman(conv) && conv.botMode !== "HUMAN");
+          const isAi = conv.botMode === "AI";
           setConvBotMode(isAi ? "AI" : "HUMAN");
-          setIsAccountLevelHuman(!isAi && isConversationAccountHuman(conv));
+          setIsAccountLevelHuman(!isAi);
           setAiMode(isAi ? "AUTO_REPLY" : "HUMAN_ONLY");
           setActiveConv(conv);
 
