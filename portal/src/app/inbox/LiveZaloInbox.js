@@ -1542,7 +1542,15 @@ export default function LiveZaloInbox() {
         body: formData,
       });
       uploadedData = await res.json();
-    } catch {}
+    } catch (upErr) {
+      setToast({ type: "error", text: `Lỗi tải file ghi âm lên máy chủ: ${upErr?.message || "Mất kết nối"}` });
+      return;
+    }
+
+    if (!uploadedData?.ok || !uploadedData?.filePath) {
+      setToast({ type: "error", text: uploadedData?.error || "Không thể lưu file ghi âm trên máy chủ." });
+      return;
+    }
 
     const tempId = `temp_audio_${Date.now()}`;
     const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
@@ -3849,7 +3857,25 @@ export default function LiveZaloInbox() {
                         typeof rawUrl === "string" &&
                         (rawUrl.startsWith("http://") ||
                           rawUrl.startsWith("https://") ||
+                          rawUrl.startsWith("/") ||
+                          rawUrl.startsWith("blob:") ||
                           rawUrl.startsWith("data:"));
+
+                      const isAudioMsg = Boolean(
+                        m.type === "chat.voice" ||
+                        m.type === "voice" ||
+                        m.isAudio ||
+                        (rawUrl && (rawUrl.endsWith(".mp3") || rawUrl.endsWith(".wav") || rawUrl.endsWith(".ogg") || rawUrl.endsWith(".webm") || rawUrl.endsWith(".m4a")))
+                      );
+                      const audioMsgUrl = rawUrl || "";
+
+                      const isFileMsg = Boolean(
+                        m.type === "chat.file" ||
+                        m.isFile ||
+                        (rawUrl && !isAudioMsg && /\.(pdf|docx?|xlsx?|zip|rar|txt|csv)$/i.test(rawUrl))
+                      );
+                      const fileMsgUrl = rawUrl || "";
+
                       const textIsUrl =
                         typeof m.text === "string" &&
                         (m.text.startsWith("http://") || m.text.startsWith("https://")) &&
@@ -3857,28 +3883,13 @@ export default function LiveZaloInbox() {
                           m.text.includes(".png") ||
                           m.text.includes(".webp") ||
                           m.text.includes("zdn.vn"));
-                      const photoUrl = hasValidUrl ? rawUrl : textIsUrl ? m.text : null;
+                      const photoUrl = !isAudioMsg && !isFileMsg ? (hasValidUrl ? rawUrl : textIsUrl ? m.text : null) : null;
                       const isPhoto = Boolean(photoUrl);
 
                       const msgInfo = formatMessageForDisplay(m.text, m.type);
                       const isRecalled = Boolean(m.isRecalled || msgInfo.isRecalled);
                       const isSticker = Boolean(msgInfo.isSticker);
                       const displayText = msgInfo.text;
-
-                      const isAudioMsg = Boolean(
-                        m.type === "chat.voice" ||
-                        m.type === "voice" ||
-                        m.isAudio ||
-                        (m.url && (m.url.endsWith(".mp3") || m.url.endsWith(".wav") || m.url.endsWith(".ogg") || m.url.endsWith(".webm") || m.url.endsWith(".m4a")))
-                      );
-                      const audioMsgUrl = m.url || "";
-
-                      const isFileMsg = Boolean(
-                        m.type === "chat.file" ||
-                        m.isFile ||
-                        (m.url && !isPhoto && !isAudioMsg)
-                      );
-                      const fileMsgUrl = m.url || "";
 
                       return (
                         <div

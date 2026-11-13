@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Mic, Square, Trash2, Send, Play, Pause, RefreshCw, X } from "lucide-react";
+import { Square, Send, RefreshCw, X } from "lucide-react";
 
 /**
  * ADDP CRM — Thanh Ghi Âm Giọng Nói Trực Tiếp (Voice Message)
@@ -16,24 +16,24 @@ export default function AudioRecorderBar({
   const [recordingState, setRecordingState] = useState("idle"); // 'idle' | 'recording' | 'preview' | 'uploading'
   const [duration, setDuration] = useState(0);
   const [audioUrl, setAudioUrl] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const timerRef = useRef(null);
-  const audioRef = useRef(null);
+  const streamRef = useRef(null);
 
   useEffect(() => {
     if (isOpen) {
       startRecording();
     } else {
-      cleanup();
+      cleanup(true);
     }
-    return () => cleanup();
+    return () => cleanup(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const cleanup = () => {
+  const cleanup = (revokeUrl = false) => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -43,18 +43,25 @@ export default function AudioRecorderBar({
         mediaRecorderRef.current.stop();
       } catch {}
     }
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl);
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
+      streamRef.current = null;
+    }
+    if (revokeUrl && audioUrl) {
+      try {
+        URL.revokeObjectURL(audioUrl);
+      } catch {}
       setAudioUrl(null);
     }
     setRecordingState("idle");
     setDuration(0);
-    setIsPlaying(false);
     setErrorMsg("");
   };
 
   const startRecording = async () => {
-    cleanup();
+    cleanup(true);
     setErrorMsg("");
 
     try {
@@ -65,12 +72,15 @@ export default function AudioRecorderBar({
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       audioChunksRef.current = [];
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
         ? "audio/ogg;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+        ? "audio/mp4"
         : "audio/webm";
 
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -83,14 +93,22 @@ export default function AudioRecorderBar({
       };
 
       recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (!blob || blob.size < 100) {
+          setErrorMsg("Không thu được âm thanh từ Micro (0 byte). Vui lòng kiểm tra lại Micro.");
+          setRecordingState("idle");
+          return;
+        }
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
         setRecordingState("preview");
       };
 
-      recorder.start(100);
+      recorder.start(250);
       setRecordingState("recording");
 
       setDuration(0);
@@ -120,29 +138,19 @@ export default function AudioRecorderBar({
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  const togglePlayAudio = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play();
-      setIsPlaying(true);
-    }
-  };
-
   const handleSend = async () => {
     if (audioChunksRef.current.length === 0) return;
     const mimeType = mediaRecorderRef.current?.mimeType || "audio/webm";
     const blob = new Blob(audioChunksRef.current, { type: mimeType });
     const finalDuration = duration;
+    const currentUrl = audioUrl;
 
     setRecordingState("uploading");
     try {
-      await onSendAudio(blob, finalDuration, audioUrl);
+      await onSendAudio(blob, finalDuration, currentUrl);
       onClose();
     } catch (err) {
-      setErrorMsg(`Lỗi gửi ghi âm: ${err.message}`);
+      setErrorMsg(`Lỗi gửi ghi âm: ${err?.message || "Không thể gửi"}`);
       setRecordingState("preview");
     }
   };
@@ -150,18 +158,17 @@ export default function AudioRecorderBar({
   if (!isOpen) return null;
 
   return (
-    <div className="p-3 bg-slate-900 border-t border-slate-800 rounded-xl mb-2 animate-in fade-in slide-in-from-bottom-2 duration-150">
-      <div className="flex items-center justify-between gap-3">
+    <div className="p-2.5 bg-slate-900 border border-slate-800 rounded-xl mb-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         {recordingState === "recording" && (
-          <div className="flex items-center gap-3 flex-1">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex items-center gap-2 shrink-0">
               <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping shrink-0" />
               <span className="text-xs font-bold text-rose-400 font-mono">
                 {formatTimer(duration)}
               </span>
             </div>
 
-            {/* Sóng âm thanh mô phỏng */}
             <div className="flex items-center gap-0.5 flex-1 max-w-[120px] h-4">
               {[40, 70, 90, 60, 100, 50, 80, 45, 95, 65, 30].map((h, i) => (
                 <span
@@ -172,32 +179,29 @@ export default function AudioRecorderBar({
               ))}
             </div>
 
-            <span className="text-[11px] text-slate-400">Đang thu âm giọng nói...</span>
+            <span className="text-[11px] text-slate-400 truncate">Đang thu âm giọng nói...</span>
           </div>
         )}
 
         {recordingState === "preview" && (
-          <div className="flex items-center gap-3 flex-1">
-            <button
-              type="button"
-              onClick={togglePlayAudio}
-              className="w-7 h-7 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center cursor-pointer transition-colors"
-            >
-              {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
-            </button>
-
-            <span className="text-xs font-bold text-blue-400 font-mono">
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <span className="text-xs font-bold text-blue-400 font-mono shrink-0">
               {formatTimer(duration)}
             </span>
 
-            <audio
-              ref={audioRef}
-              src={audioUrl || ""}
-              onEnded={() => setIsPlaying(false)}
-              className="hidden"
-            />
+            {audioUrl && (
+              <audio
+                key={audioUrl}
+                controls
+                preload="metadata"
+                src={audioUrl}
+                className="h-8 flex-1 max-w-[260px]"
+              />
+            )}
 
-            <span className="text-[11px] text-slate-400">Nghe lại trước khi gửi</span>
+            <span className="text-[11px] text-slate-400 hidden sm:inline shrink-0">
+              Nghe lại trước khi gửi
+            </span>
           </div>
         )}
 
@@ -210,7 +214,7 @@ export default function AudioRecorderBar({
         {recordingState === "uploading" && (
           <div className="flex items-center gap-2 text-xs text-blue-400 flex-1">
             <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            <span>Đang tải lên và gửi ghi âm...</span>
+            <span>Đang tải lên và gửi ghi âm qua Zalo...</span>
           </div>
         )}
 

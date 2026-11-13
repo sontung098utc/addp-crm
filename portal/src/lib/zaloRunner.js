@@ -2073,3 +2073,176 @@ export async function sendTextMessage(accountPhone, targetZaloId, text, options 
 
   return res;
 }
+
+export function getMcpPortForHome(targetHome) {
+  const cached = globalThis.__zaloMcpDaemons?.get(targetHome);
+  if (cached?.port) return cached.port;
+
+  const targetOwnId = getOwnIdForHome(targetHome);
+  let portNum = 3099;
+  try {
+    const activeHomes = getAllActiveZaloHomes();
+    const idx = activeHomes.findIndex(
+      (h) => path.resolve(h.homeDir) === path.resolve(targetHome) || (targetOwnId && h.ownId === targetOwnId)
+    );
+    if (idx >= 0) {
+      portNum = 3099 + idx;
+    } else {
+      const hash = String(targetOwnId || targetHome)
+        .split("")
+        .reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 50, 0);
+      portNum = 3105 + Math.abs(hash);
+    }
+  } catch {}
+  return portNum;
+}
+
+/**
+ * Gửi file đính kèm / ghi âm / hình ảnh qua MCP Daemon HTTP (`zalo_send_file`)
+ * vì Zalo yêu cầu kết nối WebSocket sống (`file_done`) để xác nhận upload file non-image.
+ */
+export async function sendZaloFileViaMcp({
+  homeDir,
+  recipient,
+  recipientPhone = "",
+  filePath,
+  caption = "",
+  isGroup = false,
+  isImage = false,
+}) {
+  const targetHome = homeDir || getActiveZaloHome();
+  if (!targetHome || !filePath || !fs.existsSync(filePath)) {
+    return { ok: false, error: "Không tìm thấy tệp tin hoặc tài khoản Zalo." };
+  }
+
+  const cliDir = path.join(targetHome, ".zalo-agent-cli");
+  const outboxDir = path.join(cliDir, "outbox");
+  try {
+    fs.mkdirSync(outboxDir, { recursive: true });
+  } catch {}
+
+  const outboxPath = path.join(outboxDir, path.basename(filePath));
+  try {
+    if (path.resolve(filePath) !== path.resolve(outboxPath)) {
+      fs.copyFileSync(filePath, outboxPath);
+    }
+  } catch (copyErr) {
+    return { ok: false, error: `Không thể chuẩn bị file trong outbox: ${copyErr.message}` };
+  }
+
+  // Phân giải SĐT -> UID nếu là DM
+  let targetUid = String(recipient || "").trim();
+  if (!isGroup && /^(\+?84|0)?\d{9,10}$/.test(targetUid.replace(/[\s.-]/g, ""))) {
+    const cleanDigits = String(recipientPhone || targetUid).replace(/\D/g, "");
+    const cleanVn = cleanDigits.startsWith("84") && cleanDigits.length >= 10 ? `0${cleanDigits.slice(2)}` : cleanDigits;
+    const metaPath = path.join(cliDir, "crm-meta-cache.json");
+    if (fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        const allContacts = [
+          ...(Array.isArray(meta?.friends) ? meta.friends : []),
+          ...(Array.isArray(meta?.strangers) ? meta.strangers : []),
+        ];
+        const matched = allContacts.find((c) => {
+          const p = String(c.phoneNumber || c.phone || "").replace(/\D/g, "");
+          const pVn = p.startsWith("84") && p.length >= 10 ? `0${p.slice(2)}` : p;
+          return pVn && pVn === cleanVn;
+        });
+        if (matched && (matched.userId || matched.uid)) {
+          targetUid = String(matched.userId || matched.uid);
+        }
+      } catch {}
+    }
+  }
+
+  // Khởi chạy / kiểm tra MCP Daemon
+  ensureZaloMcpDaemon(targetHome);
+  const portNum = getMcpPortForHome(targetHome);
+  const baseUrl = `http://127.0.0.1:${portNum}`;
+
+  // Đợi tối đa 4 giây cho MCP Daemon sẵn sàng nếu vừa được khởi chạy
+  let daemonReady = false;
+  for (let i = 0; i < 8; i++) {
+    try {
+      const hRes = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(800) });
+      if (hRes.ok) {
+        daemonReady = true;
+        break;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+  }
+
+  if (daemonReady) {
+    try {
+      const mcpRes = await fetch(`${baseUrl}/mcp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: Date.now(),
+          method: "tools/call",
+          params: {
+            name: "zalo_send_file",
+            arguments: {
+              threadId: targetUid,
+              paths: [outboxPath],
+              caption: caption || "",
+              threadType: isGroup ? 1 : 0,
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+
+      const rawText = await mcpRes.text();
+      let rpcData = null;
+      try {
+        rpcData = JSON.parse(rawText);
+      } catch {
+        // Parse SSE response lines if StreamableHTTP returns text/event-stream
+        const dataLines = rawText
+          .split("\n")
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).trim());
+        for (const dl of dataLines) {
+          try {
+            const parsed = JSON.parse(dl);
+            if (parsed.result || parsed.error) {
+              rpcData = parsed;
+              break;
+            }
+          } catch {}
+        }
+      }
+
+      if (rpcData?.error) {
+        return { ok: false, error: rpcData.error.message || "Lỗi MCP zalo_send_file", recipient: targetUid };
+      }
+      if (rpcData?.result?.isError) {
+        const errTxt = rpcData.result.content?.map((c) => c.text).join(" ") || "Zalo từ chối gửi tệp.";
+        return { ok: false, error: errTxt, recipient: targetUid };
+      }
+      if (rpcData?.result) {
+        return { ok: true, data: rpcData.result, recipient: targetUid, via: "mcp" };
+      }
+    } catch (mcpErr) {
+      console.warn("[ZALO_MCP_SEND_FILE_WARN]", mcpErr?.message);
+    }
+  }
+
+  // Fallback CLI: ảnh dùng send-image (HTTP), file/ghi âm dùng send-file --listen
+  const typeStr = isGroup ? "1" : "0";
+  if (isImage) {
+    const imageArgs = ["msg", "send-image", targetUid, outboxPath, "-t", typeStr, ...(caption ? ["--caption", caption] : []), "--json"];
+    const res = await runZaloCommand(imageArgs, { homeDir: targetHome, timeout: 35000 });
+    return { ...res, recipient: targetUid };
+  } else {
+    const fileArgs = ["msg", "send-file", targetUid, outboxPath, "-t", typeStr, "--listen", "--json"];
+    const res = await runZaloCommand(fileArgs, { homeDir: targetHome, timeout: 45000 });
+    return { ...res, recipient: targetUid };
+  }
+}

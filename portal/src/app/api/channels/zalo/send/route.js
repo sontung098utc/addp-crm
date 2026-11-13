@@ -3,6 +3,7 @@ import { normalizePhone } from "@/lib/phone.js";
 import {
   runZaloCommand,
   sendZaloMessageDirect,
+  sendZaloFileViaMcp,
   resolveZaloHomeForThread,
   getOwnIdForHome,
   getActiveZaloAccountName,
@@ -182,20 +183,28 @@ export async function POST(request) {
     // 1. Nếu có file hình ảnh hoặc file đính kèm/ghi âm cục bộ
     let sendResult = null;
     if (body.filePath && fs.existsSync(body.filePath)) {
-      if (body.isImage) {
-        const caption = message && message !== "[Hình ảnh]" ? message : "";
-        const imageArgs = ["msg", "send-image", recipient, body.filePath, ...(caption ? ["--caption", caption] : []), "--json"];
-        sendResult = await runZaloCommand(imageArgs, {
-          homeDir: activeHome,
-          timeout: 35000,
-        });
-      } else {
-        const fileArgs = ["msg", "send-file", recipient, body.filePath, "--json"];
-        sendResult = await runZaloCommand(fileArgs, {
-          homeDir: activeHome,
-          timeout: 35000,
-        });
-      }
+      const caption =
+        message && message !== "[Hình ảnh]" && message !== "[Ghi âm giọng nói]"
+          ? message
+          : "";
+      sendResult = await sendZaloFileViaMcp({
+        homeDir: activeHome,
+        recipient,
+        recipientPhone: recipientPhone || body.recipientPhone || "",
+        filePath: body.filePath,
+        caption,
+        isGroup,
+        isImage: Boolean(body.isImage),
+      });
+    } else if (body.isAudio || body.mediaUrl) {
+      return NextResponse.json(
+        {
+          ok: false,
+          status: "failed",
+          error: "Không tìm thấy file ghi âm hoặc tệp đính kèm trên máy chủ. Vui lòng thử thu âm/tải lại.",
+        },
+        { status: 400 }
+      );
     } else {
       // 2. Gửi tin nhắn văn bản trực tiếp qua zaloDirectSendWorker (<300ms, tự phân giải SĐT sang UID bằng REST)
       sendResult = await sendZaloMessageDirect({

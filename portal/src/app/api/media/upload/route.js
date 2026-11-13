@@ -65,7 +65,7 @@ export async function POST(request) {
 
     return NextResponse.json({
       ok: true,
-      url: `/uploads/${savedFileName}`,
+      url: `/api/media/file/${savedFileName}`,
       filePath,
       fileName: originalName,
       savedFileName,
