@@ -6,6 +6,29 @@
  * - HALF_USAGE (Dùng được 1/2 liệu trình), TWO_THIRD_USAGE (Dùng được 2/3 liệu trình - nhắc tái mua)
  */
 
+function getServerFs() {
+  if (typeof window !== "undefined") return null;
+  try {
+    return { fs: eval("require")("fs"), path: eval("require")("path") };
+  } catch {
+    return null;
+  }
+}
+
+function getCareTasksFilePath() {
+  const mods = getServerFs();
+  if (!mods) return null;
+  const { fs, path } = mods;
+  const dataDir =
+    process.env.DATA_DIR ||
+    (fs.existsSync(path.join(process.cwd(), "portal", "package.json"))
+      ? "portal/.data"
+      : ".data");
+  return path.isAbsolute(dataDir)
+    ? path.join(dataDir, "care_tasks.json")
+    : path.join(process.cwd(), dataDir, "care_tasks.json");
+}
+
 export const CARE_MILESTONES = [
   {
     type: "DAY_1",
@@ -101,16 +124,40 @@ export function buildCareSchedule({
   return tasks.sort((a, b) => a.offsetDays - b.offsetDays);
 }
 
-if (!globalThis.__addpCareTasksStore) {
-  globalThis.__addpCareTasksStore = [];
+function loadCareTasksFromDisk() {
+  try {
+    const mods = getServerFs();
+    const filePath = getCareTasksFilePath();
+    if (mods && filePath && mods.fs.existsSync(filePath)) {
+      const parsed = JSON.parse(mods.fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function writeCareTasksToDisk(tasks) {
+  try {
+    const mods = getServerFs();
+    const filePath = getCareTasksFilePath();
+    if (!mods || !filePath) return;
+    mods.fs.mkdirSync(mods.path.dirname(filePath), { recursive: true });
+    mods.fs.writeFileSync(filePath, JSON.stringify(tasks, null, 2), "utf8");
+  } catch {}
 }
 
 export function getAllCareTasks() {
-  return globalThis.__addpCareTasksStore;
+  if (!globalThis.__addpCareTasksLoaded) {
+    globalThis.__addpCareTasksStore = loadCareTasksFromDisk();
+    globalThis.__addpCareTasksLoaded = true;
+  }
+  return globalThis.__addpCareTasksStore || [];
 }
 
 export function savePersistedTasks(tasks) {
   globalThis.__addpCareTasksStore = Array.isArray(tasks) ? tasks : [];
+  globalThis.__addpCareTasksLoaded = true;
+  writeCareTasksToDisk(globalThis.__addpCareTasksStore);
   return true;
 }
 
@@ -165,6 +212,9 @@ export function appendOrderCareTasks(order = {}) {
     createdTasks.push(newTask);
   });
 
+  if (createdTasks.length > 0) {
+    writeCareTasksToDisk(store);
+  }
   return createdTasks;
 }
 

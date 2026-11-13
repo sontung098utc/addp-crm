@@ -1,38 +1,68 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 
-export default function WorkTrackingPage() {
-  const [tasks, setTasks] = useState([]);
-  const [metrics, setMetrics] = useState({ todayPending: 0, overdue: 0, completedToday: 0 });
-  const [loading, setLoading] = useState(true);
-  const [filterDate, setFilterDate] = useState("TODAY"); // 'TODAY' | 'OVERDUE' | 'COMPLETED' | 'ALL'
-  const [staffFilter, setStaffFilter] = useState("ALL");
-  const [search, setSearch] = useState("");
+const PRIORITY_BADGE = {
+  1: { text: "Đến hẹn chăm sóc", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  2: { text: "Vừa nhận được hàng", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  3: { text: "Quá hạn chăm sóc", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+  4: { text: "Sắp hết hàng", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+  5: { text: "Sắp đến hẹn", cls: "bg-sky-50 text-sky-700 border-sky-200" },
+  10: { text: "Chưa có hẹn", cls: "bg-slate-100 text-slate-600 border-slate-200" },
+  99: { text: "Đã CS hôm nay", cls: "bg-teal-50 text-teal-700 border-teal-200" },
+};
 
-  // Modal hoàn thành chăm sóc
-  const [selectedTask, setSelectedTask] = useState(null);
-  const [completeForm, setCompleteForm] = useState({
-    resultNote: "",
-    careStatus: "Đang chăm sóc",
-    nextCareDate: "",
+export default function WorkTrackingPage() {
+  const [rows, setRows] = useState([]);
+  const [staffs, setStaffs] = useState([]);
+  const [metrics, setMetrics] = useState({
+    monthCount: 0,
+    weekCount: 0,
+    todayCount: 0,
+    dailyCareTarget: 7,
+    dailyMsgTarget: 70,
+    todayPending: 0,
+    overdue: 0,
+    completedToday: 0,
   });
-  const [submitting, setSubmitting] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  // Filters matching khachhang.addp.vn
+  const [staffFilter, setStaffFilter] = useState("ALL");
+  const [filterPriority, setFilterPriority] = useState("");
+  const [filterCarePath, setFilterCarePath] = useState("");
+  const [filterCareStatus, setFilterCareStatus] = useState("");
+  const [filterResponseStatus, setFilterResponseStatus] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
+
+  // Inline row edits: { [rowId]: { carePath, careStatus, responseStatus, note, nextDate } }
+  const [rowStates, setRowStates] = useState({});
+  const [savingRowId, setSavingRowId] = useState(null);
   const [toast, setToast] = useState(null);
+
+  const showToast = (type, message) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 5000);
+  };
 
   const fetchTasks = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (filterDate) params.set("filterDate", filterDate);
       if (staffFilter !== "ALL") params.set("staffId", staffFilter);
 
       const res = await fetch(`/api/care/tasks?${params.toString()}`);
       const data = await res.json();
       if (data.ok) {
-        setTasks(data.tasks || []);
+        setRows(data.rows || []);
+        if (Array.isArray(data.staffs)) setStaffs(data.staffs);
         if (data.metrics) setMetrics(data.metrics);
+        setLastSyncedAt(data.lastSyncedAt || null);
       }
     } catch (err) {
       console.error("Lỗi tải bảng công việc:", err);
@@ -43,412 +73,545 @@ export default function WorkTrackingPage() {
 
   useEffect(() => {
     fetchTasks();
-  }, [filterDate, staffFilter]);
+  }, [staffFilter]);
 
-  const handleOpenCompleteModal = (task) => {
-    setSelectedTask(task);
-    // Gợi ý ngày chăm tiếp theo là 3 hoặc 7 ngày sau
-    const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + 4);
-    setCompleteForm({
-      resultNote: "Khách phản hồi tốt, đã uống đúng hướng dẫn.",
-      careStatus: "Đang chăm sóc",
-      nextCareDate: nextDate.toISOString().slice(0, 10),
-    });
+  const handleSyncLegacy = async () => {
+    try {
+      setSyncing(true);
+      const res = await fetch("/api/care/sync-legacy", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showToast("error", data.error || "Không thể đồng bộ dữ liệu từ khachhang.addp.vn.");
+        return;
+      }
+      showToast("success", data.message);
+      await fetchTasks();
+    } catch (err) {
+      showToast("error", `Lỗi kết nối đồng bộ: ${err.message}`);
+    } finally {
+      setSyncing(false);
+    }
   };
 
-  const handleCompleteTask = async (e) => {
-    e.preventDefault();
-    if (!selectedTask) return;
+  const handleRowStateChange = (rowId, field, value) => {
+    setRowStates((prev) => ({
+      ...prev,
+      [rowId]: {
+        ...(prev[rowId] || {}),
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleCompleteRow = async (row) => {
+    const edited = rowStates[row.id] || {};
+    const finalCarePath = edited.carePath !== undefined ? edited.carePath : row.carePath || "";
+    const finalCareStatus =
+      edited.careStatus !== undefined ? edited.careStatus : row.careStatus || "";
+    const finalResponse =
+      edited.responseStatus !== undefined
+        ? edited.responseStatus
+        : row.responseStatus || "";
+    const finalNote = edited.note !== undefined ? edited.note : row.lastNote || "";
+    const finalNextDate =
+      edited.nextDate !== undefined
+        ? edited.nextDate
+        : row.nextCareDate || new Date().toISOString().slice(0, 10);
+
+    if (!finalCareStatus) {
+      showToast("error", "Vui lòng chọn Trạng thái CS (Gọi điện / Nhắn tin / Bình luận) trước khi hoàn thành.");
+      return;
+    }
 
     try {
-      setSubmitting(true);
+      setSavingRowId(row.id);
       const res = await fetch("/api/care/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskId: selectedTask.id,
           action: "COMPLETE",
-          resultNote: completeForm.resultNote,
-          careStatus: completeForm.careStatus,
-          nextCareDate: completeForm.nextCareDate,
+          customerId: row.id,
+          taskId: row.taskId,
+          carePath: finalCarePath,
+          careStatus: finalCareStatus,
+          responseStatus: finalResponse,
+          note: finalNote,
+          nextCareDate: finalNextDate,
         }),
       });
-
       const data = await res.json();
-      if (data.ok) {
-        setSelectedTask(null);
-        setToast({ type: "success", text: "Đã hoàn thành công việc chăm sóc khách hàng!" });
-        setTimeout(() => setToast(null), 3000);
-        fetchTasks();
-      } else {
-        alert(data.error || "Không thể cập nhật công việc");
+      if (!res.ok || !data.ok) {
+        showToast("error", data.error || "Không thể lưu kết quả chăm sóc.");
+        return;
       }
-    } catch {
-      alert("Lỗi kết nối khi hoàn thành công việc");
+      showToast("success", `Đã hoàn thành chăm sóc ${row.fullName} & cập nhật lịch hẹn!`);
+      await fetchTasks();
+    } catch (err) {
+      showToast("error", `Lỗi lưu chăm sóc: ${err.message}`);
     } finally {
-      setSubmitting(false);
+      setSavingRowId(null);
     }
   };
 
-  const filteredTasks = tasks.filter((t) => {
-    if (!search.trim()) return true;
+  const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (
-      t.customerName.toLowerCase().includes(q) ||
-      t.customerPhone.includes(q) ||
-      (t.title && t.title.toLowerCase().includes(q)) ||
-      (t.customerPathology && t.customerPathology.toLowerCase().includes(q))
-    );
-  });
+    return rows.filter((r) => {
+      if (filterPriority && String(r.priority) !== String(filterPriority)) return false;
+      if (filterCarePath && String(r.carePath || "") !== String(filterCarePath)) return false;
+      if (
+        filterCareStatus &&
+        !String(r.careStatus || "").toLowerCase().includes(filterCareStatus.toLowerCase())
+      ) {
+        return false;
+      }
+      if (
+        filterResponseStatus &&
+        String(r.responseStatus || "") !== String(filterResponseStatus)
+      ) {
+        return false;
+      }
+      if (q) {
+        const hay = `${r.fullName || ""} ${r.phone || ""} ${r.pathology || ""} ${r.lastNote || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [rows, filterPriority, filterCarePath, filterCareStatus, filterResponseStatus, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
-    <div className="space-y-6">
-      {/* Toast thông báo */}
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-xl border border-emerald-500/40 bg-emerald-950/90 px-4 py-2.5 text-xs text-emerald-200 backdrop-blur-md shadow-xl">
-          ✓ {toast.text}
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Bảng Theo Dõi Chăm Sóc Hàng Ngày (Work Tracking)
-            </h1>
-            <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
-              WBS-29
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Kế thừa từ QuanlyKH — Danh sách khách hàng đến hạn chăm sóc theo 7 mốc vàng (Ngày 1, 3, 7, 14, 21, Dùng 1/2 và 2/3 liệu trình)
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Link
-            href="/inbox"
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500 transition shadow-lg shadow-blue-600/30 flex items-center gap-1.5"
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-4 md:p-6">
+      <div className="max-w-[1440px] mx-auto space-y-5">
+        {/* Toast */}
+        {toast && (
+          <div
+            className={`fixed top-5 right-5 z-50 rounded-xl px-4 py-3 text-sm font-medium shadow-xl border ${
+              toast.type === "error"
+                ? "bg-rose-50 border-rose-300 text-rose-700"
+                : "bg-emerald-50 border-emerald-300 text-emerald-700"
+            }`}
           >
-            <span>💬 Mở Hộp Thư Zalo Đa Kênh</span>
-          </Link>
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        {/* Card 1: Hôm nay */}
-        <div
-          onClick={() => setFilterDate("TODAY")}
-          className={`cursor-pointer rounded-2xl border p-4 transition ${
-            filterDate === "TODAY"
-              ? "border-blue-500/60 bg-blue-950/30 ring-1 ring-blue-500/40"
-              : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Cần Chăm Hôm Nay</span>
-            <span className="text-base">📅</span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-white">{metrics.todayPending}</span>
-            <span className="text-xs text-slate-500">/ Chỉ tiêu 7 KH/ngày</span>
-          </div>
-        </div>
-
-        {/* Card 2: Quá hạn */}
-        <div
-          onClick={() => setFilterDate("OVERDUE")}
-          className={`cursor-pointer rounded-2xl border p-4 transition ${
-            filterDate === "OVERDUE"
-              ? "border-rose-500/60 bg-rose-950/30 ring-1 ring-rose-500/40"
-              : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs text-rose-400">
-            <span>Quá Hạn (Báo Đỏ)</span>
-            <span className="text-base">⚠️</span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-rose-400">{metrics.overdue}</span>
-            <span className="text-xs text-rose-500/80">Cần xử lý ngay</span>
-          </div>
-        </div>
-
-        {/* Card 3: Đã hoàn thành */}
-        <div
-          onClick={() => setFilterDate("COMPLETED")}
-          className={`cursor-pointer rounded-2xl border p-4 transition ${
-            filterDate === "COMPLETED"
-              ? "border-emerald-500/60 bg-emerald-950/30 ring-1 ring-emerald-500/40"
-              : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs text-emerald-400">
-            <span>Đã Hoàn Thành</span>
-            <span className="text-base">✅</span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-emerald-400">{metrics.completedToday}</span>
-            <span className="text-xs text-emerald-500/80">Đã ghi nhận kết quả</span>
-          </div>
-        </div>
-
-        {/* Card 4: Tất cả */}
-        <div
-          onClick={() => setFilterDate("ALL")}
-          className={`cursor-pointer rounded-2xl border p-4 transition ${
-            filterDate === "ALL"
-              ? "border-purple-500/60 bg-purple-950/30 ring-1 ring-purple-500/40"
-              : "border-slate-800 bg-slate-900/60 hover:border-slate-700"
-          }`}
-        >
-          <div className="flex items-center justify-between text-xs text-purple-400">
-            <span>Tất Cả Lộ Trình</span>
-            <span className="text-base">📋</span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-purple-300">
-              {metrics.todayPending + metrics.overdue + metrics.completedToday}
-            </span>
-            <span className="text-xs text-purple-500/80">Tổng công việc</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Bộ lọc thanh công cụ */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* Ô tìm kiếm */}
-          <div className="md:col-span-2 relative">
-            <input
-              type="text"
-              placeholder="Tìm theo Tên khách, SĐT, Bệnh lý..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-            />
-            <span className="absolute left-3 top-2.5 text-slate-500 text-xs">🔍</span>
-          </div>
-
-          {/* Lọc nhân viên phụ trách */}
-          <div>
-            <select
-              value={staffFilter}
-              onChange={(e) => setStaffFilter(e.target.value)}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-            >
-              <option value="ALL">Tất cả nhân viên Sale</option>
-              <option value="2">S001 - Nguyễn Minh Tuấn (Leader)</option>
-              <option value="3">S002 - Trần Thu Hà (Sale 01)</option>
-              <option value="4">CS01 - Lê Thị Mai (CSKH 01)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Bảng Danh sách Công việc Chăm sóc */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
-        {loading ? (
-          <div className="p-12 text-center text-xs text-slate-500 space-y-2">
-            <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            <p>Đang tải bảng công việc chăm sóc...</p>
-          </div>
-        ) : filteredTasks.length === 0 ? (
-          <div className="p-16 text-center space-y-3">
-            <div className="text-3xl">📋</div>
-            <h3 className="text-sm font-bold text-white">Chưa có công việc chăm sóc</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-              Chưa có dữ liệu công việc chăm sóc. Lộ trình chăm sóc 7 mốc vàng (Ngày 1, 3, 7, 14, 21, 1/2 và 2/3 liệu trình) sẽ tự động kích hoạt ngay khi đơn hàng được tạo hoặc chuyển sang trạng thái Giao thành công.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 bg-slate-950/60 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Khách Hàng & SĐT</th>
-                  <th className="py-3 px-4">Bệnh Lý & Đường Huyết</th>
-                  <th className="py-3 px-4">Mốc Chăm Sóc & Hạn</th>
-                  <th className="py-3 px-4">Kịch Bản Tư Vấn Chuẩn</th>
-                  <th className="py-3 px-4">Sale Phụ Trách</th>
-                  <th className="py-3 px-4 text-right">Thao Tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {filteredTasks.map((t) => {
-                  const isOverdue = !t.isCompleted && t.deadline < new Date().toISOString().slice(0, 10);
-                  return (
-                    <tr
-                      key={t.id}
-                      className={`hover:bg-slate-800/30 transition ${
-                        isOverdue ? "bg-rose-950/10" : ""
-                      }`}
-                    >
-                      {/* Khách hàng & SĐT */}
-                      <td className="py-3.5 px-4">
-                        <Link
-                          href={`/customers/${t.customerId}`}
-                          className="font-bold text-white hover:text-blue-400 block"
-                        >
-                          {t.customerName}
-                        </Link>
-                        <span className="font-mono text-emerald-400 text-[11px] block mt-0.5">
-                          {t.customerPhone}
-                        </span>
-                      </td>
-
-                      {/* Bệnh lý */}
-                      <td className="py-3.5 px-4 max-w-xs">
-                        <div className="truncate text-white font-medium" title={t.customerPathology}>
-                          {t.customerPathology || "Tiểu đường tuýp 2"}
-                        </div>
-                        {t.customerGlucose && (
-                          <span className="text-[10px] text-emerald-400 block mt-0.5">
-                            Đường huyết: {t.customerGlucose} mmol/L
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Mốc chăm sóc */}
-                      <td className="py-3.5 px-4">
-                        <span className="inline-block rounded bg-blue-500/10 border border-blue-500/30 text-blue-300 px-2 py-0.5 text-[10px] font-bold">
-                          {t.taskType === "DAY_1" ? "Ngày 1 (Nhận hàng)" :
-                           t.taskType === "DAY_3" ? "Ngày 3 (Cảm nhận)" :
-                           t.taskType === "DAY_7" ? "Ngày 7 (Đo đường huyết)" :
-                           t.taskType === "DAY_14" ? "Ngày 14 (Chế độ ăn)" :
-                           t.taskType === "DAY_21" ? "Ngày 21 (Liệu trình 3w)" :
-                           t.taskType === "HALF_USAGE" ? "Dùng 1/2 Liệu Trình" :
-                           t.taskType === "TWO_THIRD_USAGE" ? "Dùng 2/3 (Tái Mua)" :
-                           "Chăm sóc định kỳ"}
-                        </span>
-                        <div className="text-[10px] mt-1">
-                          Hạn:{" "}
-                          <span className={`font-mono font-bold ${isOverdue ? "text-rose-400" : "text-slate-400"}`}>
-                            {t.deadline} {isOverdue ? "(Quá hạn)" : ""}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Kịch bản tư vấn */}
-                      <td className="py-3.5 px-4 max-w-sm">
-                        <div className="rounded-lg bg-slate-950 p-2 text-[11px] text-slate-300 border border-slate-800 line-clamp-2 italic">
-                          &quot;{t.suggestedMessage}&quot;
-                        </div>
-                      </td>
-
-                      {/* Sale */}
-                      <td className="py-3.5 px-4">
-                        <span className="text-white font-medium">{t.staffName || "Sơn Tùng"}</span>
-                      </td>
-
-                      {/* Thao tác */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Link
-                            href="/inbox"
-                            className="rounded-lg bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/30 px-2.5 py-1 text-[11px] font-bold text-blue-300 transition"
-                            title="Nhắn tin Zalo"
-                          >
-                            💬 Chat Zalo
-                          </Link>
-                          {t.isCompleted ? (
-                            <span className="rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 text-[11px] font-bold">
-                              ✓ Đã xong
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => handleOpenCompleteModal(t)}
-                              className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1 text-[11px] font-bold text-white transition shadow-sm"
-                            >
-                              ✓ Hoàn thành
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {toast.type === "error" ? "⚠️ " : "✅ "}
+            {toast.message}
           </div>
         )}
-      </div>
 
-      {/* Modal Hoàn Thành Chăm Sóc */}
-      {selectedTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 text-xs">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-bold text-white">
-                Ghi Nhận Kết Quả Chăm Sóc — {selectedTask.customerName}
-              </h3>
-              <button
-                onClick={() => setSelectedTask(null)}
-                className="text-slate-400 hover:text-white text-base font-bold"
-              >
-                ✕
-              </button>
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-2xl font-bold text-slate-900">
+                Theo dõi CV Khách hàng (Work Tracking)
+              </h1>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                Đồng bộ khachhang.addp.vn
+              </span>
             </div>
-
-            <form onSubmit={handleCompleteTask} className="space-y-3">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Kết quả cuộc gọi / trao đổi</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={completeForm.resultNote}
-                  onChange={(e) => setCompleteForm({ ...completeForm, resultNote: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Trạng thái chăm sóc sau tương tác</label>
-                <select
-                  value={completeForm.careStatus}
-                  onChange={(e) => setCompleteForm({ ...completeForm, careStatus: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="Đang chăm sóc">Đang chăm sóc (Tốt)</option>
-                  <option value="Cần chăm tiếp">Cần chăm tiếp (Có thắc mắc)</option>
-                  <option value="Đã chốt">Đã chốt thêm đơn tái mua</option>
-                  <option value="Không có nhu cầu">Tạm ngưng / Không có nhu cầu</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Hẹn ngày liên hệ tiếp theo (Tự sinh Task mới)</label>
-                <input
-                  type="date"
-                  value={completeForm.nextCareDate}
-                  onChange={(e) => setCompleteForm({ ...completeForm, nextCareDate: e.target.value })}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setSelectedTask(null)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-1.5 font-semibold text-slate-300 hover:text-white"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-xl bg-emerald-600 px-4 py-1.5 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
-                >
-                  {submitting ? "Đang lưu..." : "Lưu Hoàn Thành ✓"}
-                </button>
-              </div>
-            </form>
+            <p className="text-sm text-slate-500 mt-1">
+              Thống kê tương tác, lộ trình chăm sóc (Ngày 1, 3, 7, 14, 21, Dùng 1/2 & 2/3) và lịch hẹn tiếp theo.
+              {lastSyncedAt && (
+                <span className="ml-2 text-xs text-emerald-700 font-medium">
+                  • Đồng bộ gần nhất: {new Date(lastSyncedAt).toLocaleString("vi-VN")}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={handleSyncLegacy}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition cursor-pointer disabled:opacity-60"
+            >
+              <span>{syncing ? "⏳ Đang đồng bộ..." : "🔄 Đồng bộ từ khachhang.addp.vn"}</span>
+            </button>
+            <Link
+              href="/inbox"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition"
+            >
+              <span>💬 Mở Hộp Thư Đa Kênh</span>
+            </Link>
           </div>
         </div>
-      )}
+
+        {/* Chỉ Số Mục Tiêu & Thực Tế (giống hệt khachhang.addp.vn) */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="font-bold text-sm text-emerald-700 flex items-center gap-2">
+              <span>📊 Chỉ Số Mục Tiêu & Thực Tế</span>
+            </div>
+            <select
+              value={staffFilter}
+              onChange={(e) => {
+                setStaffFilter(e.target.value);
+                setPage(1);
+              }}
+              className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="ALL">Tất cả nhân viên (Gộp)</option>
+              {staffs.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name} ({s.code})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
+              <div className="text-[11px] font-semibold uppercase text-slate-500">Tháng này</div>
+              <div className="text-xl font-bold text-slate-900 mt-1">
+                {metrics.monthCount} <span className="text-sm font-normal text-slate-500">/ - KH</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
+              <div className="text-[11px] font-semibold uppercase text-slate-500">Tuần này</div>
+              <div className="text-xl font-bold text-slate-900 mt-1">
+                {metrics.weekCount} <span className="text-sm font-normal text-slate-500">/ - KH</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
+              <div className="text-[11px] font-semibold uppercase text-slate-500">
+                Hôm nay (Chăm sóc)
+              </div>
+              <div className="text-xl font-bold text-amber-600 mt-1">
+                {metrics.todayCount}{" "}
+                <span className="text-sm font-normal text-slate-500">
+                  / {metrics.dailyCareTarget} KH
+                </span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
+              <div className="text-[11px] font-semibold uppercase text-slate-500">
+                Chỉ tiêu nhắn tin
+              </div>
+              <div className="text-xl font-bold text-slate-900 mt-1">
+                {metrics.dailyMsgTarget}{" "}
+                <span className="text-sm font-normal text-slate-500">TN/ngày</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bộ lọc đầy đủ giống khachhang.addp.vn */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center gap-2.5">
+          <select
+            value={filterPriority}
+            onChange={(e) => {
+              setFilterPriority(e.target.value);
+              setPage(1);
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+          >
+            <option value="">-- Phân loại --</option>
+            <option value="1">Đến hẹn chăm sóc ({rows.filter((r) => r.priority === 1).length})</option>
+            <option value="2">Vừa nhận được hàng ({rows.filter((r) => r.priority === 2).length})</option>
+            <option value="3">Quá hạn chăm sóc ({rows.filter((r) => r.priority === 3).length})</option>
+            <option value="4">Sắp hết hàng ({rows.filter((r) => r.priority === 4).length})</option>
+            <option value="5">Sắp đến hẹn ({rows.filter((r) => r.priority === 5).length})</option>
+            <option value="10">Chưa có hẹn ({rows.filter((r) => r.priority === 10).length})</option>
+            <option value="99">Đã CS hôm nay ({rows.filter((r) => r.priority === 99).length})</option>
+          </select>
+
+          <select
+            value={filterCarePath}
+            onChange={(e) => {
+              setFilterCarePath(e.target.value);
+              setPage(1);
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+          >
+            <option value="">-- Lộ trình CS --</option>
+            <option value="Đã chốt">Đã chốt</option>
+            <option value="Tiềm năng">Tiềm năng</option>
+            <option value="Cần chăm tiếp">Cần chăm tiếp</option>
+            <option value="Không có nhu cầu">Không có nhu cầu</option>
+          </select>
+
+          <select
+            value={filterCareStatus}
+            onChange={(e) => {
+              setFilterCareStatus(e.target.value);
+              setPage(1);
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+          >
+            <option value="">-- Trạng thái CS --</option>
+            <option value="Gọi điện">Gọi điện (GĐ)</option>
+            <option value="Nhắn tin">Nhắn tin (NT)</option>
+            <option value="Bình luận">Bình luận (BL)</option>
+          </select>
+
+          <select
+            value={filterResponseStatus}
+            onChange={(e) => {
+              setFilterResponseStatus(e.target.value);
+              setPage(1);
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+          >
+            <option value="">-- Phản hồi --</option>
+            <option value="Đã phản hồi">Đã phản hồi</option>
+            <option value="Chưa phản hồi">Chưa phản hồi</option>
+          </select>
+
+          <input
+            type="text"
+            placeholder="🔍 Tìm theo Tên, SĐT, Bệnh lý, Ghi chú..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="flex-1 min-w-[220px] rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+
+          {(filterPriority || filterCarePath || filterCareStatus || filterResponseStatus || search) && (
+            <button
+              onClick={() => {
+                setFilterPriority("");
+                setFilterCarePath("");
+                setFilterCareStatus("");
+                setFilterResponseStatus("");
+                setSearch("");
+                setPage(1);
+              }}
+              className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
+            >
+              Xóa lọc
+            </button>
+          )}
+        </div>
+
+        {/* Bảng Theo Dõi Đầy Đủ Cột Giống khachhang.addp.vn */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          {loading ? (
+            <div className="p-12 text-center text-slate-500 text-sm">
+              Đang tải dữ liệu chăm sóc khách hàng...
+            </div>
+          ) : filteredRows.length === 0 ? (
+            <div className="p-12 text-center space-y-3">
+              <div className="text-slate-700 font-semibold">
+                Chưa có dữ liệu khớp bộ lọc (Tổng {rows.length} khách hàng).
+              </div>
+              {rows.length === 0 && (
+                <button
+                  onClick={handleSyncLegacy}
+                  disabled={syncing}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold cursor-pointer"
+                >
+                  🔄 Bấm để đồng bộ toàn bộ từ khachhang.addp.vn
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[1160px]">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    <th className="py-3 px-3 w-[155px]">Phân loại</th>
+                    <th className="py-3 px-3 w-[210px]">Khách hàng</th>
+                    <th className="py-3 px-3 w-[155px]">Lộ trình CS</th>
+                    <th className="py-3 px-3 w-[155px]">Trạng thái CS</th>
+                    <th className="py-3 px-3 w-[140px]">Phản hồi</th>
+                    <th className="py-3 px-3 min-w-[200px]">Lịch sử CS</th>
+                    <th className="py-3 px-3 w-[145px]">Hẹn tiếp</th>
+                    <th className="py-3 px-3 w-[115px] text-center">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {pagedRows.map((row) => {
+                    const edited = rowStates[row.id] || {};
+                    const badge = PRIORITY_BADGE[row.priority] || PRIORITY_BADGE[10];
+                    const carePathVal =
+                      edited.carePath !== undefined ? edited.carePath : row.carePath || "";
+                    const careStatusVal =
+                      edited.careStatus !== undefined ? edited.careStatus : row.careStatus || "";
+                    const responseVal =
+                      edited.responseStatus !== undefined
+                        ? edited.responseStatus
+                        : row.responseStatus || "";
+                    const noteVal = edited.note !== undefined ? edited.note : row.lastNote || "";
+                    const nextDateVal =
+                      edited.nextDate !== undefined
+                        ? edited.nextDate
+                        : row.nextCareDate || new Date().toISOString().slice(0, 10);
+
+                    return (
+                      <tr key={row.id} className="hover:bg-slate-50/70 transition align-top">
+                        <td className="py-3 px-3">
+                          <span
+                            className={`inline-block px-2 py-1 rounded-md text-xs font-semibold border ${badge.cls}`}
+                          >
+                            {badge.text}
+                          </span>
+                          {row.daysText && row.priority !== 99 && (
+                            <div className="text-[11px] text-slate-500 mt-1">{row.daysText}</div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <Link
+                            href={`/customers/${row.id}`}
+                            className="font-semibold text-blue-700 hover:underline block"
+                          >
+                            {row.fullName}
+                          </Link>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                            <span className="text-xs text-slate-600 font-mono">{row.phone}</span>
+                            {row.vpageUrl && (
+                              <a
+                                href={row.vpageUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold"
+                              >
+                                Vpage
+                              </a>
+                            )}
+                            {row.facebook && (
+                              <a
+                                href={row.facebook}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="px-1.5 py-0.5 rounded bg-indigo-600 text-white text-[10px] font-bold"
+                              >
+                                FB
+                              </a>
+                            )}
+                            <Link
+                              href={`/inbox?phone=${encodeURIComponent(row.phone || "")}`}
+                              className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 text-[10px] font-bold hover:bg-sky-200"
+                            >
+                              💬 Zalo
+                            </Link>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1">
+                            Sale: <span className="font-medium text-slate-700">{row.staffName}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <select
+                            value={carePathVal}
+                            onChange={(e) =>
+                              handleRowStateChange(row.id, "carePath", e.target.value)
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+                          >
+                            <option value="">-- Chọn Thẻ --</option>
+                            <option value="Đã chốt">Đã chốt</option>
+                            <option value="Tiềm năng">Tiềm năng</option>
+                            <option value="Cần chăm tiếp">Cần chăm tiếp</option>
+                            <option value="Không có nhu cầu">Không có nhu cầu</option>
+                          </select>
+                          {row.level && (
+                            <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[11px] font-medium">
+                              {row.level}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <select
+                            value={careStatusVal}
+                            onChange={(e) =>
+                              handleRowStateChange(row.id, "careStatus", e.target.value)
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+                          >
+                            <option value="">-- Chọn --</option>
+                            <option value="Gọi điện">Gọi điện (GĐ)</option>
+                            <option value="Nhắn tin">Nhắn tin (NT)</option>
+                            <option value="Bình luận">Bình luận (BL)</option>
+                          </select>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <select
+                            value={responseVal}
+                            onChange={(e) =>
+                              handleRowStateChange(row.id, "responseStatus", e.target.value)
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+                          >
+                            <option value="">-- Chọn --</option>
+                            <option value="Đã phản hồi">Đã phản hồi</option>
+                            <option value="Chưa phản hồi">Chưa phản hồi</option>
+                          </select>
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <textarea
+                            rows={2}
+                            placeholder="Ghi chú CS..."
+                            value={noteVal}
+                            onChange={(e) => handleRowStateChange(row.id, "note", e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 resize-y"
+                          />
+                        </td>
+
+                        <td className="py-3 px-3">
+                          <input
+                            type="date"
+                            value={nextDateVal}
+                            onChange={(e) =>
+                              handleRowStateChange(row.id, "nextDate", e.target.value)
+                            }
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800"
+                          />
+                        </td>
+
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            onClick={() => handleCompleteRow(row)}
+                            disabled={savingRowId === row.id}
+                            className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-60"
+                          >
+                            {savingRowId === row.id ? "Đang lưu..." : "Hoàn thành"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {filteredRows.length > pageSize && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50 text-xs text-slate-600">
+              <span>
+                Hiển thị {(safePage - 1) * pageSize + 1}–
+                {Math.min(safePage * pageSize, filteredRows.length)} / {filteredRows.length} khách
+                hàng
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                  className="px-2.5 py-1 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                >
+                  Trước
+                </button>
+                <span className="px-2 font-semibold">
+                  Trang {safePage} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                  className="px-2.5 py-1 rounded border border-slate-300 bg-white disabled:opacity-40 cursor-pointer"
+                >
+                  Sau
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
