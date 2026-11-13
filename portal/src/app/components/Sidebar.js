@@ -30,6 +30,7 @@ const MENU_ITEMS = [
   { key: "customers", name: "Khách hàng", href: "/customers", icon: Users, badge: null },
   { key: "tags", name: "Quản lý Thẻ Tag", href: "/settings/tags", icon: Tag, badge: null },
   { key: "work-tracking", name: "Lịch Chăm sóc", href: "/work-tracking", icon: CalendarClock, badge: null },
+  { key: "ai-bots", name: "AI Bot & Tri Thức", href: "/ai-bots", icon: Bot, badge: "Mới" },
   { key: "broadcast", name: "AI & Gửi Hàng loạt", href: "/broadcast", icon: Bot, badge: null },
   { key: "orders", name: "Đơn hàng Đa sàn", href: "/orders", icon: Receipt, badge: null },
   { key: "inventory", name: "Kho Combo & SKU", href: "/inventory", icon: PackageSearch, badge: null },

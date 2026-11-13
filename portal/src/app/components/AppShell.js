@@ -13,6 +13,7 @@ function resolveModuleKeyFromPathname(pathname) {
   if (pathname.startsWith("/inbox")) return "inbox";
   if (pathname.startsWith("/customers")) return "customers";
   if (pathname.startsWith("/work-tracking")) return "work-tracking";
+  if (pathname.startsWith("/ai-bots")) return "ai-bots";
   if (pathname.startsWith("/broadcast")) return "broadcast";
   if (pathname.startsWith("/orders")) return "orders";
   if (pathname.startsWith("/inventory")) return "inventory";
