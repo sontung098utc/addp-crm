@@ -5,6 +5,7 @@ import Link from "next/link";
 import ZaloQrModal from "./ZaloQrModal";
 import FacebookConnectModal from "./FacebookConnectModal";
 import TikTokConnectModal from "./TikTokConnectModal";
+import ShopeeConnectModal from "./ShopeeConnectModal";
 import {
   Globe,
   MessageCircle,
@@ -59,6 +60,7 @@ export default function ChannelsPage() {
   const [isFbModalOpen, setIsFbModalOpen] = useState(false);
   const [isTikTokModalOpen, setIsTikTokModalOpen] = useState(false);
   const [tikTokInitialTab, setTikTokInitialTab] = useState("oauth");
+  const [isShopeeModalOpen, setIsShopeeModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [guidePlatform, setGuidePlatform] = useState(null);
   const [testingId, setTestingId] = useState(null);
@@ -430,6 +432,14 @@ export default function ChannelsPage() {
           >
             <span>🎵</span>
             <span>Kết Nối TikTok Shop 1-Click</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsShopeeModalOpen(true)}
+            className="rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold px-4 py-2 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+          >
+            <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+            <span>Kết Nối Shopee 1-Click</span>
           </button>
           <button
             type="button"
@@ -1274,6 +1284,19 @@ export default function ChannelsPage() {
           setBanner({
             type: "success",
             text: "Đã kết nối thành công gian hàng TikTok Shop vào CRM!",
+          });
+          loadChannels();
+        }}
+      />
+
+      {/* Modal Kết Nối Shopee Open API v2 (1-Click) */}
+      <ShopeeConnectModal
+        isOpen={isShopeeModalOpen}
+        onClose={() => setIsShopeeModalOpen(false)}
+        onConnected={() => {
+          setBanner({
+            type: "success",
+            text: "Đã kết nối thành công gian hàng Shopee vào CRM!",
           });
           loadChannels();
         }}
