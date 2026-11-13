@@ -763,6 +763,16 @@ export default function LiveZaloInbox() {
                   String(c.accountId || "") === String(prev.accountId || "")
               );
               if (matched) return matched;
+              if (prev.isDirectCareTemp || prev.isTemp) {
+                const prevPhone = normalizePhone(prev.phone || prev.id);
+                if (prevPhone) {
+                  const phoneMatch = list.find(
+                    (c) => normalizePhone(c.phone || c.zaloPhone || c.customerPhone || "") === prevPhone
+                  );
+                  if (phoneMatch) return { ...phoneMatch, phone: prevPhone };
+                }
+                return prev;
+              }
             }
             return list.find((c) => !c.isContactOnly) || list[0];
           });
@@ -793,7 +803,14 @@ export default function LiveZaloInbox() {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setConversations(parsed);
-          setActiveConv(parsed.find((c) => !c.isContactOnly) || parsed[0]);
+          const hasDeepLink =
+            typeof window !== "undefined" &&
+            (window.location.search.includes("phone=") ||
+              window.location.search.includes("zaloUid=") ||
+              window.location.search.includes("name="));
+          if (!hasDeepLink) {
+            setActiveConv(parsed.find((c) => !c.isContactOnly) || parsed[0]);
+          }
           setLoadingConv(false);
           hasLocal = true;
         }
@@ -845,6 +862,7 @@ export default function LiveZaloInbox() {
     };
 
     if (!activeConv || !matchesCurrentFilter(activeConv)) {
+      if (activeConv?.isDirectCareTemp || activeConv?.isTemp) return;
       const firstMatch =
         (conversations || []).find((c) => !c.isContactOnly && matchesCurrentFilter(c)) ||
         (conversations || []).find((c) => matchesCurrentFilter(c));
@@ -871,6 +889,12 @@ export default function LiveZaloInbox() {
     });
 
     async function fetchMessagesForActive(silent = false) {
+      if (activeConv?.isDirectCareTemp) {
+        setLoadingMessages(false);
+        setMessages([]);
+        setMessagesError(null);
+        return;
+      }
       if (msgInFlightRef.current && silent) return;
       msgInFlightRef.current = true;
       try {
@@ -1106,7 +1130,10 @@ export default function LiveZaloInbox() {
       try {
         setLoadingCustomer(true);
         const targetUid = String(activeConv.zaloUid || activeConv.id || "").trim();
-        const searchParam = verifiedConvPhone || targetUid || "";
+        let searchParam = verifiedConvPhone || targetUid || "";
+        if (!searchParam && activeConv.customerId) {
+          searchParam = String(activeConv.customerId);
+        }
         if (!searchParam) {
           setMatchedCustomer(null);
           return;
@@ -1118,10 +1145,11 @@ export default function LiveZaloInbox() {
             data.customers.find(
               (c) =>
                 (verifiedConvPhone && normalizePhone(c.phone) === verifiedConvPhone) ||
+                (activeConv.customerId && String(c.id) === String(activeConv.customerId)) ||
                 (targetUid &&
                   (String(c.zaloUid || "") === targetUid ||
                     String(c.zaloThreadId || "") === targetUid))
-            ) || null;
+            ) || data.customers[0];
           setMatchedCustomer(exact);
           if (exact?.phone && !verifiedConvPhone) {
             const normCrmPhone = normalizePhone(exact.phone);
@@ -1356,8 +1384,8 @@ export default function LiveZaloInbox() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recipient: activeConv.id,
-          recipientId: activeConv.recipientId || activeConv.id,
+          recipient: activeConv.phone || activeConv.id,
+          recipientId: activeConv.recipientId || activeConv.phone || activeConv.id,
           recipientPhone: activeConv.phone || detectedChatPhone || "",
           pageId: activeConv.pageId || "",
           accountId: activeConv.accountId || "",
@@ -1406,7 +1434,16 @@ export default function LiveZaloInbox() {
               c.channel === activeConv.channel &&
               String(c.accountId || "") === String(activeConv.accountId || "")
           );
-          if (idx === -1) return list;
+          if (idx === -1) {
+            const updatedConv = {
+              ...activeConv,
+              isContactOnly: false,
+              lastMessage: `Bạn: ${messageText || (primaryAtt?.isImage ? "[Hình ảnh]" : "[Tập tin]")}`,
+              lastActive: "Vài giây",
+              timestamp: Date.now(),
+            };
+            return [updatedConv, ...list];
+          }
           const updatedConv = {
             ...list[idx],
             isContactOnly: false,
@@ -1767,7 +1804,7 @@ export default function LiveZaloInbox() {
     }
   };
 
-  // Tự động nhận diện query params (?phone=...&zaloUid=...&name=...&customerId=...&staff=...&autoOpen=true) khi điều hướng từ trang Khách hàng (/customers)
+  // Tự động nhận diện query params (?phone=...&zaloUid=...&name=...&customerId=...&staff=...&autoOpen=true) khi điều hướng từ trang Chăm sóc / Khách hàng
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -1778,7 +1815,7 @@ export default function LiveZaloInbox() {
     const rawStaff = (params.get("staff") || "").trim();
     const autoOpen = params.get("autoOpen") === "true";
 
-    if (!rawPhone && !rawZaloUid && !rawStaff) return;
+    if (!rawPhone && !rawZaloUid && !rawStaff && !rawName) return;
 
     const stripVietnamese = (str) =>
       String(str || "")
@@ -1797,6 +1834,7 @@ export default function LiveZaloInbox() {
 
     // Tìm tài khoản ưu tiên theo NV phụ trách (nếu có)
     let preferredAccId = null;
+    let preferredAccName = "";
     if (rawStaff) {
       const targetStaffNorm = stripVietnamese(rawStaff);
       const matchedAcc = pool.find((acc) => {
@@ -1814,6 +1852,7 @@ export default function LiveZaloInbox() {
       });
       if (matchedAcc?.accountId) {
         preferredAccId = String(matchedAcc.accountId);
+        preferredAccName = matchedAcc.displayName || matchedAcc.name || matchedAcc.accountName || "";
         // Với nhân viên (non-Admin): khóa bộ lọc về đúng nick Zalo phụ trách; Admin giữ ALL để quét toàn bộ tài khoản
         if (!isAdminUser && !deepLinkStaffAppliedRef.current) {
           deepLinkStaffAppliedRef.current = true;
@@ -1822,36 +1861,63 @@ export default function LiveZaloInbox() {
       }
     }
 
-    if (deepLinkAppliedRef.current || loadingConv) return;
-    if (!rawPhone && !rawZaloUid) return;
+    if (deepLinkAppliedRef.current) return;
+    if (!rawPhone && !rawZaloUid && !rawName) return;
 
     const cleanPhone = normalizePhone(rawPhone);
+    const targetNameNorm = rawName ? stripVietnamese(rawName) : "";
 
     const matchesLocalCustomer = (c) => {
+      if (!c) return false;
       if (rawZaloUid) {
         const cid = String(c.id || "").trim();
         const tid = String(c.threadId || "").trim();
-        if (cid === rawZaloUid || tid === rawZaloUid) return true;
+        const cuid = String(c.zaloUid || "").trim();
+        if (cid === rawZaloUid || tid === rawZaloUid || cuid === rawZaloUid) return true;
       }
       if (cleanPhone) {
-        const cPhone = normalizePhone(c.phone || "");
-        const cZaloPhone = normalizePhone(c.zaloPhone || "");
-        if (cPhone === cleanPhone || cZaloPhone === cleanPhone) return true;
+        const phones = [
+          c.phone,
+          c.zaloPhone,
+          c.customerPhone,
+          c.recipientPhone,
+          c.id,
+          c.threadId,
+        ];
+        if (phones.some((p) => p && normalizePhone(p) === cleanPhone)) return true;
+      }
+      if (targetNameNorm) {
+        const cName = stripVietnamese(c.name || c.displayName || c.customerName || "");
+        if (cName && (cName === targetNameNorm || (cName.length > 3 && targetNameNorm.length > 3 && (cName.includes(targetNameNorm) || targetNameNorm.includes(cName))))) {
+          return true;
+        }
       }
       return false;
     };
+
+    // Lấy pool hội thoại từ state HOẶC từ sessionStorage cache để so khớp ngay lập tức 0ms
+    let currentConvPool = conversations || [];
+    if (currentConvPool.length === 0 && typeof window !== "undefined") {
+      try {
+        const cached = sessionStorage.getItem("addp_inbox_conversations");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) currentConvPool = parsed;
+        }
+      } catch {}
+    }
 
     const targetAccCheck =
       preferredAccId || (selectedZaloAccountId !== "ALL" ? String(selectedZaloAccountId) : null);
 
     // Nếu là Admin: tìm trong nick ưu tiên trước, không thấy thì tìm trên TẤT CẢ các nick Zalo + kênh khác
     const scopedPool = isAdminUser
-      ? conversations || []
+      ? currentConvPool
       : targetAccCheck
-      ? (conversations || []).filter(
+      ? currentConvPool.filter(
           (c) => c.channel !== "ZALO_PERSONAL" || String(c.accountId || "") === targetAccCheck
         )
-      : conversations || [];
+      : currentConvPool;
 
     // Nếu có activeConv từ trước hoặc tìm thấy trên tài khoản khác, ưu tiên nick thực tế đang có lịch sử
     const matchedConv =
@@ -1865,6 +1931,8 @@ export default function LiveZaloInbox() {
         )) ||
       scopedPool.find((c) => matchesLocalCustomer(c));
 
+    // 1. NẾU ĐÃ CÓ TRONG CONVERSATIONS (0ms Instant Navigation):
+    // Mở ngay lập tức mà KHÔNG gọi API find-customer từ xa!
     if (matchedConv) {
       deepLinkAppliedRef.current = true;
       if (matchedConv.isContactOnly) {
@@ -1881,95 +1949,119 @@ export default function LiveZaloInbox() {
         handleAccountDropdownChange("ALL");
       }
 
-      if (autoOpen || cleanPhone || rawZaloUid) {
-        setActiveConv(matchedConv);
-        setToast({
-          type: "success",
-          text: `💬 Đã mở hội thoại Zalo: ${matchedConv.name || rawName || cleanPhone}${matchedConv.accountName ? ` (${matchedConv.accountName})` : ""}`,
-        });
-        setTimeout(() => setToast(null), 4500);
-      }
+      setActiveConv(matchedConv);
+      setToast({
+        type: "success",
+        text: `💬 Đã mở hội thoại Zalo: ${matchedConv.name || rawName || cleanPhone}${matchedConv.accountName ? ` (${matchedConv.accountName})` : ""}`,
+      });
+      setTimeout(() => setToast(null), 4000);
       return;
     }
 
-    // Chưa có trong danh sách hội thoại sẵn có -> Gọi Pure HTTP-REST FindUser trên đúng phạm vi nick Zalo (Admin: tất cả nick; NV: nick được phân quyền)
-    if (deepLinkLookupInFlightRef.current) return;
-    deepLinkLookupInFlightRef.current = true;
+    // 2. NẾU CHƯA CÓ TRONG CONVERSATIONS:
+    // Thay vì chờ API quét mạng Zalo làm đơ màn hình, MỞ NGAY HỘP THOẠI CHĂM SÓC TẠM (Temporary Direct Chat Header) 0ms!
+    const targetAccount =
+      (preferredAccId && pool.find((acc) => String(acc.accountId) === String(preferredAccId))) ||
+      (targetAccCheck && pool.find((acc) => String(acc.accountId) === String(targetAccCheck))) ||
+      pool[0] ||
+      null;
 
-    let isCancelled = false;
-    setToast({
-      type: "info",
-      text: `🔍 Đang tìm Zalo khách hàng ${rawName || cleanPhone || rawZaloUid}...`,
+    const fallbackAccId = targetAccount?.accountId ? String(targetAccount.accountId) : (preferredAccId || "");
+    const fallbackAccName =
+      targetAccount?.displayName ||
+      targetAccount?.name ||
+      targetAccount?.accountName ||
+      preferredAccName ||
+      "Zalo Cá Nhân";
+
+    const tempConv = {
+      id: cleanPhone || rawZaloUid || `temp_${Date.now()}`,
+      threadId: cleanPhone || rawZaloUid || `temp_${Date.now()}`,
+      name: rawName || (cleanPhone ? `Khách hàng ${cleanPhone}` : "Khách hàng"),
+      phone: cleanPhone || "",
+      zaloPhone: cleanPhone || "",
+      customerPhone: cleanPhone || "",
+      recipientPhone: cleanPhone || "",
+      channel: "ZALO_PERSONAL",
+      accountId: fallbackAccId,
+      accountName: fallbackAccName,
+      accountDisplayName: fallbackAccName,
+      type: "DIRECT",
+      isDirectCareTemp: true,
+      isTemp: true,
+      isContactOnly: false,
+      lastMessage: `Chăm sóc trực tiếp (SĐT: ${cleanPhone || "N/A"})`,
+      lastActive: "Vừa xong",
+      timestamp: Date.now(),
+      customerId: rawCustomerId || "",
+      staffName: rawStaff || targetAccount?.assignedStaff?.name || "",
+      tags: [],
+    };
+
+    deepLinkAppliedRef.current = true;
+    setActiveConv(tempConv);
+    setConversations((prev) => {
+      const list = prev || [];
+      const exists = list.some((c) => matchesLocalCustomer(c) || String(c.id) === String(tempConv.id));
+      if (exists) return list;
+      return [tempConv, ...list];
     });
 
-    (async () => {
-      try {
-        const qs = new URLSearchParams();
-        if (cleanPhone || rawPhone) qs.set("phone", cleanPhone || rawPhone);
-        if (rawZaloUid) qs.set("zaloUid", rawZaloUid);
-        if (rawName) qs.set("name", rawName);
-        if (rawCustomerId) qs.set("customerId", rawCustomerId);
-        if (rawStaff) qs.set("staff", rawStaff);
-        if (preferredAccId) qs.set("accountId", preferredAccId);
+    setToast({
+      type: "success",
+      text: `⚡ Đã mở hộp thoại chăm sóc tức thì cho ${rawName || cleanPhone}`,
+    });
+    setTimeout(() => setToast(null), 4000);
 
-        const res = await fetch(`/api/channels/zalo/find-customer?${qs.toString()}`);
-        const data = await res.json();
-        if (isCancelled) return;
+    // Chạy ngầm (Non-blocking background search) tìm thông tin UID thực tế trên Zalo:
+    // Nhân viên không bị chặn, có thể gõ và gửi tin nhắn hoặc gọi điện ngay lập tức!
+    if (!deepLinkLookupInFlightRef.current && (cleanPhone || rawPhone || rawZaloUid)) {
+      deepLinkLookupInFlightRef.current = true;
+      (async () => {
+        try {
+          const qs = new URLSearchParams();
+          if (cleanPhone || rawPhone) qs.set("phone", cleanPhone || rawPhone);
+          if (rawZaloUid) qs.set("zaloUid", rawZaloUid);
+          if (rawName) qs.set("name", rawName);
+          if (rawCustomerId) qs.set("customerId", rawCustomerId);
+          if (rawStaff) qs.set("staff", rawStaff);
+          if (fallbackAccId) qs.set("accountId", fallbackAccId);
 
-        deepLinkAppliedRef.current = true;
+          const res = await fetch(`/api/channels/zalo/find-customer?${qs.toString()}`);
+          const data = await res.json().catch(() => null);
 
-        if (data?.ok && data?.found && data?.conversation) {
-          const foundConv = data.conversation;
-          setConversations((prev) => {
-            const exists = (prev || []).some(
-              (item) =>
-                String(item.id) === String(foundConv.id) &&
-                item.channel === foundConv.channel &&
-                String(item.accountId || "") === String(foundConv.accountId || "")
-            );
-            if (exists) return prev;
-            return [foundConv, ...(prev || [])];
-          });
-          if (foundConv.isContactOnly) {
-            setShowContactsSection(true);
+          if (data?.ok && data?.found && data?.conversation) {
+            const foundConv = data.conversation;
+            setActiveConv((curr) => {
+              if (curr && (curr.id === tempConv.id || curr.phone === tempConv.phone)) {
+                return {
+                  ...curr,
+                  ...foundConv,
+                  isDirectCareTemp: false,
+                  phone: cleanPhone || foundConv.phone || curr.phone,
+                };
+              }
+              return curr;
+            });
+            setConversations((prev) => {
+              const list = (prev || []).filter((c) => c.id !== tempConv.id);
+              const exists = list.some(
+                (c) =>
+                  String(c.id) === String(foundConv.id) &&
+                  c.channel === foundConv.channel &&
+                  String(c.accountId || "") === String(foundConv.accountId || "")
+              );
+              if (exists) return list;
+              return [foundConv, ...list];
+            });
           }
-          if (selectedAccountFilter !== "ALL") {
-            handleAccountDropdownChange(
-              foundConv.accountId ? `ZALO_ACCOUNT:${foundConv.accountId}` : "ALL"
-            );
-          }
-          setActiveConv(foundConv);
-          setToast({
-            type: "success",
-            text: `💬 Đã tìm thấy & mở Zalo: ${foundConv.name} (${foundConv.accountName || "Zalo"})`,
-          });
-          setTimeout(() => setToast(null), 4500);
-        } else {
-          setToast({
-            type: "error",
-            text:
-              data?.message ||
-              `Không tìm thấy tài khoản Zalo cho ${rawName || cleanPhone || rawZaloUid}.`,
-          });
-          setTimeout(() => setToast(null), 6000);
+        } catch {
+          // Bắt ngoại lệ trong nền, không làm phiền nhân viên
+        } finally {
+          deepLinkLookupInFlightRef.current = false;
         }
-      } catch {
-        if (!isCancelled) {
-          deepLinkAppliedRef.current = true;
-          setToast({
-            type: "error",
-            text: `Lỗi khi tìm kiếm Zalo cho ${rawName || cleanPhone || rawZaloUid}.`,
-          });
-          setTimeout(() => setToast(null), 5000);
-        }
-      } finally {
-        deepLinkLookupInFlightRef.current = false;
-      }
-    })();
-
-    return () => {
-      isCancelled = true;
-    };
+      })();
+    }
   }, [
     conversations,
     effectiveZaloAccounts,
@@ -3732,6 +3824,51 @@ export default function LiveZaloInbox() {
                 </div>
               </div>
 
+              {/* HỘP THOẠI CHĂM SÓC TẠM (Temporary Direct Chat Header) */}
+              {activeConv?.isDirectCareTemp && (
+                <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-sky-50 dark:from-emerald-950/40 dark:via-slate-900 dark:to-sky-950/40 border-b border-emerald-200 dark:border-emerald-800/60 px-4 py-2.5 text-xs shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="h-8 w-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs animate-pulse">
+                        ⚡
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-2 flex-wrap">
+                          <span>HỘP THOẠI CHĂM SÓC TỰ ĐỘNG TỨC THÌ (INSTANT CARE)</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                            Sẵn sàng gửi 0ms
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5 truncate">
+                          Khách: <strong className="text-slate-900 dark:text-slate-100">{activeConv.name}</strong> • SĐT: <strong className="text-emerald-700 dark:text-emerald-400 font-mono">{activeConv.phone || "Chưa có"}</strong> • Kênh Zalo phụ trách: <strong className="text-slate-900 dark:text-slate-100">{activeConv.accountDisplayName || activeConv.accountName || "Zalo Cá Nhân"}</strong>{activeConv.staffName ? ` • NV: ${activeConv.staffName}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      {activeConv.phone && (
+                        <>
+                          <a
+                            href={`https://zalo.me/${normalizePhone(activeConv.phone)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1.5 transition"
+                            title="Mở ứng dụng hoặc web Zalo trực tiếp"
+                          >
+                            💬 Nhắn Zalo (zalo.me/{normalizePhone(activeConv.phone)})
+                          </a>
+                          <a
+                            href={`tel:${normalizePhone(activeConv.phone)}`}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1.5 transition"
+                          >
+                            📞 Gọi điện
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Message Thread Stream (Bong bóng chat 2 chiều - triệt tiêu cuộn ngang, giữ vị trí cuộn) */}
               <div
                 ref={msgStreamRef}
@@ -3790,64 +3927,89 @@ export default function LiveZaloInbox() {
                     </button>
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
-                    <div className="h-14 w-14 rounded-2xl bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-blue-500 shadow-xs">
-                      <MessageSquare className="w-6 h-6" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-bold text-sm text-slate-900 dark:text-white">
-                        Cuộc trò chuyện với {activeConv.name}
-                      </p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {activeConv.phone ? `Số điện thoại: ${activeConv.phone}` : `ID Hội thoại: ${activeConv.id}`}
-                      </p>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1 shadow-xs">
-                      <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold text-xs">
-                        {zaloSyncStatus?.isSyncing ? (
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Zap className="w-3.5 h-3.5" />
-                        )}
-                        <span>
-                          {zaloSyncStatus?.isSyncing
-                            ? "Đang đồng bộ lịch sử tin nhắn từ Zalo..."
-                            : "Sẵn sàng kết nối 2 chiều"}
-                        </span>
+                  activeConv?.isDirectCareTemp ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
+                      <div className="h-14 w-14 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-xs">
+                        <Zap className="w-7 h-7" />
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                        {zaloSyncStatus?.isSyncing ? (
-                          <>
-                            Hệ thống đang kéo lịch sử tin nhắn cũ của{" "}
-                            <strong>{activeChannelName}</strong>. Hội thoại sẽ tự động hiển thị ngay khi tải xong.
-                          </>
-                        ) : activeConv?.channel === "ZALO_PERSONAL" && activeConv?.type === "DIRECT" ? (
-                          <>
-                            Chưa có tin nhắn nào trong bộ nhớ gần đây. Zalo Web chỉ hỗ trợ tải lại các tin nhắn DM phát sinh gần đây trên cloud (tin nhắn quá cũ được mã hóa cục bộ trên điện thoại). Hãy gõ tin nhắn bên dưới để nhắn qua{" "}
-                            <strong>{activeChannelName}</strong>.
-                          </>
-                        ) : (
-                          <>
-                            Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp qua{" "}
-                            <strong>{activeChannelName}</strong>.
-                          </>
-                        )}
-                      </p>
-                      <div className="pt-2 flex justify-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLoadingMessages(true);
-                            setRefreshMsgCount((c) => c + 1);
-                          }}
-                          className="px-3 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
-                        >
-                          <RefreshCw className="w-3 h-3" />
-                          <span>Làm mới & Nạp tin nhắn</span>
-                        </button>
+                      <div className="space-y-1">
+                        <p className="font-bold text-sm text-slate-900 dark:text-white">
+                          Bắt đầu chăm sóc khách hàng: {activeConv.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {activeConv.phone ? `Số điện thoại: ${activeConv.phone}` : ""} • Kênh Zalo: {activeConv.accountDisplayName || activeConv.accountName}
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1.5 shadow-xs">
+                        <div className="flex items-center justify-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Sẵn sàng gửi tin nhắn tức thì (0ms)</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                          Nhập tin nhắn ở khung soạn thảo bên dưới và bấm <strong className="text-slate-700 dark:text-slate-200">Gửi (Enter)</strong>. Hệ thống tự động đẩy tin nhắn qua Zalo trong nền. Bạn cũng có thể bấm <strong className="text-blue-600">Nhắn Zalo</strong> ở trên để mở trực tiếp trên app/web.
+                        </p>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-xs space-y-3">
+                      <div className="h-14 w-14 rounded-2xl bg-blue-50 dark:bg-blue-600/20 border border-blue-200 dark:border-blue-500/30 flex items-center justify-center text-blue-500 shadow-xs">
+                        <MessageSquare className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-bold text-sm text-slate-900 dark:text-white">
+                          Cuộc trò chuyện với {activeConv.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {activeConv.phone ? `Số điện thoại: ${activeConv.phone}` : `ID Hội thoại: ${activeConv.id}`}
+                        </p>
+                      </div>
+                      <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 max-w-sm space-y-1 shadow-xs">
+                        <div className="flex items-center justify-center gap-1.5 text-blue-600 dark:text-blue-400 font-semibold text-xs">
+                          {zaloSyncStatus?.isSyncing ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Zap className="w-3.5 h-3.5" />
+                          )}
+                          <span>
+                            {zaloSyncStatus?.isSyncing
+                              ? "Đang đồng bộ lịch sử tin nhắn từ Zalo..."
+                              : "Sẵn sàng kết nối 2 chiều"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                          {zaloSyncStatus?.isSyncing ? (
+                            <>
+                              Hệ thống đang kéo lịch sử tin nhắn cũ của{" "}
+                              <strong>{activeChannelName}</strong>. Hội thoại sẽ tự động hiển thị ngay khi tải xong.
+                            </>
+                          ) : activeConv?.channel === "ZALO_PERSONAL" && activeConv?.type === "DIRECT" ? (
+                            <>
+                              Chưa có tin nhắn nào trong bộ nhớ gần đây. Zalo Web chỉ hỗ trợ tải lại các tin nhắn DM phát sinh gần đây trên cloud (tin nhắn quá cũ được mã hóa cục bộ trên điện thoại). Hãy gõ tin nhắn bên dưới để nhắn qua{" "}
+                              <strong>{activeChannelName}</strong>.
+                            </>
+                          ) : (
+                            <>
+                              Hãy gõ tin nhắn ở khung bên dưới để bắt đầu gửi trực tiếp qua{" "}
+                              <strong>{activeChannelName}</strong>.
+                            </>
+                          )}
+                        </p>
+                        <div className="pt-2 flex justify-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLoadingMessages(true);
+                              setRefreshMsgCount((c) => c + 1);
+                            }}
+                            className="px-3 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 text-[11px] font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            <span>Làm mới & Nạp tin nhắn</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <>
                     {messages.some((m) => m.isFallbackPreview) && (

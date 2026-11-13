@@ -173,15 +173,15 @@ export default function Header({ currentUser }) {
     <>
       <header
         suppressHydrationWarning
-        className="h-15 bg-slate-900/95 border-b border-slate-800 px-5 flex items-center justify-between gap-3 shrink-0 transition-colors duration-150 z-30"
+        className="h-15 backdrop-blur-xl bg-white/80 dark:bg-[#0e131f]/90 border-b border-slate-200/70 dark:border-slate-800/80 px-5 flex items-center justify-between gap-3 shrink-0 transition-colors duration-150 z-30 sticky top-0"
       >
         {/* Trạng thái các kênh */}
         <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap shrink-0">
-            <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 whitespace-nowrap shrink-0 shadow-2xs">
+            <Radio className="w-3.5 h-3.5 text-emerald-500 animate-pulse shrink-0" />
             <span>7 Kênh Hợp Nhất</span>
           </span>
-          <span className="hidden xl:inline-block text-xs text-slate-400 truncate">
+          <span className="hidden xl:inline-block text-xs text-slate-500 dark:text-slate-400 truncate font-normal">
             Magento 2.4.8 • Fanpage FB • Zalo QR • Zalo OA • TikTok Shop • Shopee • KiotViet
           </span>
         </div>
@@ -192,9 +192,9 @@ export default function Header({ currentUser }) {
           <Link
             href="/guide"
             title="Sổ tay Hướng dẫn sử dụng ADDP CRM"
-            className="hidden lg:inline-flex items-center gap-1.5 h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap shrink-0"
+            className="hidden lg:inline-flex items-center gap-1.5 h-8.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/60 dark:border-slate-700/60 text-slate-700 dark:text-slate-200 text-xs font-medium cursor-pointer transition-colors whitespace-nowrap shrink-0 shadow-2xs"
           >
-            <BookOpen className="w-4 h-4 text-blue-400 shrink-0" />
+            <BookOpen className="w-3.5 h-3.5 text-[#007aff] shrink-0" />
             <span>Hướng dẫn</span>
           </Link>
 
@@ -203,17 +203,17 @@ export default function Header({ currentUser }) {
             type="button"
             onClick={toggleTheme}
             title={theme === "light" ? "Chuyển sang Chế độ Tối (Dark mode)" : "Chuyển sang Chế độ Sáng (Light mode)"}
-            className="h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-all duration-200 border border-slate-700/60 shadow-xs whitespace-nowrap shrink-0"
+            className="h-8.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-all duration-200 border border-slate-200/60 dark:border-slate-700/60 shadow-2xs whitespace-nowrap shrink-0 text-slate-700 dark:text-slate-200"
           >
             {theme === "light" ? (
               <>
-                <Sun className="w-4 h-4 text-amber-500 shrink-0" />
-                <span className="text-slate-800 font-semibold hidden sm:inline">Giao diện Sáng</span>
+                <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="font-medium hidden sm:inline">Sáng</span>
               </>
             ) : (
               <>
-                <Moon className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span className="text-slate-200 font-medium hidden sm:inline">Giao diện Tối</span>
+                <Moon className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="font-medium hidden sm:inline">Tối</span>
               </>
             )}
           </button>
@@ -224,21 +224,21 @@ export default function Header({ currentUser }) {
               type="button"
               onClick={() => setShowNotif(!showNotif)}
               aria-label="Thông báo thời gian thực"
-              className="relative h-9 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+              className="relative h-8.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0 shadow-2xs"
             >
-              <Bell className="w-4 h-4 text-slate-300 shrink-0" />
+              <Bell className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 shrink-0" />
               <span className="hidden md:inline">Thông báo</span>
               {unreadCount > 0 && (
-                <span className="h-5 min-w-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold inline-flex items-center justify-center badge-solid-white">
+                <span className="h-4.5 min-w-4.5 px-1.5 rounded-full bg-[#ff3b30] text-white text-[10px] font-bold inline-flex items-center justify-center">
                   {unreadCount}
                 </span>
               )}
             </button>
 
             {showNotif && (
-              <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-4 z-50 space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="font-bold text-sm text-white">Thông báo Thời gian thực</span>
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-[#111827] border border-slate-200/80 dark:border-slate-700/80 shadow-2xl p-4 z-50 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800 pb-2">
+                  <span className="font-bold text-sm text-slate-900 dark:text-white">Thông báo Thời gian thực</span>
                   <div className="flex items-center gap-2">
                     {unreadCount > 0 && (
                       <button
@@ -246,7 +246,7 @@ export default function Header({ currentUser }) {
                         onClick={() =>
                           setNotifications((prev) => prev.map((item) => ({ ...item, unread: false })))
                         }
-                        className="text-[11px] text-blue-400 hover:underline cursor-pointer"
+                        className="text-[11px] text-[#007aff] hover:underline cursor-pointer font-medium"
                       >
                         Đánh dấu đã đọc
                       </button>
@@ -255,7 +255,7 @@ export default function Header({ currentUser }) {
                       type="button"
                       onClick={() => setShowNotif(false)}
                       aria-label="Đóng thông báo"
-                      className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -272,13 +272,13 @@ export default function Header({ currentUser }) {
                         key={n.id}
                         className={`p-2.5 rounded-xl border text-xs space-y-1 ${
                           n.unread
-                            ? "bg-blue-950/40 border-blue-500/30 text-slate-100"
-                            : "bg-slate-800/40 border-slate-800 text-slate-300"
+                            ? "bg-blue-50/70 dark:bg-blue-950/30 border-blue-200 dark:border-blue-500/30 text-slate-800 dark:text-slate-100"
+                            : "bg-slate-50 dark:bg-slate-800/40 border-slate-200/60 dark:border-slate-800 text-slate-600 dark:text-slate-300"
                         }`}
                       >
-                        <div className="flex items-center justify-between font-semibold text-blue-400">
+                        <div className="flex items-center justify-between font-semibold text-[#007aff]">
                           <span>{n.channel}</span>
-                          <span className="text-[11px] text-slate-400">{n.time}</span>
+                          <span className="text-[11px] text-slate-400 font-normal">{n.time}</span>
                         </div>
                         <p className="leading-relaxed">{n.text}</p>
                       </div>
@@ -291,12 +291,12 @@ export default function Header({ currentUser }) {
 
           {/* Thông tin người đăng nhập */}
           {currentUser ? (
-            <div className="flex items-center gap-2 shrink-0 pl-1 border-l border-slate-800">
+            <div className="flex items-center gap-2 shrink-0 pl-1.5 border-l border-slate-200/60 dark:border-slate-800/80">
               <div className="hidden sm:block text-right leading-tight whitespace-nowrap">
-                <div className="text-xs font-bold text-white">
-                  {currentUser.name} ({currentUser.code})
+                <div className="text-xs font-semibold text-slate-900 dark:text-white">
+                  {currentUser.name}
                 </div>
-                <div className="text-[11px] text-blue-400 font-medium">
+                <div className="text-[10px] text-[#007aff] font-medium uppercase tracking-wide">
                   {currentUser.roleLabel || currentUser.role}
                 </div>
               </div>
@@ -307,16 +307,16 @@ export default function Header({ currentUser }) {
                   setShowPwdModal(true);
                 }}
                 title="Đổi mật khẩu tài khoản"
-                className="h-9 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+                className="h-8.5 px-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/70 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0 shadow-2xs"
               >
-                <KeyRound className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <KeyRound className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="hidden md:inline">Đổi MK</span>
               </button>
               <button
                 type="button"
                 onClick={handleLogout}
                 title="Đăng xuất khỏi hệ thống"
-                className="h-9 px-2.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0"
+                className="h-8.5 px-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shrink-0 shadow-2xs"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden md:inline">Đăng xuất</span>
@@ -325,7 +325,7 @@ export default function Header({ currentUser }) {
           ) : (
             <Link
               href="/login"
-              className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-sm transition-colors whitespace-nowrap shrink-0"
+              className="h-8.5 px-4 rounded-xl bg-[#007aff] hover:bg-[#0066d6] text-white text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs transition-colors whitespace-nowrap shrink-0"
             >
               <span>Đăng nhập</span>
             </Link>

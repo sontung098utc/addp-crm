@@ -203,17 +203,17 @@ export default function WorkTrackingPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
                 Theo dõi CV Khách hàng (Work Tracking)
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/10 text-[#007aff] dark:text-blue-400 border border-blue-500/20">
                 Đồng bộ khachhang.addp.vn
               </span>
             </div>
-            <p className="text-sm text-slate-500 mt-1">
-              Thống kê tương tác, lộ trình chăm sóc (Ngày 1, 3, 7, 14, 21, Dùng 1/2 & 2/3) và lịch hẹn tiếp theo.
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Thống kê tương tác, lộ trình chăm sóc (Ngày 1, 3, 7, 14, 21, Dùng 1/2 &amp; 2/3) và lịch hẹn tiếp theo.
               {lastSyncedAt && (
-                <span className="ml-2 text-xs text-emerald-700 font-medium">
+                <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                   • Đồng bộ gần nhất: {new Date(lastSyncedAt).toLocaleString("vi-VN")}
                 </span>
               )}
@@ -223,24 +223,25 @@ export default function WorkTrackingPage() {
             <button
               onClick={handleSyncLegacy}
               disabled={syncing}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition cursor-pointer disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-60"
             >
-              <span>{syncing ? "⏳ Đang đồng bộ..." : "🔄 Đồng bộ từ khachhang.addp.vn"}</span>
+              <span>{syncing ? "⏳ Đang đồng bộ..." : "🔄 Đồng bộ khachhang.addp.vn"}</span>
             </button>
             <Link
               href="/inbox"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm transition"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#007aff] hover:bg-[#0066d6] text-white text-xs font-semibold shadow-xs transition"
             >
               <span>💬 Mở Hộp Thư Đa Kênh</span>
             </Link>
           </div>
         </div>
 
-        {/* Chỉ Số Mục Tiêu & Thực Tế (giống hệt khachhang.addp.vn) */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
+        {/* Chỉ Số Mục Tiêu & Thực Tế (Apple Widgets) */}
+        <div className="bg-white dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-4 shadow-xs space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="font-bold text-sm text-emerald-700 flex items-center gap-2">
-              <span>📊 Chỉ Số Mục Tiêu & Thực Tế</span>
+            <div className="font-semibold text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
+              <span className="text-emerald-600 dark:text-emerald-400">📊</span>
+              <span>Chỉ Số Mục Tiêu &amp; Thực Tế</span>
             </div>
             <select
               value={staffFilter}
@@ -248,7 +249,7 @@ export default function WorkTrackingPage() {
                 setStaffFilter(e.target.value);
                 setPage(1);
               }}
-              className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+              className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
             >
               <option value="ALL">Tất cả nhân viên (Gộp)</option>
               {staffs.map((s) => (
@@ -260,50 +261,50 @@ export default function WorkTrackingPage() {
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
-              <div className="text-[11px] font-semibold uppercase text-slate-500">Tháng này</div>
-              <div className="text-xl font-bold text-slate-900 mt-1">
-                {metrics.monthCount} <span className="text-sm font-normal text-slate-500">/ - KH</span>
+            <div className="rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 text-center">
+              <div className="text-[10px] font-semibold uppercase text-slate-500 tracking-wide">Tháng này</div>
+              <div className="text-xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
+                {metrics.monthCount} <span className="text-xs font-normal text-slate-400">/ - KH</span>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
-              <div className="text-[11px] font-semibold uppercase text-slate-500">Tuần này</div>
-              <div className="text-xl font-bold text-slate-900 mt-1">
-                {metrics.weekCount} <span className="text-sm font-normal text-slate-500">/ - KH</span>
+            <div className="rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 text-center">
+              <div className="text-[10px] font-semibold uppercase text-slate-500 tracking-wide">Tuần này</div>
+              <div className="text-xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
+                {metrics.weekCount} <span className="text-xs font-normal text-slate-400">/ - KH</span>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
-              <div className="text-[11px] font-semibold uppercase text-slate-500">
+            <div className="rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 text-center">
+              <div className="text-[10px] font-semibold uppercase text-slate-500 tracking-wide">
                 Hôm nay (Chăm sóc)
               </div>
-              <div className="text-xl font-bold text-amber-600 mt-1">
+              <div className="text-xl font-bold text-amber-600 dark:text-amber-400 mt-1 tabular-nums">
                 {metrics.todayCount}{" "}
-                <span className="text-sm font-normal text-slate-500">
+                <span className="text-xs font-normal text-slate-400">
                   / {metrics.dailyCareTarget} KH
                 </span>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-center">
-              <div className="text-[11px] font-semibold uppercase text-slate-500">
+            <div className="rounded-xl border border-slate-200/70 dark:border-slate-800/80 bg-slate-50/70 dark:bg-slate-800/40 p-3.5 text-center">
+              <div className="text-[10px] font-semibold uppercase text-slate-500 tracking-wide">
                 Chỉ tiêu nhắn tin
               </div>
-              <div className="text-xl font-bold text-slate-900 mt-1">
+              <div className="text-xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">
                 {metrics.dailyMsgTarget}{" "}
-                <span className="text-sm font-normal text-slate-500">TN/ngày</span>
+                <span className="text-xs font-normal text-slate-400">TN/ngày</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Bộ lọc đầy đủ giống khachhang.addp.vn */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center gap-2.5">
+        {/* Bộ lọc đầy đủ */}
+        <div className="bg-white dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-3.5 shadow-xs flex flex-wrap items-center gap-2">
           <select
             value={filterPriority}
             onChange={(e) => {
               setFilterPriority(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
           >
             <option value="">-- Phân loại --</option>
             <option value="1">Đến hẹn chăm sóc ({rows.filter((r) => r.priority === 1).length})</option>
@@ -321,7 +322,7 @@ export default function WorkTrackingPage() {
               setFilterCarePath(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
           >
             <option value="">-- Lộ trình CS --</option>
             <option value="Đã chốt">Đã chốt</option>
@@ -336,7 +337,7 @@ export default function WorkTrackingPage() {
               setFilterCareStatus(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
           >
             <option value="">-- Trạng thái CS --</option>
             <option value="Gọi điện">Gọi điện (GĐ)</option>
@@ -350,7 +351,7 @@ export default function WorkTrackingPage() {
               setFilterResponseStatus(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+            className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
           >
             <option value="">-- Phản hồi --</option>
             <option value="Đã phản hồi">Đã phản hồi</option>
@@ -359,13 +360,13 @@ export default function WorkTrackingPage() {
 
           <input
             type="text"
-            placeholder="🔍 Tìm theo Tên, SĐT, Bệnh lý, Ghi chú..."
+            placeholder="🔍 Tìm theo Tên, SĐT, Bệnh lý..."
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="flex-1 min-w-[220px] rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 min-w-[200px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
           />
 
           {(filterPriority || filterCarePath || filterCareStatus || filterResponseStatus || search) && (
@@ -378,15 +379,15 @@ export default function WorkTrackingPage() {
                 setSearch("");
                 setPage(1);
               }}
-              className="px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-slate-700 cursor-pointer"
+              className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer"
             >
               Xóa lọc
             </button>
           )}
         </div>
 
-        {/* Bảng Theo Dõi Đầy Đủ Cột Giống khachhang.addp.vn */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        {/* Bảng Theo Dõi */}
+        <div className="bg-white dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 shadow-xs overflow-hidden">
           {loading ? (
             <div className="p-12 text-center text-slate-500 text-sm">
               Đang tải dữ liệu chăm sóc khách hàng...
@@ -482,7 +483,11 @@ export default function WorkTrackingPage() {
                               </a>
                             )}
                             <Link
-                              href={`/inbox?phone=${encodeURIComponent(row.phone || "")}`}
+                              href={`/inbox?phone=${encodeURIComponent(row.phone || "")}&name=${encodeURIComponent(
+                                row.fullName || ""
+                              )}&customerId=${encodeURIComponent(row.id || "")}&staff=${encodeURIComponent(
+                                row.staffName || ""
+                              )}${row.preferredZaloAccountId ? `&accountId=${encodeURIComponent(row.preferredZaloAccountId)}` : ""}&autoOpen=true`}
                               className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 text-[10px] font-bold hover:bg-sky-200"
                             >
                               💬 Zalo
@@ -571,14 +576,14 @@ export default function WorkTrackingPage() {
                             )}&customerId=${encodeURIComponent(row.id || "")}&staff=${encodeURIComponent(
                               row.staffName || ""
                             )}${row.preferredZaloAccountId ? `&accountId=${encodeURIComponent(row.preferredZaloAccountId)}` : ""}&autoOpen=true`}
-                            className="block w-full px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition"
+                            className="block w-full px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-xs transition"
                           >
                             💬 Chăm sóc
                           </Link>
                           <button
                             onClick={() => handleCompleteRow(row)}
                             disabled={savingRowId === row.id}
-                            className="w-full px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition cursor-pointer disabled:opacity-60"
+                            className="w-full px-3 py-1.5 rounded-xl bg-[#007aff] hover:bg-[#0066d6] text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-60"
                           >
                             {savingRowId === row.id ? "Đang lưu..." : "Hoàn thành"}
                           </button>

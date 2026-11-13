@@ -103,12 +103,12 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
   return (
     <aside
       suppressHydrationWarning
-      className={`h-screen bg-slate-900 border-r border-slate-800 text-slate-100 flex flex-col transition-all duration-200 select-none shrink-0 ${
+      className={`h-screen bg-slate-900/95 dark:bg-[#0e131f] border-r border-slate-800/80 text-slate-100 flex flex-col transition-all duration-200 select-none shrink-0 ${
         isCollapsed ? "w-20" : "w-64"
       }`}
     >
       {/* Logo chính thức của ADDP Pharmacy & Nút thu gọn */}
-      <div className="h-15 px-4 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
+      <div className="h-15 px-4 border-b border-slate-800/60 flex items-center justify-between gap-2 shrink-0">
         <Link href="/" className="flex items-center gap-2.5 overflow-hidden group">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -119,8 +119,8 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
             } object-contain shrink-0 transition-transform duration-150 group-hover:opacity-90`}
           />
           {!isCollapsed && (
-            <div className="leading-tight shrink-0 border-l border-slate-700/60 pl-2">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-500">
+            <div className="leading-tight shrink-0 border-l border-slate-700/50 pl-2">
+              <span className="text-[10px] font-bold tracking-wider text-[#007aff]">
                 CRM
               </span>
             </div>
@@ -131,14 +131,14 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
           onClick={() => setIsCollapsed(!isCollapsed)}
           aria-label={isCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
           title={isCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"}
-          className="h-8 w-8 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center text-xs cursor-pointer shrink-0 transition-colors"
+          className="h-7 w-7 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center text-xs cursor-pointer shrink-0 transition-colors"
         >
-          {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
         </button>
       </div>
 
       {/* Danh sách phân hệ theo quyền RBAC */}
-      <nav className="flex-1 py-3.5 px-2.5 space-y-1 overflow-y-auto">
+      <nav className="flex-1 py-3 px-2.5 space-y-1 overflow-y-auto">
         {visibleItems.map((item) => {
           const Icon = item.icon;
           const isActive =
@@ -161,26 +161,28 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
               key={item.key}
               href={item.href}
               title={isCollapsed ? item.name : undefined}
-              className={`group flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 ${
+              className={`group flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 ${
                 isActive
-                  ? "bg-blue-600 text-white shadow-sm font-semibold ring-1 ring-blue-500/50"
-                  : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
+                  ? "bg-[#007aff] text-white shadow-xs font-semibold"
+                  : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
               }`}
             >
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <Icon
                   className={`w-4 h-4 shrink-0 transition-colors duration-150 ${
-                    isActive ? "text-white" : "text-slate-400 group-hover:text-blue-400"
+                    isActive ? "text-white" : "text-slate-400 group-hover:text-[#007aff]"
                   }`}
                 />
-                {!isCollapsed && <span className="truncate">{item.name}</span>}
+                {!isCollapsed && <span className="truncate tracking-tight">{item.name}</span>}
               </div>
               {!isCollapsed && dynamicBadge && (
                 <span
                   className={`text-[10px] px-2 py-0.5 rounded-full font-semibold shrink-0 whitespace-nowrap transition-colors ${
                     isActive
-                      ? "bg-white/25 text-white badge-solid-white"
-                      : "bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                      ? "bg-white/20 text-white"
+                      : item.key === "inbox" && sidebarStats.inboxUnreadCount > 0
+                      ? "bg-rose-500 text-white font-bold"
+                      : "bg-slate-800 text-slate-300 border border-slate-700/60"
                   }`}
                 >
                   {dynamicBadge}
@@ -193,14 +195,14 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, currentUser }) {
 
       {/* Thông tin hạn mức chống khóa Zalo ở chân Sidebar */}
       {!isCollapsed && (
-        <div className="p-3 m-2.5 rounded-xl bg-slate-800/70 border border-slate-700/70 text-xs space-y-1.5 shadow-xs shrink-0">
+        <div className="p-3 m-2.5 rounded-2xl bg-slate-800/40 border border-slate-700/40 text-xs space-y-1.5 shrink-0">
           <div className="flex items-center justify-between text-slate-300 font-medium">
             <span className="flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span className="truncate">Bảo vệ Zalo (Anti-Ban)</span>
+              <span className="truncate text-[11px]">Bảo vệ Zalo (Anti-Ban)</span>
             </span>
-            <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold text-[11px] shrink-0">
-              <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
+            <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold text-[10px] shrink-0">
+              <Circle className="w-1.5 h-1.5 fill-emerald-400 text-emerald-400" />
               Bật
             </span>
           </div>

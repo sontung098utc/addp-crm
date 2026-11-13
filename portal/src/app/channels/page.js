@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import ZaloQrModal from "./ZaloQrModal";
 import FacebookConnectModal from "./FacebookConnectModal";
+import TikTokConnectModal from "./TikTokConnectModal";
 import {
   Globe,
   MessageCircle,
@@ -56,6 +57,8 @@ export default function ChannelsPage() {
   const [loading, setLoading] = useState(true);
   const [isZaloQrOpen, setIsZaloQrOpen] = useState(false);
   const [isFbModalOpen, setIsFbModalOpen] = useState(false);
+  const [isTikTokModalOpen, setIsTikTokModalOpen] = useState(false);
+  const [tikTokInitialTab, setTikTokInitialTab] = useState("oauth");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [guidePlatform, setGuidePlatform] = useState(null);
   const [testingId, setTestingId] = useState(null);
@@ -137,6 +140,10 @@ export default function ChannelsPage() {
               type: "error",
               text: `Ủy quyền TikTok Shop thất bại: ${data?.error || "Không thể đổi mã code lấy Token."}`,
             });
+            if (data?.needsConfig) {
+              setTikTokInitialTab("config");
+              setIsTikTokModalOpen(true);
+            }
           }
         } catch {
           setBanner({
@@ -166,12 +173,21 @@ export default function ChannelsPage() {
         type: "error",
         text: errorTextMap[error] || `Ủy quyền TikTok Shop thất bại: ${error}`,
       });
+      if (
+        params.get("needs_config") === "1" ||
+        error.includes("invalid params") ||
+        error.includes("App Key")
+      ) {
+        setTikTokInitialTab("config");
+        setIsTikTokModalOpen(true);
+      }
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [loadChannels]);
 
-  const handleOpenTikTokOAuth = () => {
-    window.open(TIKTOK_AUTH_URL, "_blank", "noopener,noreferrer");
+  const handleOpenTikTokOAuth = (initialTab = "oauth") => {
+    setTikTokInitialTab(initialTab);
+    setIsTikTokModalOpen(true);
   };
 
   const handleRefreshTikTokToken = async (ch) => {
@@ -402,7 +418,7 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={() => setIsFbModalOpen(true)}
-            className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2.5 shadow-sm transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="rounded-xl bg-[#007aff] hover:bg-[#0066d6] text-white text-xs font-semibold px-4 py-2 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <MessageSquare className="w-3.5 h-3.5 shrink-0" />
             <span>Kết Nối Fanpage 1-Click</span>
@@ -410,7 +426,7 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={handleOpenTikTokOAuth}
-            className="rounded-xl bg-slate-900 hover:bg-black border border-slate-700 text-white text-xs font-bold px-4 py-2.5 shadow-md transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="rounded-xl bg-slate-900 hover:bg-black border border-slate-700/80 text-white text-xs font-semibold px-4 py-2 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <span>🎵</span>
             <span>Kết Nối TikTok Shop 1-Click</span>
@@ -418,25 +434,25 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={() => setIsZaloQrOpen(true)}
-            className="rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-4 py-2.5 shadow-sm transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="rounded-xl bg-cyan-600/15 hover:bg-cyan-600/25 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 text-xs font-semibold px-4 py-2 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <QrCode className="w-3.5 h-3.5 shrink-0" />
-            <span>Quét Mã QR Zalo Cá Nhân</span>
+            <span>Quét QR Zalo Cá Nhân</span>
           </button>
           <button
             type="button"
             data-open-add-channel="true"
             onClick={() => setIsAddModalOpen(true)}
-            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold px-4 py-2.5 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-3.5 py-2 shadow-2xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>Thêm Gian Hàng / Kênh</span>
           </button>
           <Link
             href="/settings"
-            className="rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2.5 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap"
+            className="rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3.5 py-2 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap"
           >
-            <Settings className="w-3.5 h-3.5 shrink-0 text-blue-400" />
+            <Settings className="w-3.5 h-3.5 shrink-0 text-[#007aff]" />
             <span>Phân Quyền Kênh</span>
           </Link>
         </div>
@@ -445,10 +461,10 @@ export default function ChannelsPage() {
       {banner && (
         <div
           role="alert"
-          className={`rounded-xl border px-4 py-3 text-xs font-medium flex items-center justify-between gap-3 ${
+          className={`rounded-2xl border px-4 py-3 text-xs font-medium flex items-center justify-between gap-3 shadow-2xs ${
             banner.type === "success"
-              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-              : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+              ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-700 dark:text-emerald-300"
+              : "bg-rose-500/10 border-rose-500/25 text-rose-700 dark:text-rose-300"
           }`}
         >
           <span className="flex items-center gap-2">
@@ -459,45 +475,45 @@ export default function ChannelsPage() {
             type="button"
             onClick={() => setBanner(null)}
             aria-label="Đóng thông báo"
-            className="p-1 rounded-lg hover:bg-slate-800/50 transition-colors cursor-pointer"
+            className="p-1 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* KPI Cards */}
+      {/* KPI Cards — Apple macOS Widget Aesthetic */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
-          <div className="text-xs font-medium text-slate-400">Tổng Số Kênh Hoạt Động</div>
-          <div className="text-2xl font-bold text-white mt-1 tabular-nums">{channels.length} Kênh</div>
-          <div className="text-xs text-blue-400 mt-2">Bao gồm 7 nền tảng bán hàng &amp; CSKH</div>
+        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/60 p-4.5 shadow-xs hover:shadow-apple transition-all duration-200">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Tổng Số Kênh Hoạt Động</div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{channels.length} Kênh</div>
+          <div className="text-[11px] text-[#007aff] font-medium mt-1.5">7 nền tảng bán hàng &amp; CSKH</div>
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
-          <div className="text-xs font-medium text-slate-400">Zalo Cá Nhân (Multi-Account)</div>
-          <div className="text-2xl font-bold text-cyan-400 mt-1 tabular-nums">
+        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/60 p-4.5 shadow-xs hover:shadow-apple transition-all duration-200">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Zalo Cá Nhân (Multi-QR)</div>
+          <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400 mt-1 tabular-nums">
             {channels.filter((c) => c.platform === "ZALO_PERSONAL").length} Nick QR
           </div>
-          <div className="text-xs text-slate-400 mt-2">Bảo vệ nick (Anti-Ban 45–120s)</div>
+          <div className="text-[11px] text-slate-400 mt-1.5">Bảo vệ nick (Anti-Ban 45–120s)</div>
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
-          <div className="text-xs font-medium text-slate-400">Fanpage Facebook &amp; Zalo OA</div>
-          <div className="text-2xl font-bold text-blue-400 mt-1 tabular-nums">
+        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/60 p-4.5 shadow-xs hover:shadow-apple transition-all duration-200">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Fanpage Facebook &amp; Zalo OA</div>
+          <div className="text-2xl font-bold text-[#007aff] mt-1 tabular-nums">
             {channels.filter((c) => c.platform === "FACEBOOK" || c.platform === "ZALO_OA").length} Trang
           </div>
-          <div className="text-xs text-slate-400 mt-2">Tự động ẩn bình luận chứa SĐT</div>
+          <div className="text-[11px] text-slate-400 mt-1.5">Tự động ẩn bình luận chứa SĐT</div>
         </div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xs">
-          <div className="text-xs font-medium text-slate-400">Gian Hàng Sàn &amp; KiotViet</div>
-          <div className="text-2xl font-bold text-amber-400 mt-1 tabular-nums">
+        <div className="rounded-2xl border border-slate-200/70 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/60 p-4.5 shadow-xs hover:shadow-apple transition-all duration-200">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Gian Hàng Sàn &amp; KiotViet</div>
+          <div className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1 tabular-nums">
             {channels.filter((c) => ["TIKTOK_SHOP", "SHOPEE", "KIOTVIET", "MAGENTO"].includes(c.platform)).length} Điểm Bán
           </div>
-          <div className="text-xs text-slate-400 mt-2">Tách công thức Combo tự động</div>
+          <div className="text-[11px] text-slate-400 mt-1.5">Tách công thức Combo tự động</div>
         </div>
       </div>
 
-      {/* Tabs Phân Loại Kênh */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
+      {/* Tabs Phân Loại Kênh — Apple Segmented Control */}
+      <div className="p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-800/60 border border-slate-300/40 dark:border-slate-700/50 flex flex-wrap items-center gap-1">
         {PLATFORM_TABS.map((t) => {
           const TabIcon = t.Icon;
           const count =
@@ -510,19 +526,19 @@ export default function ChannelsPage() {
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id)}
-              className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer ${
                 isActive
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                  : "bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700"
+                  ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               <TabIcon className="w-3.5 h-3.5 shrink-0" />
               <span>{t.label}</span>
               <span
-                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold tabular-nums ${
                   isActive
-                    ? "bg-white/25 text-white badge-solid-white"
-                    : "bg-slate-900/70 text-slate-300"
+                    ? "bg-[#007aff] text-white"
+                    : "bg-slate-300/60 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400"
                 }`}
               >
                 {count}
@@ -559,27 +575,27 @@ export default function ChannelsPage() {
             return (
               <div
                 key={ch.id}
-                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-all duration-150 shadow-xs"
+                className="rounded-2xl border border-slate-200/70 dark:border-slate-800/80 bg-white dark:bg-slate-900/60 p-5 flex flex-col justify-between space-y-4 hover:border-slate-300 dark:hover:border-slate-700 transition-all duration-200 shadow-xs hover:shadow-apple"
               >
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <span
-                      className={`inline-block rounded-lg border px-2.5 py-0.5 text-[11px] font-semibold ${
-                        meta.color || "text-slate-300 bg-slate-800 border-slate-700"
+                      className={`inline-block rounded-lg border px-2.5 py-0.5 text-[10px] font-semibold ${
+                        meta.color || "text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
                       }`}
                     >
                       {meta.label || ch.platform}
                     </span>
                     <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap shrink-0 border ${
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold whitespace-nowrap shrink-0 border ${
                         isConnected
-                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-                          : "bg-amber-500/10 text-amber-400 border-amber-500/25"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
+                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25"
                       }`}
                     >
                       <span
-                        className={`h-2 w-2 rounded-full ${
-                          isConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          isConnected ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
                         }`}
                       />
                       {isConnected ? "CONNECTED" : ch.status}
@@ -587,15 +603,15 @@ export default function ChannelsPage() {
                   </div>
 
                   <div>
-                    <h3 className="text-sm font-bold text-white">{ch.name}</h3>
-                    <div className="text-xs text-slate-400 font-mono mt-0.5 truncate">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">{ch.name}</h3>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 truncate">
                       ID: {ch.externalId}
                     </div>
                   </div>
 
-                  <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{meta.desc}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{meta.desc}</p>
 
-                  <div className="rounded-xl bg-slate-950 p-3 space-y-2 text-[11px] border border-slate-800/80">
+                  <div className="rounded-xl bg-slate-50 dark:bg-slate-950/60 p-3 space-y-2 text-[11px] border border-slate-200/60 dark:border-slate-800/70">
                     <div className="flex justify-between gap-2 text-slate-400">
                       <span>Trạng thái:</span>
                       <span
@@ -800,6 +816,33 @@ export default function ChannelsPage() {
                         className="rounded-xl bg-cyan-600/20 border border-cyan-500/30 text-cyan-300 text-xs font-semibold px-3 py-2 hover:bg-cyan-600/30 transition-colors whitespace-nowrap cursor-pointer"
                       >
                         {isConnected ? "Đổi Nick QR" : "Quét Lại QR"}
+                      </button>
+                    </>
+                  )}
+
+                  {ch.platform === "TIKTOK_SHOP" && (
+                    <>
+                      {isConnected && (
+                        <button
+                          type="button"
+                          disabled={refreshingTokenId === ch.id}
+                          onClick={() => handleRefreshTikTokToken(ch)}
+                          className="rounded-xl bg-pink-600/20 border border-pink-500/30 text-pink-300 text-xs font-semibold px-3 py-2 hover:bg-pink-600/30 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                        >
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              refreshingTokenId === ch.id ? "animate-spin" : ""
+                            }`}
+                          />
+                          <span>Làm Mới Token</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenTikTokOAuth("oauth")}
+                        className="rounded-xl bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold px-3 py-2 hover:bg-slate-700 transition-colors whitespace-nowrap cursor-pointer"
+                      >
+                        {isConnected ? "Cấu Hình / Thêm Shop" : "Ủy Quyền Shop"}
                       </button>
                     </>
                   )}
@@ -1217,6 +1260,20 @@ export default function ChannelsPage() {
           setBanner({
             type: "success",
             text: `Đã kết nối thành công ${newPages.length || 3} Fanpage vào CRM!`,
+          });
+          loadChannels();
+        }}
+      />
+
+      {/* Modal Kết Nối TikTok Shop Chuẩn Partner (WBS-18 & 20) */}
+      <TikTokConnectModal
+        isOpen={isTikTokModalOpen}
+        onClose={() => setIsTikTokModalOpen(false)}
+        initialTab={tikTokInitialTab}
+        onConnected={() => {
+          setBanner({
+            type: "success",
+            text: "Đã kết nối thành công gian hàng TikTok Shop vào CRM!",
           });
           loadChannels();
         }}

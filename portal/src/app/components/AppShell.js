@@ -72,9 +72,9 @@ export default function AppShell({ children }) {
 
   if (!authChecked || !currentUser) {
     return (
-      <div suppressHydrationWarning className="h-screen w-screen flex items-center justify-center bg-slate-950 text-slate-300 text-xs">
+      <div suppressHydrationWarning className="h-screen w-screen flex items-center justify-center bg-[#f5f5f7] dark:bg-[#0b0f19] text-slate-700 dark:text-slate-300 text-xs">
         <div className="flex items-center gap-2.5">
-          <div className="h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="h-4 w-4 border-2 border-[#007aff] border-t-transparent rounded-full animate-spin" />
           <span>Đang kiểm tra phiên đăng nhập ADDP CRM...</span>
         </div>
       </div>
@@ -85,7 +85,7 @@ export default function AppShell({ children }) {
   const hasPermission = canAccessModule(currentUser, activeModuleKey);
 
   return (
-    <div suppressHydrationWarning className="h-screen overflow-hidden flex bg-slate-950 text-slate-100">
+    <div suppressHydrationWarning className="h-screen overflow-hidden flex bg-[#f5f5f7] dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 antialiased">
       <Sidebar
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
@@ -96,7 +96,7 @@ export default function AppShell({ children }) {
         <main
           suppressHydrationWarning
           className={`flex-1 min-h-0 ${
-            isInboxPage ? "overflow-hidden p-3" : "overflow-y-auto p-6"
+            isInboxPage ? "overflow-hidden p-2.5 sm:p-3" : "overflow-y-auto p-4 sm:p-6"
           }`}
         >
           {hasPermission ? (

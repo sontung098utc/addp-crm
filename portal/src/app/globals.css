@@ -3,16 +3,22 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
 
 /* ==========================================================================
-   UI/UX PRO MAX DESIGN SYSTEM TOKENS — ADDP CRM (MASTER.md)
-   Category: Healthcare & Omnichannel Pharmacy CRM | Density: 8/10 | Variance: 6/10
+   UI/UX PRO MAX DESIGN SYSTEM TOKENS — ADDP CRM (APPLE iOS & macOS STYLE)
+   Style: Apple iOS / macOS Clean Elegance | Density: 8/10 | Variance: 5/10
    ========================================================================== */
 :root {
-  --color-primary: #0891b2;
-  --color-primary-hover: #0e7490;
-  --color-secondary: #2563eb;
-  --color-accent: #059669;
-  --color-destructive: #dc2626;
-  --color-ring: #0891b2;
+  --color-primary: #007aff;
+  --color-primary-hover: #0066d6;
+  --color-secondary: #5856d6;
+  --color-accent: #34c759;
+  --color-destructive: #ff3b30;
+  --color-warning: #ff9500;
+  --color-ring: #007aff;
+
+  --apple-blue: #007aff;
+  --apple-blue-hover: #0066d6;
+  --apple-gray-bg: #f5f5f7;
+  --apple-gray-border: #e5e5ea;
 
   --space-xs: 0.125rem;
   --space-sm: 0.25rem;
@@ -21,41 +27,44 @@
   --space-xl: 1rem;
   --space-2xl: 1.5rem;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.12), 0 4px 8px -2px rgba(15, 23, 42, 0.06);
-  --shadow-xl: 0 20px 32px -8px rgba(15, 23, 42, 0.18);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 12px -2px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+  --shadow-apple: 0 4px 20px -2px rgba(0, 0, 0, 0.04), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+  --shadow-apple-lg: 0 12px 32px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 12px 24px -4px rgba(15, 23, 42, 0.08), 0 4px 8px -2px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 20px 32px -8px rgba(15, 23, 42, 0.14);
 
-  --background: #020617;
+  --background: #0b0f19;
   --foreground: #f8fafc;
-  --card-bg: #0f172a;
-  --card-border: #1e293b;
+  --card-bg: #111827;
+  --card-border: #1f293d;
   --muted-text: #94a3b8;
 }
 
 html.light {
-  --background: #f1f5f9;
-  --foreground: #0f172a;
+  --background: #f5f5f7;
+  --foreground: #1d1d1f;
   --card-bg: #ffffff;
-  --card-border: #e2e8f0;
-  --muted-text: #475569;
+  --card-border: #e5e5ea;
+  --muted-text: #6e6e73;
   color-scheme: light;
 }
 
 html.dark {
-  --background: #020617;
+  --background: #0b0f19;
   --foreground: #f8fafc;
-  --card-bg: #0f172a;
-  --card-border: #1e293b;
+  --card-bg: #111827;
+  --card-border: #1f293d;
   --muted-text: #94a3b8;
   color-scheme: dark;
 }
 
 body {
-  font-family: var(--font-geist-sans), "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  transition: background-color 0.18s ease, color 0.18s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", var(--font-geist-sans), "Segoe UI", Roboto, sans-serif;
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1), color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Tabular figures for numbers, prices, KPIs & timers (UI/UX Pro Max: number-tabular) */
@@ -95,33 +104,66 @@ textarea:focus-visible {
 }
 
 /* ==========================================================================
-   CHẾ ĐỘ SÁNG (LIGHT MODE PRO MAX) - ĐỘ TƯƠNG PHẢN CAO >= 4.5:1 (WCAG AA+)
+   APPLE iOS / macOS SIGNATURE UTILITIES
+   ========================================================================== */
+.apple-glass {
+  background-color: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(229, 229, 234, 0.75);
+}
+
+.dark .apple-glass {
+  background-color: rgba(17, 24, 39, 0.82);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.apple-card {
+  border-radius: 1.25rem; /* rounded-2xl */
+  box-shadow: var(--shadow-apple);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.apple-card:hover {
+  box-shadow: var(--shadow-apple-lg);
+}
+
+.apple-pill {
+  border-radius: 9999px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ==========================================================================
+   CHẾ ĐỘ SÁNG (LIGHT MODE PRO MAX - APPLE MINIMALIST)
    ========================================================================== */
 html.light body {
-  background-color: #f1f5f9 !important;
-  color: #0f172a !important;
+  background-color: #f5f5f7 !important;
+  color: #1d1d1f !important;
 }
 
 /* Khối nền chính */
 html.light main {
-  background-color: #f1f5f9 !important;
+  background-color: #f5f5f7 !important;
 }
 
 /* Các khối panel, container, card chính */
 html.light [class*="bg-slate-950"]:not(button):not(a):not(input) {
-  background-color: #f8fafc !important;
-  border-color: #e2e8f0 !important;
+  background-color: #ffffff !important;
+  border-color: #e5e5ea !important;
 }
 
 html.light [class*="bg-slate-900"]:not(button):not(a):not(input) {
   background-color: #ffffff !important;
-  border-color: #e2e8f0 !important;
-  box-shadow: var(--shadow-sm);
+  border-color: #e5e5ea !important;
+  box-shadow: var(--shadow-apple);
 }
 
 html.light [class*="bg-slate-800"]:not(button):not(a):not(input) {
-  background-color: #f1f5f9 !important;
-  border-color: #cbd5e1 !important;
+  background-color: #f5f5f7 !important;
+  border-color: #e5e5ea !important;
 }
 
 /* Nút bấm phụ (Secondary Buttons bg-slate-800 / bg-slate-900) trong Light Mode */
@@ -252,6 +294,19 @@ html.light .text-pink-400 {
 }
 
 /* Giữ nguyên chữ trắng tinh khôi cho toàn bộ các nút bấm & badge có nền màu đậm */
+.bg-blue-600 {
+  background-color: #007aff !important;
+}
+.bg-blue-600:hover {
+  background-color: #0066d6 !important;
+}
+.text-blue-600 {
+  color: #007aff !important;
+}
+.border-blue-600 {
+  border-color: #007aff !important;
+}
+
 html.light button.bg-blue-600,
 html.light button.bg-blue-600 *,
 html.light button.bg-cyan-600,

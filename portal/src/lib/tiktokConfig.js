@@ -1,11 +1,91 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 /**
- * ADDP Omnichannel AI CRM — TikTok Shop Official Partner Configuration
+ * ADDP Omnichannel AI CRM — TikTok Shop Official Partner Configuration (WBS-18 & 20)
  * Hỗ trợ OAuth 1-Click Multi-Shop, Token Exchange, Refresh Token & Authorized Shops Lookup.
+ * Lưu trữ cấu hình App Key / App Secret trong config/tiktok_app.json và đồng bộ biến môi trường.
  */
 
-export const TIKTOK_SERVICE_ID = process.env.TIKTOK_SERVICE_ID || "";
+const CONFIG_PATH = path.join(process.cwd(), "config", "tiktok_app.json");
+
+/**
+ * Đọc cấu hình TikTok Shop từ file config/tiktok_app.json (ưu tiên) hoặc biến môi trường
+ */
+export function getTikTokConfig() {
+  let fileConfig = {};
+  try {
+    if (fs.existsSync(CONFIG_PATH)) {
+      fileConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")) || {};
+    }
+  } catch (err) {
+    console.error("[TIKTOK_CONFIG_READ_ERR]", err);
+  }
+
+  const serviceId =
+    fileConfig.serviceId ||
+    process.env.TIKTOK_SERVICE_ID ||
+    "7706525357121636097";
+  const appKey = fileConfig.appKey || process.env.TIKTOK_APP_KEY || "";
+  const appSecret = fileConfig.appSecret || process.env.TIKTOK_APP_SECRET || "";
+  const defaultShopId = fileConfig.defaultShopId || process.env.TIKTOK_SHOP_ID || "";
+  const defaultShopCipher =
+    fileConfig.defaultShopCipher ||
+    process.env.TIKTOK_SHOP_CIPHER ||
+    "ROW_ZYiTiAAAAAAKQIKT19iz-hy3D_kGFVJk";
+  const region = fileConfig.region || process.env.TIKTOK_REGION || "VN";
+
+  return {
+    serviceId: String(serviceId).trim(),
+    appKey: String(appKey).trim(),
+    appSecret: String(appSecret).trim(),
+    defaultShopId: String(defaultShopId).trim(),
+    defaultShopCipher: String(defaultShopCipher).trim(),
+    region: String(region).trim(),
+    isConfigured: Boolean(String(appKey).trim() && String(appSecret).trim()),
+  };
+}
+
+/**
+ * Lưu cấu hình TikTok Shop vào file config/tiktok_app.json
+ */
+export function saveTikTokConfig({
+  serviceId,
+  appKey,
+  appSecret,
+  defaultShopId,
+  defaultShopCipher,
+  region,
+}) {
+  try {
+    const dir = path.dirname(CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const current = getTikTokConfig();
+    const updated = {
+      serviceId: serviceId !== undefined ? String(serviceId).trim() : current.serviceId,
+      appKey: appKey !== undefined ? String(appKey).trim() : current.appKey,
+      appSecret: appSecret !== undefined ? String(appSecret).trim() : current.appSecret,
+      defaultShopId:
+        defaultShopId !== undefined ? String(defaultShopId).trim() : current.defaultShopId,
+      defaultShopCipher:
+        defaultShopCipher !== undefined
+          ? String(defaultShopCipher).trim()
+          : current.defaultShopCipher,
+      region: region !== undefined ? String(region).trim() : current.region,
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2), "utf8");
+    return { ok: true, config: updated };
+  } catch (err) {
+    console.error("[TIKTOK_CONFIG_SAVE_ERR]", err);
+    return { ok: false, error: err?.message || "Không thể lưu file config/tiktok_app.json" };
+  }
+}
+
+export const TIKTOK_SERVICE_ID = process.env.TIKTOK_SERVICE_ID || "7706525357121636097";
 export const TIKTOK_APP_KEY = process.env.TIKTOK_APP_KEY || "";
 export const TIKTOK_APP_SECRET = process.env.TIKTOK_APP_SECRET || "";
 export const TIKTOK_DEFAULT_SHOP_ID = process.env.TIKTOK_SHOP_ID || "";
@@ -77,17 +157,49 @@ export function extractRealTikTokCipherFromChannel(channel) {
   return TIKTOK_DEFAULT_SHOP_CIPHER;
 }
 
-export const TIKTOK_AUTH_URL = `https://services.tiktokshop.com/open/authorize?service_id=${TIKTOK_SERVICE_ID}`;
+/**
+ * Khởi tạo đường dẫn cấp quyền TikTok Shop OAuth chuẩn TikTok Shop Partner / Seller API
+ */
+export function buildTikTokAuthUrl({ serviceId, appKey, redirectUri, state } = {}) {
+  const cfg = getTikTokConfig();
+  const effectiveServiceId = (serviceId || cfg.serviceId || TIKTOK_SERVICE_ID || "").trim();
+  const effectiveAppKey = (appKey || cfg.appKey || TIKTOK_APP_KEY || "").trim();
+  const effectiveState = state || `tiktok_oauth_${Date.now()}`;
+
+  // Chuẩn 1 (Ưu tiên): Cấp quyền Seller qua TikTok Partner Service ID
+  if (effectiveServiceId) {
+    const qs = new URLSearchParams({
+      service_id: effectiveServiceId,
+    });
+    if (effectiveState) qs.set("state", effectiveState);
+    return `https://services.tiktokshop.com/open/authorize?${qs.toString()}`;
+  }
+
+  // Chuẩn 2 (Tùy chọn): Cấp quyền trực tiếp qua app_key + redirect_uri
+  if (effectiveAppKey) {
+    const qs = new URLSearchParams({
+      app_key: effectiveAppKey,
+      redirect_uri: redirectUri || "https://crm.addp.vn/channels",
+      state: effectiveState,
+    });
+    return `https://services.tiktokshop.com/open/authorize?${qs.toString()}`;
+  }
+
+  return "https://services.tiktokshop.com/open/authorize?service_id=7706525357121636097";
+}
+
+export const TIKTOK_AUTH_URL = buildTikTokAuthUrl();
 
 /**
  * Tạo chữ ký HMAC-SHA256 chuẩn TikTok Shop Open API v2
  * Base = app_secret + path + sorted(params without sign/access_token) + bodyStr + app_secret
  */
-export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_APP_SECRET, body = "") {
-  const effectiveSecret = appSecret || TIKTOK_APP_SECRET;
+export function generateTikTokSignV2(reqPath, params = {}, appSecret = null, body = "") {
+  const cfg = getTikTokConfig();
+  const effectiveSecret = (appSecret || cfg.appSecret || TIKTOK_APP_SECRET || "").trim();
   if (!effectiveSecret) {
     throw new Error(
-      "[SECURITY_CONFIG_ERROR] TIKTOK_APP_SECRET chưa được cấu hình trong biến môi trường. Chặn ký request (Fail closed)."
+      "[SECURITY_CONFIG_ERROR] TIKTOK_APP_SECRET chưa được cấu hình (trong config/tiktok_app.json hoặc .env). Chặn ký request (Fail closed)."
     );
   }
   const cleanParams = { ...params };
@@ -110,10 +222,31 @@ export function generateTikTokSignV2(reqPath, params = {}, appSecret = TIKTOK_AP
  * Đổi authorization code (auth_code) lấy access_token, refresh_token, open_id, seller_name
  */
 export async function exchangeTikTokAuthCode(authCode, options = {}) {
-  const appKey = options.appKey || TIKTOK_APP_KEY;
-  const appSecret = options.appSecret || TIKTOK_APP_SECRET;
+  const cfg = getTikTokConfig();
+  const appKey = (options.appKey || cfg.appKey || TIKTOK_APP_KEY || "").trim();
+  const appSecret = (options.appSecret || cfg.appSecret || TIKTOK_APP_SECRET || "").trim();
 
-  // TikTok /api/v2/token/get hỗ trợ POST JSON hoặc GET query params tùy gateway khu vực
+  const cleanAuthCode = String(authCode || "").trim();
+  if (!cleanAuthCode) {
+    return {
+      ok: false,
+      error: "Thiếu mã ủy quyền (code) từ TikTok Shop. Vui lòng bấm ủy quyền lại.",
+      code: "MISSING_CODE",
+    };
+  }
+
+  // Chặn gửi lên TikTok nếu thiếu App Key / App Secret để tránh lỗi mập mờ "invalid params"
+  if (!appKey || !appSecret) {
+    return {
+      ok: false,
+      error:
+        "Chưa cấu hình TikTok App Key hoặc App Secret. Vui lòng nhập App Key và App Secret trong phần [Cấu Hình TikTok Partner] trước khi thực hiện ủy quyền.",
+      code: "MISSING_CREDENTIALS",
+      needsConfig: true,
+    };
+  }
+
+  // TikTok /api/v2/token/get hỗ trợ POST JSON hoặc GET query params theo chuẩn Partner API v2
   let tokenData = null;
   let lastError = "";
 
@@ -124,7 +257,7 @@ export async function exchangeTikTokAuthCode(authCode, options = {}) {
       body: JSON.stringify({
         app_key: appKey,
         app_secret: appSecret,
-        auth_code: authCode,
+        auth_code: cleanAuthCode,
         grant_type: "authorized_code",
       }),
     });
@@ -138,13 +271,17 @@ export async function exchangeTikTokAuthCode(authCode, options = {}) {
     lastError = err?.message || "POST token exchange failed";
   }
 
-  // Fallback GET query params (theo đặc tả Partner API v2 GET /api/v2/token/get) nếu POST không trả code === 0
-  if (!tokenData || (tokenData.code !== 0 && /method|get|invalid request/i.test(String(tokenData.message || lastError)))) {
+  // Fallback GET query params (theo đặc tả Partner API v2 GET /api/v2/token/get) nếu POST chưa thành công
+  if (
+    !tokenData ||
+    (tokenData.code !== 0 &&
+      /method|get|invalid request|not found/i.test(String(tokenData.message || lastError)))
+  ) {
     try {
       const qs = new URLSearchParams({
         app_key: appKey,
         app_secret: appSecret,
-        auth_code: authCode,
+        auth_code: cleanAuthCode,
         grant_type: "authorized_code",
       });
       const getRes = await fetch(`https://auth.tiktok-shops.com/api/v2/token/get?${qs.toString()}`);
@@ -158,10 +295,25 @@ export async function exchangeTikTokAuthCode(authCode, options = {}) {
   }
 
   if (!tokenData || tokenData.code !== 0 || !tokenData.data) {
+    let friendlyError = tokenData?.message || lastError || "token_exchange_failed";
+    // Giải thích rõ ràng lỗi 'invalid params' từ TikTok
+    if (
+      friendlyError === "invalid params" ||
+      friendlyError.toLowerCase().includes("invalid params")
+    ) {
+      friendlyError =
+        "Lỗi xác thực TikTok Shop ('invalid params'): App Key hoặc App Secret không khớp với ứng dụng trong TikTok Shop Partner Center, hoặc mã ủy quyền (code) đã hết hạn (chỉ có hiệu lực 5 phút) / đã được sử dụng. Vui lòng kiểm tra lại App Key & App Secret rồi bấm ủy quyền lại.";
+    }
+
     return {
       ok: false,
-      error: tokenData?.message || lastError || "token_exchange_failed",
+      error: friendlyError,
+      rawCode: tokenData?.code,
       raw: tokenData,
+      needsConfig:
+        tokenData?.code === 105001 ||
+        friendlyError.toLowerCase().includes("app_key") ||
+        friendlyError.toLowerCase().includes("invalid params"),
     };
   }
 
@@ -176,20 +328,33 @@ export async function exchangeTikTokAuthCode(authCode, options = {}) {
  */
 export async function fetchTikTokAuthorizedShopsDetailed({
   accessToken,
-  appKey = TIKTOK_APP_KEY,
-  appSecret = TIKTOK_APP_SECRET,
+  appKey = null,
+  appSecret = null,
 }) {
+  const cfg = getTikTokConfig();
+  const effectiveAppKey = (appKey || cfg.appKey || TIKTOK_APP_KEY || "").trim();
+  const effectiveAppSecret = (appSecret || cfg.appSecret || TIKTOK_APP_SECRET || "").trim();
+
   if (!accessToken) {
     return { ok: false, code: -1, message: "Thiếu accessToken TikTok Shop.", shops: [] };
   }
+  if (!effectiveAppKey || !effectiveAppSecret) {
+    return {
+      ok: false,
+      code: -1,
+      message: "Thiếu App Key hoặc App Secret để ký request lấy danh sách gian hàng.",
+      shops: [],
+    };
+  }
+
   try {
     const reqPath = "/authorization/202309/shops";
     const timestamp = String(Math.floor(Date.now() / 1000));
     const queryParams = {
-      app_key: appKey,
+      app_key: effectiveAppKey,
       timestamp,
     };
-    const sign = generateTikTokSignV2(reqPath, queryParams, appSecret);
+    const sign = generateTikTokSignV2(reqPath, queryParams, effectiveAppSecret);
     const qs = new URLSearchParams({
       ...queryParams,
       sign,
@@ -246,8 +411,8 @@ export async function fetchTikTokAuthorizedShopsDetailed({
  */
 export async function fetchTikTokAuthorizedShops({
   accessToken,
-  appKey = TIKTOK_APP_KEY,
-  appSecret = TIKTOK_APP_SECRET,
+  appKey = null,
+  appSecret = null,
 }) {
   const res = await fetchTikTokAuthorizedShopsDetailed({
     accessToken,
@@ -262,16 +427,23 @@ export async function fetchTikTokAuthorizedShops({
  */
 export async function refreshTikTokOAuthToken({
   refreshToken,
-  appKey = TIKTOK_APP_KEY,
-  appSecret = TIKTOK_APP_SECRET,
+  appKey = null,
+  appSecret = null,
 }) {
+  const cfg = getTikTokConfig();
+  const effectiveAppKey = (appKey || cfg.appKey || TIKTOK_APP_KEY || "").trim();
+  const effectiveAppSecret = (appSecret || cfg.appSecret || TIKTOK_APP_SECRET || "").trim();
+
   if (!refreshToken) {
     return { ok: false, error: "Kênh chưa có Refresh Token để làm mới." };
   }
+  if (!effectiveAppKey || !effectiveAppSecret) {
+    return { ok: false, error: "Chưa cấu hình App Key / App Secret để làm mới Token." };
+  }
 
   const qs = new URLSearchParams({
-    app_key: appKey,
-    app_secret: appSecret,
+    app_key: effectiveAppKey,
+    app_secret: effectiveAppSecret,
     refresh_token: refreshToken,
     grant_type: "refresh_token",
   });

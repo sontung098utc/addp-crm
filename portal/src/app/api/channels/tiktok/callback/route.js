@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createChannelAccount } from "@/lib/connectionHub.js";
 import {
+  getTikTokConfig,
   TIKTOK_APP_KEY,
   TIKTOK_APP_SECRET,
   TIKTOK_SERVICE_ID,
@@ -47,16 +48,36 @@ function normalizeExpiryTimestamp(expireInRaw) {
   return Date.now() + num * 1000;
 }
 
-async function processTikTokOAuthCode(authCode) {
+async function processTikTokOAuthCode(authCode, explicitCredentials = {}) {
+  const config = getTikTokConfig();
+  const effectiveAppKey = (
+    explicitCredentials.appKey ||
+    config.appKey ||
+    TIKTOK_APP_KEY ||
+    ""
+  ).trim();
+  const effectiveAppSecret = (
+    explicitCredentials.appSecret ||
+    config.appSecret ||
+    TIKTOK_APP_SECRET ||
+    ""
+  ).trim();
+  const effectiveServiceId = (
+    config.serviceId ||
+    TIKTOK_SERVICE_ID ||
+    "7706525357121636097"
+  ).trim();
+
   const exchange = await exchangeTikTokAuthCode(authCode, {
-    appKey: TIKTOK_APP_KEY,
-    appSecret: TIKTOK_APP_SECRET,
+    appKey: effectiveAppKey,
+    appSecret: effectiveAppSecret,
   });
 
   if (!exchange.ok || !exchange.data) {
     return {
       ok: false,
       error: exchange.error || "token_exchange_failed",
+      needsConfig: exchange.needsConfig || false,
       raw: exchange.raw || null,
     };
   }
@@ -80,8 +101,8 @@ async function processTikTokOAuthCode(authCode) {
 
   const authorizedShops = await fetchTikTokAuthorizedShops({
     accessToken: access_token,
-    appKey: TIKTOK_APP_KEY,
-    appSecret: TIKTOK_APP_SECRET,
+    appKey: effectiveAppKey,
+    appSecret: effectiveAppSecret,
   });
 
   const savedChannels = [];
@@ -118,9 +139,9 @@ async function processTikTokOAuthCode(authCode) {
           oauthStatus: "active",
         },
         config: {
-          serviceId: TIKTOK_SERVICE_ID,
-          appKey: TIKTOK_APP_KEY,
-          appSecret: TIKTOK_APP_SECRET,
+          serviceId: effectiveServiceId,
+          appKey: effectiveAppKey,
+          appSecret: effectiveAppSecret,
           shopId,
           accountId: shopCipher || shopId,
           shopCode: shop.code || "",
@@ -141,8 +162,12 @@ async function processTikTokOAuthCode(authCode) {
       }
     }
   } else {
-    const fallbackShopId = String(TIKTOK_DEFAULT_SHOP_ID || cleanOpenId || Date.now()).trim();
-    const fallbackShopCipher = String(TIKTOK_DEFAULT_SHOP_CIPHER || "").trim();
+    const fallbackShopId = String(
+      config.defaultShopId || TIKTOK_DEFAULT_SHOP_ID || cleanOpenId || Date.now()
+    ).trim();
+    const fallbackShopCipher = String(
+      config.defaultShopCipher || TIKTOK_DEFAULT_SHOP_CIPHER || ""
+    ).trim();
     const channelId = `tiktok_shop_${fallbackShopId}`;
 
     const res = createChannelAccount({
@@ -169,9 +194,9 @@ async function processTikTokOAuthCode(authCode) {
         oauthStatus: "active",
       },
       config: {
-        serviceId: TIKTOK_SERVICE_ID,
-        appKey: TIKTOK_APP_KEY,
-        appSecret: TIKTOK_APP_SECRET,
+        serviceId: effectiveServiceId,
+        appKey: effectiveAppKey,
+        appSecret: effectiveAppSecret,
         shopId: fallbackShopId,
         accountId: fallbackShopCipher || fallbackShopId,
         shopCipher: fallbackShopCipher,
@@ -222,12 +247,15 @@ export async function GET(request) {
       searchParams.get("mode") === "json" ||
       String(request.headers.get("accept") || "").includes("application/json");
 
+    const passedAppKey = searchParams.get("app_key") || searchParams.get("appKey") || "";
+    const passedAppSecret = searchParams.get("app_secret") || searchParams.get("appSecret") || "";
+
     if (errorParam && !authCode) {
       if (wantsJson) {
         return NextResponse.json({ ok: false, error: errorParam }, { status: 400 });
       }
       return NextResponse.redirect(
-        `${publicOrigin}/channels?error=${encodeURIComponent(errorParam)}`
+        `${publicOrigin}/channels?error=${encodeURIComponent(errorParam)}&platform=TIKTOK_SHOP`
       );
     }
 
@@ -238,23 +266,33 @@ export async function GET(request) {
           { status: 400 }
         );
       }
-      return NextResponse.redirect(`${publicOrigin}/channels?error=missing_code`);
+      return NextResponse.redirect(
+        `${publicOrigin}/channels?error=missing_code&platform=TIKTOK_SHOP`
+      );
     }
 
-    const result = await processTikTokOAuthCode(authCode);
+    const result = await processTikTokOAuthCode(authCode, {
+      appKey: passedAppKey,
+      appSecret: passedAppSecret,
+    });
 
     if (!result.ok) {
       console.error("[TIKTOK_TOKEN_EXCHANGE_ERR]", result);
       if (wantsJson) {
         return NextResponse.json(
-          { ok: false, error: result.error || "token_exchange_failed" },
+          {
+            ok: false,
+            error: result.error || "token_exchange_failed",
+            needsConfig: result.needsConfig || false,
+          },
           { status: 400 }
         );
       }
+      const needsConfigParam = result.needsConfig ? "&needs_config=1" : "";
       return NextResponse.redirect(
         `${publicOrigin}/channels?error=${encodeURIComponent(
           result.error || "token_exchange_failed"
-        )}`
+        )}&platform=TIKTOK_SHOP${needsConfigParam}`
       );
     }
 
@@ -264,11 +302,13 @@ export async function GET(request) {
 
     const redirectUrl = `${publicOrigin}/channels?success=tiktok_connected&shop=${encodeURIComponent(
       result.shopName
-    )}&count=${result.count}`;
+    )}&count=${result.count}&platform=TIKTOK_SHOP`;
     return NextResponse.redirect(redirectUrl);
   } catch (err) {
     console.error("[TIKTOK_OAUTH_CALLBACK_EXCEPTION]", err);
-    return NextResponse.redirect(`${publicOrigin}/channels?error=internal_error`);
+    return NextResponse.redirect(
+      `${publicOrigin}/channels?error=internal_error&platform=TIKTOK_SHOP`
+    );
   }
 }
 
@@ -280,6 +320,8 @@ export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
     const authCode = String(body?.code || body?.auth_code || "").trim();
+    const appKey = String(body?.appKey || body?.app_key || "").trim();
+    const appSecret = String(body?.appSecret || body?.app_secret || "").trim();
 
     if (!authCode) {
       return NextResponse.json(
@@ -288,10 +330,14 @@ export async function POST(request) {
       );
     }
 
-    const result = await processTikTokOAuthCode(authCode);
+    const result = await processTikTokOAuthCode(authCode, { appKey, appSecret });
     if (!result.ok) {
       return NextResponse.json(
-        { ok: false, error: result.error || "Đổi Token TikTok Shop thất bại." },
+        {
+          ok: false,
+          error: result.error || "Đổi Token TikTok Shop thất bại.",
+          needsConfig: result.needsConfig || false,
+        },
         { status: 400 }
       );
     }
