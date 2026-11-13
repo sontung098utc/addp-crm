@@ -533,11 +533,33 @@ async function resolveKiotVietProductId(cfg, accessToken, productCode) {
   return null;
 }
 
+async function resolveValidKiotVietBranchId(cfg, accessToken, requestedBranchId) {
+  const numBranch = Number(requestedBranchId || cfg.branchId || 0);
+  if (numBranch > 10) return numBranch;
+  try {
+    const res = await fetch(`${KIOTVIET_API_BASE}/branches`, {
+      headers: {
+        Retailer: cfg.retailer,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const branches = Array.isArray(data?.data) ? data.data : [];
+      if (branches.length > 0) {
+        const matched = branches.find((b) => Number(b.id) === numBranch);
+        return Number(matched ? matched.id : branches[0].id);
+      }
+    }
+  } catch {}
+  return numBranch || 1;
+}
+
 export async function createKiotVietOrder(orderInput = {}) {
   const cfg = getKiotVietConfig();
   const localCatalog = getLocalProductsInventory();
 
-  const branchId = Number(orderInput.branchId || cfg.branchId || 1);
   const customerName = String(
     orderInput.customer?.name || orderInput.customerName || "Khách hàng ADDP"
   ).trim();
@@ -559,6 +581,12 @@ export async function createKiotVietOrder(orderInput = {}) {
         "Chưa cấu hình KiotViet Retailer / Client ID / Secret trong mục Kết nối 7 Kênh.",
     };
   }
+
+  const branchId = await resolveValidKiotVietBranchId(
+    cfg,
+    tokenRes.accessToken,
+    orderInput.branchId
+  );
 
   const rawItems = Array.isArray(orderInput.orderDetails)
     ? orderInput.orderDetails

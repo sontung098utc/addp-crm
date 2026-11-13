@@ -41,7 +41,10 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
             }
             if (Array.isArray(data.branches) && data.branches.length > 0) {
               setBranches(data.branches);
-              setBranchId(data.config?.branchId || data.branches[0].id || 1);
+              const matchedBranch = data.branches.find(
+                (b) => Number(b.id) === Number(data.config?.branchId)
+              );
+              setBranchId(matchedBranch ? matchedBranch.id : data.branches[0].id);
             }
           }
         })
