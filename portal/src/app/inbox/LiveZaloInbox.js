@@ -1344,6 +1344,80 @@ export default function LiveZaloInbox() {
     }
   };
 
+  // Chuyển đổi chế độ trực mặc định cho TOÀN NICK (Channel-level)
+  const handleToggleAccountBotMode = async (account) => {
+    if (!account) return;
+    const targetAccountId = String(account.accountId || account.id || account.ownId || "");
+    const isCurrentlyHuman = account.botMode === "HUMAN";
+    const nextMode = isCurrentlyHuman ? "AI" : "HUMAN";
+    const willEnable = nextMode === "AI";
+
+    try {
+      const res = await fetch("/api/ai/bot-control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelId: account.platform || "ZALO_PERSONAL",
+          accountId: targetAccountId,
+          action: "set_account_mode",
+          scope: "account",
+          enabled: willEnable,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        setConnectedZaloAccounts((prev) =>
+          prev.map((a) =>
+            String(a.accountId) === targetAccountId || String(a.ownId) === targetAccountId
+              ? { ...a, botMode: nextMode }
+              : a
+          )
+        );
+
+        setConversations((prev) =>
+          prev.map((c) => {
+            const matchesAcc =
+              String(c.accountId) === targetAccountId ||
+              String(c.accountOwnId) === targetAccountId ||
+              String(c.channelLabel || "").includes(account.name || "");
+            if (matchesAcc && !c.isExplicitThreadBot && c.type !== "GROUP") {
+              return {
+                ...c,
+                channelBotMode: nextMode,
+                botMode: nextMode,
+                isAccountLevelHuman: !willEnable,
+              };
+            }
+            return c;
+          })
+        );
+
+        if (
+          activeConv &&
+          (String(activeConv.accountId) === targetAccountId ||
+            String(activeConv.accountOwnId) === targetAccountId) &&
+          !activeConv.isExplicitThreadBot
+        ) {
+          setConvBotMode(nextMode);
+          setAiMode(willEnable ? "AUTO_REPLY" : "HUMAN_ONLY");
+        }
+
+        setToast({
+          type: "success",
+          text: willEnable
+            ? `🤖 Đã chuyển toàn nick "${account.name || account.label || "Zalo"}" sang chế độ AI Trực.`
+            : `👤 Đã chuyển toàn nick "${account.name || account.label || "Zalo"}" sang chế độ Sale Trực.`,
+        });
+        setTimeout(() => setToast(null), 3500);
+      }
+    } catch (err) {
+      console.error("Lỗi đổi chế độ toàn nick:", err);
+      setToast({ type: "error", text: "Không thể đổi chế độ trực toàn nick." });
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
   // Trợ lý AI Tóm Tắt 4 Mục (gửi tới POST /api/zalo/ai-summary)
   const handleGenerateAiSummary = async () => {
     if (!activeConv) return;
@@ -1858,6 +1932,31 @@ export default function LiveZaloInbox() {
       setSelectedZaloAccountId("ALL");
     }
   };
+
+  // Lấy tài khoản Zalo hiện đang được chọn để quản lý chế độ trực TOÀN NICK
+  const currentSelectedAccount = useMemo(() => {
+    if (selectedAccountFilter.startsWith("ZALO_ACCOUNT:")) {
+      const accId = selectedAccountFilter.replace("ZALO_ACCOUNT:", "");
+      return (connectedZaloAccounts || []).find(
+        (a) => String(a.accountId) === accId || String(a.ownId) === accId
+      );
+    }
+    if (
+      (selectedAccountFilter === "ZALO_ALL" || channelFilter === "ZALO_PERSONAL") &&
+      effectiveZaloAccounts &&
+      effectiveZaloAccounts.length === 1
+    ) {
+      return effectiveZaloAccounts[0];
+    }
+    if (activeConv && activeConv.channel === "ZALO_PERSONAL") {
+      const accId = String(activeConv.accountId || activeConv.accountOwnId || "");
+      const found = (connectedZaloAccounts || []).find(
+        (a) => String(a.accountId) === accId || String(a.ownId) === accId
+      );
+      if (found) return found;
+    }
+    return (connectedZaloAccounts && connectedZaloAccounts[0]) || null;
+  }, [selectedAccountFilter, channelFilter, effectiveZaloAccounts, connectedZaloAccounts, activeConv]);
 
   // Tự động nhận diện query params (?phone=...&zaloUid=...&name=...&customerId=...&staff=...&autoOpen=true) khi điều hướng từ trang Chăm sóc / Khách hàng
   useEffect(() => {
@@ -2610,7 +2709,7 @@ export default function LiveZaloInbox() {
     const pagePal = conv.channel === "FACEBOOK" ? getFanpagePalette(conv.pageId, effectivePages) : null;
     const isSecondZalo = conv.channel === "ZALO_PERSONAL" && Number(conv.colorIndex || 0) > 0;
 
-    const isBotActive = !isConversationAccountHuman(conv) && conv.botMode !== "HUMAN";
+    const isBotActive = conv.botMode === "AI" && !conv.isGroup && conv.type !== "GROUP";
     const hasPhone = Boolean(conv.phone && conv.phone.trim().length >= 9);
     const isOverSla = Boolean(
       conv.is_over_sla ||
@@ -3295,6 +3394,37 @@ export default function LiveZaloInbox() {
               )}
             </div>
 
+            {/* Chế độ trực của TOÀN NICK đang chọn */}
+            {currentSelectedAccount && (
+              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] shadow-2xs">
+                <span className="text-slate-400 flex items-center gap-1.5 truncate">
+                  <span className="text-xs">⚙️</span>
+                  <span>Toàn nick:</span>
+                  <span className="font-semibold text-slate-200 truncate max-w-[125px]">
+                    {currentSelectedAccount.name || currentSelectedAccount.label}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleAccountBotMode(currentSelectedAccount)}
+                  title={`Cài đặt cho TOÀN NICK: Hiện đang là ${currentSelectedAccount.botMode === "AI" ? "AI Tự Động" : "Sale Trực"}. Bấm để chuyển đổi cho cả nick.`}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                    currentSelectedAccount.botMode === "AI"
+                      ? "bg-purple-500/15 text-purple-300 border-purple-500/30 hover:bg-purple-500/25"
+                      : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750"
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      currentSelectedAccount.botMode === "AI" ? "bg-purple-400 animate-pulse" : "bg-slate-400"
+                    }`}
+                  />
+                  <span>{currentSelectedAccount.botMode === "AI" ? "🤖 AI Trực" : "👤 Sale Trực"}</span>
+                  <span className="text-[9px] opacity-60">✕ Đổi</span>
+                </button>
+              </div>
+            )}
+
             {/* Ô tìm kiếm nhanh */}
             <div className="relative">
               <input
@@ -3654,6 +3784,7 @@ export default function LiveZaloInbox() {
                         <>
                           {/* Công tắc Toggle Switch Bật/Tắt AI cho từng khách */}
                           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs">
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden sm:inline">Khách này:</span>
                             <button
                               type="button"
                               role="switch"
@@ -3662,8 +3793,8 @@ export default function LiveZaloInbox() {
                               disabled={togglingBot}
                               title={
                                 !isThreadHuman
-                                  ? "AI Đang Trực — Bấm để chuyển sang Sale trực"
-                                  : "Sale Trực — Bấm để bật lại AI Trực"
+                                  ? "Cài đặt riêng cho khách này: AI đang trực — Bấm để chuyển sang Sale trực"
+                                  : "Cài đặt riêng cho khách này: Sale đang trực — Bấm để bật AI trực"
                               }
                               className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none"
                             >

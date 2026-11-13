@@ -216,27 +216,14 @@ export function setChannelBotStatus(channelId = "DEFAULT", enabled = true) {
  */
 export function getConversationBotState(threadId) {
   const key = String(threadId || "").trim();
-  if (!key) {
-    return {
-      threadId: "",
-      mode: "AI",
-      pausedUntil: null,
-      staffId: null,
-      updatedAt: Date.now(),
-    };
-  }
+  if (!key) return null;
 
   const store = getStore();
   const existing = store.conversations[key];
 
+  // Nếu khách hàng chưa có cài đặt riêng -> trả về null để kế thừa chế độ Cấp Tài Khoản (Toàn Nick)
   if (!existing) {
-    return {
-      threadId: key,
-      mode: "AI",
-      pausedUntil: null,
-      staffId: null,
-      updatedAt: Date.now(),
-    };
+    return null;
   }
 
   // Nếu đang ở chế độ HUMAN nhưng đã hết hạn tạm dừng -> tự động mở lại AI
@@ -264,6 +251,7 @@ export function getConversationBotState(threadId) {
     pausedUntil: existing.pausedUntil || null,
     staffId: existing.staffId || null,
     updatedAt: existing.updatedAt || Date.now(),
+    isExplicit: true,
   };
 }
 
@@ -299,6 +287,7 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
         pausedUntil: null,
         staffId: null,
         accountMode,
+        isExplicit: true,
       };
     }
     if (convState && convState.mode === "HUMAN") {
@@ -309,6 +298,7 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
         pausedUntil: convState.pausedUntil,
         staffId: convState.staffId,
         accountMode,
+        isExplicit: true,
       };
     }
   }
@@ -322,6 +312,7 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
       pausedUntil: null,
       staffId: "STAFF",
       accountMode: "HUMAN",
+      isExplicit: false,
     };
   }
 
@@ -333,6 +324,7 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
     pausedUntil: null,
     staffId: null,
     accountMode: "AI",
+    isExplicit: false,
   };
 }
 

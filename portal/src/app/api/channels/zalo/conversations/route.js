@@ -438,7 +438,9 @@ export async function GET(request) {
           name.startsWith("My Documents") ||
           name === "Nhóm Học Tập";
 
-        const botStatus = isBotActiveForThread(thread.threadId, accountId || ownId || displayName);
+        const botStatus = isGroup
+          ? { active: false, mode: "HUMAN", reason: "GROUP_NO_BOT", accountMode: channelBotMode }
+          : isBotActiveForThread(thread.threadId, accountId || ownId || displayName);
         accActiveCount++;
         const safeAvatar = buildSafeAvatarUrl(
           avatar,
@@ -470,6 +472,7 @@ export async function GET(request) {
           channelLabel,
           channelBotMode,
           botMode: botStatus.mode,
+          isExplicitThreadBot: Boolean(botStatus.isExplicit),
           isAccountLevelHuman: channelBotMode === "HUMAN",
           zaloHome: acc.homeDir,
           colorIndex: accIdx,
@@ -480,7 +483,7 @@ export async function GET(request) {
         if (!processedIds.has(gid)) {
           processedIds.add(gid);
           const isPinned = pinnedSet.has(gid) || g.name === "Nhóm Học Tập";
-          const gBotStatus = isBotActiveForThread(gid, accountId || ownId || displayName);
+          const gBotStatus = { active: false, mode: "HUMAN", reason: "GROUP_NO_BOT", accountMode: channelBotMode };
           accContactCount++;
           const safeAvatar = buildSafeAvatarUrl(
             g.avatar || g.avt || g.fullAvt || "",
