@@ -27,24 +27,25 @@ export async function POST(request) {
     }
 
     let state;
+    const accountKey = body.account_id || body.accountId || body.channel_id || body.channelId || "";
     if (enabled) {
       state = resumeAiBot(threadId);
     } else {
       state = triggerHumanTakeover(threadId, staffId, pauseMinutes);
     }
 
-    const check = isBotActiveForThread(threadId);
+    const check = isBotActiveForThread(threadId, accountKey);
 
     return NextResponse.json({
       ok: true,
       thread_id: threadId,
-      enabled,
-      mode: enabled ? "AI" : "HUMAN",
+      enabled: check.active,
+      mode: check.mode,
       state: {
         ...state,
         effectiveMode: check.mode,
       },
-      message: enabled
+      message: check.active
         ? "Đã bật lại AI Đang Trực cho khách hàng."
         : "Đã chuyển sang Nhân Viên Trực tiếp quản.",
     });

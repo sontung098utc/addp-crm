@@ -287,7 +287,33 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
   const tid = String(threadId || "").trim();
   const accountMode = getChannelBotMode(channelOrAccountId);
 
-  // 1. CẤP TÀI KHOẢN: Master Rule
+  // 1. CẤP HỘI THOẠI RIÊNG BIỆT (Explicit Thread Override):
+  // Nếu nhân viên đã chủ động Bật AI hoặc Tắt AI riêng cho khách hàng này, ưu tiên quyết định của nhân viên.
+  if (tid) {
+    const convState = getConversationBotState(tid);
+    if (convState && convState.mode === "AI") {
+      return {
+        active: true,
+        mode: "AI",
+        reason: "EXPLICIT_THREAD_AI",
+        pausedUntil: null,
+        staffId: null,
+        accountMode,
+      };
+    }
+    if (convState && convState.mode === "HUMAN") {
+      return {
+        active: false,
+        mode: "HUMAN",
+        reason: "THREAD_LEVEL_PAUSED",
+        pausedUntil: convState.pausedUntil,
+        staffId: convState.staffId,
+        accountMode,
+      };
+    }
+  }
+
+  // 2. CẤP TÀI KHOẢN (Channel-level Fallback):
   if (accountMode === "HUMAN") {
     return {
       active: false,
@@ -299,34 +325,11 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
     };
   }
 
-  // 2. CẤP HỘI THOẠI: Sub Rule
-  if (!tid) {
-    return {
-      active: true,
-      mode: "AI",
-      reason: "DEFAULT_AI",
-      pausedUntil: null,
-      staffId: null,
-      accountMode: "AI",
-    };
-  }
-
-  const convState = getConversationBotState(tid);
-  if (convState.mode === "HUMAN") {
-    return {
-      active: false,
-      mode: "HUMAN",
-      reason: "THREAD_LEVEL_PAUSED",
-      pausedUntil: convState.pausedUntil,
-      staffId: convState.staffId,
-      accountMode: "AI",
-    };
-  }
-
+  // 3. Mặc định kênh đang bật AI
   return {
     active: true,
     mode: "AI",
-    reason: "AI_ACTIVE",
+    reason: "DEFAULT_AI",
     pausedUntil: null,
     staffId: null,
     accountMode: "AI",

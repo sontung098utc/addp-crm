@@ -347,9 +347,10 @@ export default function LiveZaloInbox() {
   const isConversationAccountHuman = useCallback(
     (conv) => {
       if (!conv) return false;
+      // Quyết định cụ thể trên hội thoại: nếu đã được BẬT AI -> Không bị khóa bởi cấp tài khoản
+      if (conv.botMode === "AI") return false;
       if (conv.channelBotMode === "HUMAN" || conv.isAccountLevelHuman) return true;
-      if (conv.botMode === "HUMAN" && (conv.channelBotMode === "HUMAN" || !conv.channelBotMode))
-        return true;
+      if (conv.botMode === "HUMAN") return true;
 
       const targetAccountId = String(conv.accountId || conv.accountOwnId || "");
       const targetAccountName = String(
@@ -1208,22 +1209,16 @@ export default function LiveZaloInbox() {
         const data = await res.json();
         if (isCancelled) return;
 
-        const isAccHumanNow =
-          isConversationAccountHuman(activeConv) ||
-          data.accountMode === "HUMAN" ||
-          data.state?.reason === "ACCOUNT_LEVEL_HUMAN" ||
-          activeConv.channelBotMode === "HUMAN" ||
-          activeConv.botMode === "HUMAN";
-
-        if (isAccHumanNow) {
-          setConvBotMode("HUMAN");
-          setIsAccountLevelHuman(true);
-          setAiMode("HUMAN_ONLY");
-        } else if (data.ok && data.state) {
-          const effective = data.effectiveMode || data.state.mode || "AI";
+        if (data.ok && data.state) {
+          const effective = data.effectiveMode || data.state.mode || (data.accountMode === "HUMAN" ? "HUMAN" : "AI");
           setConvBotMode(effective);
-          setIsAccountLevelHuman(false);
+          setIsAccountLevelHuman(effective === "HUMAN" && data.accountMode === "HUMAN");
           setAiMode(effective === "HUMAN" ? "HUMAN_ONLY" : "AUTO_REPLY");
+        } else {
+          const fallbackHuman = isConversationAccountHuman(activeConv);
+          setConvBotMode(fallbackHuman ? "HUMAN" : "AI");
+          setIsAccountLevelHuman(fallbackHuman);
+          setAiMode(fallbackHuman ? "HUMAN_ONLY" : "AUTO_REPLY");
         }
       } catch {
         if (!isCancelled) {
@@ -1251,7 +1246,7 @@ export default function LiveZaloInbox() {
     isConversationAccountHuman,
   ]);
 
-  // Toggle Switch Bật/Tắt AI cho từng khách hàng (gửi tới POST /api/zalo/toggle-ai)
+  // Toggle Switch Bật/Tắt AI cho từng khách hàng (gửi tới POST /api/ai/bot-control & /api/zalo/toggle-ai)
   const handleToggleAiSwitch = async () => {
     if (!activeConv?.id || togglingBot) return;
     const isCurrentlyAi = convBotMode === "AI";
@@ -1261,26 +1256,80 @@ export default function LiveZaloInbox() {
     setTogglingBot(true);
     setConvBotMode(nextMode);
     setAiMode(nextEnabled ? "AUTO_REPLY" : "HUMAN_ONLY");
-    if (nextEnabled) {
-      setIsAccountLevelHuman(false);
-    }
+    setIsAccountLevelHuman(false);
+
+    // Cập nhật ngay trong activeConv để UI re-render lập tức
+    setActiveConv((prev) =>
+      prev
+        ? {
+            ...prev,
+            botMode: nextMode,
+            channelBotMode: nextEnabled ? "AI" : prev.channelBotMode,
+            isAccountLevelHuman: false,
+          }
+        : prev
+    );
+
+    // Cập nhật trong danh sách conversations bên cột trái
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === activeConv.id
+          ? {
+              ...c,
+              botMode: nextMode,
+              channelBotMode: nextEnabled ? "AI" : c.channelBotMode,
+              isAccountLevelHuman: false,
+              aiMode: nextEnabled ? "AUTO_REPLY" : "HUMAN_ONLY",
+            }
+          : c
+      )
+    );
 
     try {
-      const res = await fetch("/api/zalo/toggle-ai", {
+      const targetAccountId =
+        activeConv.accountId ||
+        activeConv.accountOwnId ||
+        activeConv.accountDisplayName ||
+        activeConv.accountName ||
+        activeConv.channel ||
+        "DEFAULT";
+
+      // 1. Gọi bot-control đồng bộ toàn hệ thống
+      const res = await fetch("/api/ai/bot-control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId: activeConv.id,
+          channelId: activeConv.channel || "DEFAULT",
+          accountId: targetAccountId,
+          action: nextEnabled ? "resume" : "pause",
+          enabled: nextEnabled,
+          staffId: "STAFF",
+          pauseMinutes: 1440,
+        }),
+      });
+      const data = await res.json();
+
+      // 2. Đồng thời gọi zalo/toggle-ai đảm bảo tương thích mọi worker
+      fetch("/api/zalo/toggle-ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           thread_id: activeConv.id,
           enabled: nextEnabled,
+          account_id: targetAccountId,
           staff_id: "STAFF",
           pause_minutes: 1440,
         }),
-      });
-      const data = await res.json();
+      }).catch(() => {});
+
       if (data.ok) {
+        const finalMode = data.effectiveMode || data.state?.mode || nextMode;
+        setConvBotMode(finalMode);
+        setAiMode(finalMode === "AI" ? "AUTO_REPLY" : "HUMAN_ONLY");
         setToast({
           type: "success",
-          text: nextEnabled
+          text: finalMode === "AI"
             ? "🤖 Đã bật AI Đang Trực cho khách hàng này."
             : "👤 Đã chuyển sang Nhân Viên Trực tiếp quản.",
         });
@@ -2595,10 +2644,10 @@ export default function LiveZaloInbox() {
         key={`${conv.channel}_${conv.accountId || ""}_${conv.id}`}
         type="button"
         onClick={() => {
-          const isHuman = isConversationAccountHuman(conv) || conv.botMode === "HUMAN";
-          setConvBotMode(isHuman ? "HUMAN" : "AI");
-          setIsAccountLevelHuman(isConversationAccountHuman(conv));
-          setAiMode(isHuman ? "HUMAN_ONLY" : "AUTO_REPLY");
+          const isAi = conv.botMode === "AI" || (!isConversationAccountHuman(conv) && conv.botMode !== "HUMAN");
+          setConvBotMode(isAi ? "AI" : "HUMAN");
+          setIsAccountLevelHuman(!isAi && isConversationAccountHuman(conv));
+          setAiMode(isAi ? "AUTO_REPLY" : "HUMAN_ONLY");
           setActiveConv(conv);
 
           // Đánh dấu đã đọc ngay lập tức trên UI (xóa badge đỏ)
@@ -3599,12 +3648,7 @@ export default function LiveZaloInbox() {
                   {/* Cụm Phải: Điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Hồ Sơ */}
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {(() => {
-                      const isAccountHuman =
-                        isConversationAccountHuman(activeConv) ||
-                        isAccountLevelHuman ||
-                        activeConv?.channelBotMode === "HUMAN" ||
-                        activeConv?.botMode === "HUMAN";
-                      const isThreadHuman = isAccountHuman || convBotMode === "HUMAN";
+                      const isThreadHuman = convBotMode === "HUMAN";
 
                       return (
                         <>
