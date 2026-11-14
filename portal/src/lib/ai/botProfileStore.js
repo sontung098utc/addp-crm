@@ -70,11 +70,30 @@ function writeJsonFile(fileName, data) {
   fs.writeFileSync(p, JSON.stringify(data, null, 2), "utf8");
 }
 
+const DELETED_PROFILES_FILE = "deleted_bot_profiles.json";
+
+function getDeletedProfileKeys() {
+  const arr = readJsonFile(DELETED_PROFILES_FILE, []);
+  return new Set(Array.isArray(arr) ? arr.map(String) : []);
+}
+
+function saveDeletedProfileKeys(keysSet) {
+  writeJsonFile(DELETED_PROFILES_FILE, Array.from(keysSet));
+}
+
+export function restoreDeletedBotProfiles() {
+  saveDeletedProfileKeys(new Set());
+  return listBotProfiles();
+}
+
 export function listBotProfiles() {
+  const deletedKeys = getDeletedProfileKeys();
   const saved = readJsonFile("ai_bot_profiles.json", []);
   const byKey = new Map();
   for (const item of Array.isArray(saved) ? saved : []) {
-    if (item?.accountKey) byKey.set(item.accountKey, item);
+    if (item?.accountKey && !deletedKeys.has(item.accountKey)) {
+      byKey.set(item.accountKey, item);
+    }
   }
 
   // Tự động phát hiện các tài khoản Zalo Cá nhân đang kết nối (an toàn, không làm hỏng API nếu lỗi)
@@ -97,6 +116,7 @@ export function listBotProfiles() {
       if (!accName) accName = (typeof rawHome === "object" && rawHome?.name) || path.basename(homeDir);
       const accountId = String(ownId || path.basename(homeDir) || "default");
       const accountKey = `ZALO_PERSONAL:${accountId}`;
+      if (deletedKeys.has(accountKey)) continue;
       if (!byKey.has(accountKey)) {
         byKey.set(accountKey, {
           accountKey,
@@ -129,6 +149,7 @@ export function listBotProfiles() {
 
   for (const ch of defaultChannels) {
     const accountKey = `${ch.channel}:${ch.accountId}`;
+    if (deletedKeys.has(accountKey)) continue;
     if (!byKey.has(accountKey)) {
       byKey.set(accountKey, {
         accountKey,
@@ -151,12 +172,33 @@ export function listBotProfiles() {
 }
 
 export function deleteBotProfile(accountKey) {
+  const key = String(accountKey || "").trim();
+  if (!key) return false;
+
+  // 1. Thêm vào danh sách khóa đã xóa vĩnh viễn (để listBotProfiles không tự động nạp lại)
+  const deletedKeys = getDeletedProfileKeys();
+  deletedKeys.add(key);
+  saveDeletedProfileKeys(deletedKeys);
+
+  // 2. Gỡ khỏi danh sách lưu trữ
   const saved = readJsonFile("ai_bot_profiles.json", []);
-  const next = (Array.isArray(saved) ? saved : []).filter((p) => p.accountKey !== accountKey);
+  const next = (Array.isArray(saved) ? saved : []).filter((p) => p.accountKey !== key);
   writeJsonFile("ai_bot_profiles.json", next);
+
+  // 3. Xóa file cache tự học (nếu có)
   try {
-    runMariaDbSql(`DELETE FROM ai_bot_profiles WHERE account_key = ${sqlEscape(accountKey)};`);
+    const cleanKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const learnedPath = getLocalDataFilePath(`ai_learned_${cleanKey}.json`);
+    if (fs.existsSync(learnedPath)) {
+      fs.unlinkSync(learnedPath);
+    }
   } catch {}
+
+  // 4. Đồng bộ xóa trong MariaDB (nếu có)
+  try {
+    runMariaDbSql(`DELETE FROM ai_bot_profiles WHERE account_key = ${sqlEscape(key)};`);
+  } catch {}
+
   return true;
 }
 
@@ -164,6 +206,13 @@ export function upsertBotProfile(input = {}) {
   const accountKey = String(input.accountKey || "").trim();
   if (!accountKey) {
     throw new Error("Thiếu accountKey để lưu cấu hình Bot.");
+  }
+
+  // Nếu bot này từng bị xóa trước đó, gỡ khỏi danh sách đã xóa để phục hồi
+  const deletedKeys = getDeletedProfileKeys();
+  if (deletedKeys.has(accountKey)) {
+    deletedKeys.delete(accountKey);
+    saveDeletedProfileKeys(deletedKeys);
   }
 
   const profiles = listBotProfiles();

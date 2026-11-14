@@ -3,6 +3,7 @@ import {
   listBotProfiles,
   upsertBotProfile,
   deleteBotProfile,
+  restoreDeletedBotProfiles,
 } from "@/lib/ai/botProfileStore";
 import {
   getAccountLearnedData,
@@ -71,6 +72,15 @@ export async function POST(request) {
           styleSummary: learned.styleSummary,
           learnedAt: learned.learnedAt,
         },
+      });
+    }
+
+    if (body?.action === "RESTORE_DEFAULT_BOTS") {
+      const restored = restoreDeletedBotProfiles();
+      return NextResponse.json({
+        ok: true,
+        message: `Đã khôi phục ${restored.length} Bot mặc định của hệ thống!`,
+        total: restored.length,
       });
     }
 

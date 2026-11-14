@@ -179,14 +179,42 @@ export default function AiBotsPage() {
   };
 
   const handleDeleteBot = async (accountKey) => {
-    if (!confirm("Xóa cấu hình Bot này?")) return;
+    const target = profiles.find((p) => p.accountKey === accountKey);
+    const botName = target?.botName || target?.accountName || accountKey;
+    if (
+      !confirm(
+        `Bạn có chắc chắn muốn xóa Bot "${botName}" không? Bot này sẽ được gỡ bỏ hoàn toàn và không xuất hiện lại.`
+      )
+    ) {
+      return;
+    }
+    // Cập nhật giao diện lập tức
+    setProfiles((prev) => prev.filter((p) => p.accountKey !== accountKey));
     try {
       const res = await fetch(`/api/ai/bot-profiles?accountKey=${encodeURIComponent(accountKey)}`, {
         method: "DELETE",
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error);
-      showToast("success", data.message);
+      showToast("success", data.message || `Đã xóa Bot "${botName}".`);
+      await loadAll();
+    } catch (err) {
+      showToast("error", err.message);
+      await loadAll();
+    }
+  };
+
+  const handleRestoreDefaultBots = async () => {
+    if (!confirm("Khôi phục lại danh sách các Bot hệ thống mặc định?")) return;
+    try {
+      const res = await fetch("/api/ai/bot-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RESTORE_DEFAULT_BOTS" }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error);
+      showToast("success", data.message || "Đã khôi phục Bot mặc định.");
       await loadAll();
     } catch (err) {
       showToast("error", err.message);
@@ -390,12 +418,23 @@ export default function AiBotsPage() {
               <div className="text-sm text-slate-600">
                 Hệ thống tự nhận diện các nick <strong>Zalo Cá Nhân</strong> đang đăng nhập. Bạn có thể thêm Bot thủ công cho bất kỳ tài khoản nào.
               </div>
-              <button
-                onClick={() => setShowAddBot((v) => !v)}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold cursor-pointer"
-              >
-                {showAddBot ? "✕ Đóng" : "➕ Thêm Bot Mới"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaultBots}
+                  title="Khôi phục lại các Bot mặc định nếu đã lỡ xóa"
+                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer border border-slate-300"
+                >
+                  🔄 Khôi phục Bot mặc định
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddBot((v) => !v)}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold cursor-pointer"
+                >
+                  {showAddBot ? "✕ Đóng" : "➕ Thêm Bot Mới"}
+                </button>
+              </div>
             </div>
 
             {showAddBot && (
