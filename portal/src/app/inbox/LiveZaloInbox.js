@@ -51,6 +51,7 @@ import {
   Smile,
   FileText,
   Volume2,
+  Pencil,
 } from "lucide-react";
 
 /**
@@ -320,6 +321,11 @@ export default function LiveZaloInbox() {
   // Trợ lý AI Tóm Tắt 4 Mục
   const [aiSummary, setAiSummary] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
+
+  // Chỉnh sửa & Thu hồi tin nhắn
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const [editingMsgText, setEditingMsgText] = useState("");
+  const [actionLoadingMsgId, setActionLoadingMsgId] = useState(null);
 
   // Lên đơn hàng nhanh trong chat (QuickOrderModal)
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
@@ -1449,6 +1455,117 @@ export default function LiveZaloInbox() {
     }
   };
 
+  // Thu hồi tin nhắn đã gửi (gọi API Zalo undo)
+  const handleRecallMessage = async (msg) => {
+    if (!activeConv || !msg) return;
+    const msgId = String(msg.msgId || msg.id || "").trim();
+    if (!msgId) return;
+    if (!window.confirm("Bạn có chắc chắn muốn thu hồi tin nhắn này trên Zalo không?")) return;
+
+    try {
+      setActionLoadingMsgId(msgId);
+      const res = await fetch("/api/channels/zalo/message-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "recall",
+          threadId: activeConv.id,
+          msgId,
+          cliMsgId: msg.cliMsgId || "",
+          isGroup: activeConv.type === "GROUP",
+          accountId: activeConv.accountId || activeConv.ownId || "",
+          channelId: activeConv.channelId || activeConv.accountId || "",
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setToast({ type: "error", text: data.error || "Không thể thu hồi tin nhắn." });
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          String(m.msgId || m.id) === msgId
+            ? { ...m, isRecalled: true, text: "Tin nhắn đã được thu hồi" }
+            : m
+        )
+      );
+      setToast({ type: "success", text: "Đã thu hồi tin nhắn thành công!" });
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setToast({ type: "error", text: `Lỗi thu hồi: ${err.message}` });
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setActionLoadingMsgId(null);
+    }
+  };
+
+  // Chỉnh sửa tin nhắn (thu hồi tin cũ & gửi lại tin mới đã sửa trên Zalo)
+  const handleSaveEditMessage = async (msg) => {
+    if (!activeConv || !msg) return;
+    const msgId = String(msg.msgId || msg.id || "").trim();
+    const cleanNewText = String(editingMsgText || "").trim();
+    if (!msgId || !cleanNewText) return;
+
+    try {
+      setActionLoadingMsgId(msgId);
+      const res = await fetch("/api/channels/zalo/message-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "edit",
+          threadId: activeConv.id,
+          msgId,
+          cliMsgId: msg.cliMsgId || "",
+          newText: cleanNewText,
+          isGroup: activeConv.type === "GROUP",
+          accountId: activeConv.accountId || activeConv.ownId || "",
+          channelId: activeConv.channelId || activeConv.accountId || "",
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setToast({ type: "error", text: data.error || "Không thể chỉnh sửa tin nhắn." });
+        setTimeout(() => setToast(null), 4000);
+        return;
+      }
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      setMessages((prev) => [
+        ...prev.map((m) =>
+          String(m.msgId || m.id) === msgId
+            ? { ...m, isRecalled: true, text: "Tin nhắn đã được thu hồi" }
+            : m
+        ),
+        {
+          id: data.newMsgId || `edited_${Date.now()}`,
+          msgId: data.newMsgId || `edited_${Date.now()}`,
+          cliMsgId: data.newCliMsgId || "",
+          text: cleanNewText,
+          edited: true,
+          isMe: true,
+          senderName: "Bạn",
+          timestamp: Date.now(),
+          time: timeStr,
+          date: "Hôm nay",
+          type: "text",
+          status: "sent",
+        },
+      ]);
+      setEditingMsgId(null);
+      setEditingMsgText("");
+      setToast({ type: "success", text: "Đã thu hồi tin cũ và gửi lại tin nhắn mới đã chỉnh sửa!" });
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setToast({ type: "error", text: `Lỗi chỉnh sửa: ${err.message}` });
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setActionLoadingMsgId(null);
+    }
+  };
+
   // Gửi tin nhắn 2 chiều (Hỗ trợ text, ảnh, file đính kèm, hoặc gửi trực tiếp)
   const handleSendMessage = async (e, customText = null) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -1540,8 +1657,12 @@ export default function LiveZaloInbox() {
       if (res.ok && data?.ok) {
         const isMocked = Boolean(data.mocked);
         setMessages((prev) => {
+          const realMsgId = String(data.msgId || data.result?.msgId || tempId);
+          const realCliMsgId = String(data.cliMsgId || data.result?.cliMsgId || "");
           const next = (prev || []).map((m) =>
-            m.id === tempId ? { ...m, status: isMocked ? "mocked" : "sent" } : m
+            m.id === tempId
+              ? { ...m, id: realMsgId, msgId: realMsgId, cliMsgId: realCliMsgId, status: isMocked ? "mocked" : "sent" }
+              : m
           );
           const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
           messageCacheRef.current.set(convCacheKey, next);
@@ -4254,11 +4375,20 @@ export default function LiveZaloInbox() {
                         );
                       }
 
+                      const msgKey = String(m.msgId || m.id || "");
+                      const isEditingThis = editingMsgId === msgKey;
+                      const isActionLoading = actionLoadingMsgId === msgKey;
+                      const canModifyMsg =
+                        isMe &&
+                        !isRecalled &&
+                        m.status !== "sending" &&
+                        (!activeConv?.platform || activeConv.platform === "ZALO_PERSONAL" || activeConv.channel === "ZALO_PERSONAL");
+
                       return (
                         <div
                           key={m.id}
-                        className={`flex items-end gap-2.5 ${isMe ? "justify-end" : "justify-start"}`}
-                      >
+                          className={`group/msg flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}
+                        >
                         {!isMe && (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
@@ -4268,6 +4398,38 @@ export default function LiveZaloInbox() {
                             className="h-7 w-7 rounded-full object-cover flex-shrink-0 border border-slate-700 bg-slate-800"
                             title={m.senderName || activeConv.name}
                           />
+                        )}
+
+                        {canModifyMsg && !isEditingThis && (
+                          <div className="opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1 self-center">
+                            {!isPhoto && !isAudioMsg && !isFileMsg && !isSticker && (
+                              <button
+                                type="button"
+                                disabled={isActionLoading}
+                                onClick={() => {
+                                  setEditingMsgId(msgKey);
+                                  setEditingMsgText(displayText);
+                                }}
+                                title="Chỉnh sửa tin nhắn (thu hồi tin cũ & gửi lại tin mới)"
+                                className="p-1.5 rounded-lg bg-slate-100 hover:bg-blue-100 text-slate-600 hover:text-blue-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs transition"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={isActionLoading}
+                              onClick={() => handleRecallMessage(m)}
+                              title="Thu hồi tin nhắn trên Zalo"
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-100 text-slate-600 hover:text-rose-600 dark:bg-slate-800 dark:hover:bg-rose-950/60 dark:text-slate-300 dark:hover:text-rose-400 border border-slate-200 dark:border-slate-700 shadow-2xs transition"
+                            >
+                              {isActionLoading ? (
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Undo2 className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
                         )}
 
                         <div
@@ -4295,7 +4457,52 @@ export default function LiveZaloInbox() {
                             </p>
                           )}
 
-                          {isRecalled ? (
+                          {isEditingThis ? (
+                            <div className="space-y-2 min-w-[220px] sm:min-w-[280px]">
+                              <textarea
+                                value={editingMsgText}
+                                onChange={(e) => setEditingMsgText(e.target.value)}
+                                rows={3}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSaveEditMessage(m);
+                                  } else if (e.key === "Escape") {
+                                    setEditingMsgId(null);
+                                    setEditingMsgText("");
+                                  }
+                                }}
+                                className="w-full rounded-lg bg-white/95 text-slate-900 px-2.5 py-1.5 text-xs outline-none border border-blue-300 focus:ring-2 focus:ring-amber-300 resize-y"
+                              />
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={isActionLoading}
+                                  onClick={() => {
+                                    setEditingMsgId(null);
+                                    setEditingMsgText("");
+                                  }}
+                                  className="px-2 py-1 rounded-md bg-black/20 hover:bg-black/30 text-[11px] font-medium text-white transition"
+                                >
+                                  Hủy
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isActionLoading || !editingMsgText.trim()}
+                                  onClick={() => handleSaveEditMessage(m)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-[11px] font-bold text-white shadow-xs transition"
+                                >
+                                  {isActionLoading ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Check className="w-3 h-3" />
+                                  )}
+                                  <span>Lưu &amp; Gửi lại</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : isRecalled ? (
                             <div className="flex items-center gap-1.5 py-0.5">
                               <Undo2 className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
                               <span className="text-xs">{displayText}</span>
@@ -4351,6 +4558,9 @@ export default function LiveZaloInbox() {
                               isMe ? (isAi ? "text-purple-200" : "text-blue-100") : "text-slate-400"
                             }`}
                           >
+                            {m.edited && !isRecalled && (
+                              <span className="italic opacity-85 mr-1">(đã chỉnh sửa)</span>
+                            )}
                             <span>{m.time || (m.timestamp ? new Date(m.timestamp).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) : "")}</span>
                             {isMe && (
                               <span className="inline-flex items-center">

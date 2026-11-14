@@ -97,11 +97,12 @@ function getThreadMessagesFromAllHistories(
 
           let rawText = msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]");
           const isRecalled =
-            rawText &&
-            (String(rawText).startsWith("[chat.undo") ||
-              String(rawText).startsWith("[chat.delete") ||
-              String(rawText).includes("chat.undo") ||
-              String(rawText).includes("chat.delete"));
+            Boolean(msg.recalled) ||
+            (rawText &&
+              (String(rawText).startsWith("[chat.undo") ||
+                String(rawText).startsWith("[chat.delete") ||
+                String(rawText).includes("chat.undo") ||
+                String(rawText).includes("chat.delete")));
 
           if (isRecalled) {
             rawText = "Tin nhắn đã được thu hồi";
@@ -122,8 +123,11 @@ function getThreadMessagesFromAllHistories(
 
           messages.push({
             id,
+            msgId: String(msg.msgId || id),
+            cliMsgId: String(msg.cliMsgId || ""),
             text: rawText,
             isRecalled: Boolean(isRecalled),
+            edited: Boolean(msg.edited),
             senderId: String(msg.senderId || ""),
             senderName: msg.senderName || (isMe ? selfSenderName : "Khách"),
             isMe,

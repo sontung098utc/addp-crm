@@ -139,12 +139,14 @@ async function main() {
     }
 
     const msgId = String(sendResult?.message?.msgId || sendResult?.msgId || `sent_${Date.now()}`);
+    const cliMsgId = String(sendResult?.message?.cliMsgId || sendResult?.cliMsgId || Date.now());
 
     // Ghi ngay vào file history.jsonl để tin nhắn xuất hiện tức thì trong lịch sử chat
     try {
       const histPath = path.join(cliDir, "history.jsonl");
       const record = {
         msgId,
+        cliMsgId,
         threadId: String(targetUid),
         threadType: threadType === 1 ? "group" : "dm",
         senderId: ownId,
@@ -163,6 +165,7 @@ async function main() {
         ok: true,
         status: "sent",
         msgId,
+        cliMsgId,
         recipient: targetUid,
         data: sendResult,
       })

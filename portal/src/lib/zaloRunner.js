@@ -2022,6 +2022,113 @@ export async function sendZaloVoiceDirect({
   });
 }
 
+async function runZaloDirectAction({
+  actionType = "recall",
+  homeDir = "",
+  threadId = "",
+  msgId = "",
+  cliMsgId = "",
+  newText = "",
+  isGroup = false,
+  timeout = 25000,
+}) {
+  const targetHome = homeDir || getActiveZaloHome();
+  if (!targetHome) {
+    return { ok: false, error: "Không tìm thấy thư mục tài khoản Zalo." };
+  }
+
+  const workerCandidates = [
+    path.resolve(process.cwd(), "src", "lib", "zaloDirectActionWorker.mjs"),
+    path.resolve(process.cwd(), "portal", "src", "lib", "zaloDirectActionWorker.mjs"),
+  ];
+  const workerPath = workerCandidates.find((p) => fs.existsSync(p));
+
+  let javisRoot = findJavisZaloRoot(targetHome);
+  if (!javisRoot) {
+    try {
+      await runZaloCommand(["--version"], { homeDir: targetHome, timeout: 20000 });
+      javisRoot = findJavisZaloRoot(targetHome);
+    } catch {}
+  }
+
+  if (!workerPath || !javisRoot) {
+    return { ok: false, error: "WORKER_UNAVAILABLE" };
+  }
+
+  return new Promise((resolve) => {
+    const childEnv = {
+      ...process.env,
+      HOME: targetHome,
+      USERPROFILE: targetHome,
+      JAVIS_ZALO_ROOT: javisRoot,
+      ZALO_ACTION_TYPE: String(actionType || "recall"),
+      SEND_RECIPIENT: String(threadId || ""),
+      ACTION_MSG_ID: String(msgId || ""),
+      ACTION_CLI_MSG_ID: String(cliMsgId || ""),
+      ACTION_NEW_TEXT: String(newText || ""),
+      SEND_THREAD_TYPE: isGroup ? "1" : "0",
+      ZALO_JSON_MODE: "1",
+    };
+
+    execFile(
+      process.execPath,
+      [workerPath],
+      { env: childEnv, timeout, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err && !stdout) {
+          return resolve({ ok: false, error: err.message || stderr || "Thao tác tin nhắn thất bại" });
+        }
+        try {
+          const lines = String(stdout || "")
+            .trim()
+            .split(/\r?\n/)
+            .filter(Boolean);
+          const lastLine = lines[lines.length - 1] || "{}";
+          return resolve(JSON.parse(lastLine));
+        } catch {
+          return resolve({ ok: false, error: "Phản hồi từ worker không hợp lệ" });
+        }
+      }
+    );
+  });
+}
+
+export async function recallZaloMessageDirect({
+  homeDir = "",
+  threadId = "",
+  msgId = "",
+  cliMsgId = "",
+  isGroup = false,
+}) {
+  return runZaloDirectAction({
+    actionType: "recall",
+    homeDir,
+    threadId,
+    msgId,
+    cliMsgId,
+    isGroup,
+  });
+}
+
+export async function editZaloMessageDirect({
+  homeDir = "",
+  threadId = "",
+  msgId = "",
+  cliMsgId = "",
+  newText = "",
+  isGroup = false,
+}) {
+  return runZaloDirectAction({
+    actionType: "edit",
+    homeDir,
+    threadId,
+    msgId,
+    cliMsgId,
+    newText,
+    isGroup,
+  });
+}
+
 /**
  * Gửi tin nhắn văn bản qua Zalo Cá Nhân (`zca-js` / Zalo Agent CLI)
  * @param {string} targetZaloId - ThreadId hoặc SĐT khách nhận
