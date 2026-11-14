@@ -47,6 +47,7 @@ export default function AiBotsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [learningBotKey, setLearningBotKey] = useState(null);
 
   // AI Settings & MariaDB
   const [aiSettings, setAiSettings] = useState({
@@ -117,6 +118,34 @@ export default function AiBotsPage() {
       showToast("error", err.message);
     } finally {
       setSavingBotKey(null);
+    }
+  };
+
+  const handleLearnHistory = async (profile) => {
+    try {
+      setLearningBotKey(profile.accountKey);
+      const res = await fetch("/api/ai/bot-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "LEARN_HISTORY",
+          accountKey: profile.accountKey,
+          homeDir: profile.homeDir || "",
+          accountName: profile.accountName || "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error);
+      setProfiles((prev) =>
+        prev.map((p) =>
+          p.accountKey === profile.accountKey ? { ...p, learnedStats: data.learnedStats } : p
+        )
+      );
+      showToast("success", data.message);
+    } catch (err) {
+      showToast("error", err.message);
+    } finally {
+      setLearningBotKey(null);
     }
   };
 
@@ -529,7 +558,30 @@ export default function AiBotsPage() {
                   />
                 </div>
 
-                <div className="flex justify-end gap-2">
+                {p.learnedStats && (
+                  <div className="rounded-xl bg-purple-50/70 border border-purple-200 px-3 py-2 text-[11px] text-purple-900 space-y-1">
+                    <div className="font-semibold flex items-center justify-between gap-2">
+                      <span>🧠 Trí nhớ tự học từ lịch sử nick này:</span>
+                      <span className="text-purple-700 font-bold">
+                        {p.learnedStats.totalConversations} hội thoại • {p.learnedStats.qaCount} mẫu Q&amp;A
+                      </span>
+                    </div>
+                    <p className="text-purple-800/90 leading-relaxed">
+                      {p.learnedStats.styleSummary}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    onClick={() => handleLearnHistory(p)}
+                    disabled={learningBotKey === p.accountKey}
+                    className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60"
+                  >
+                    {learningBotKey === p.accountKey
+                      ? "Đang học lịch sử..."
+                      : "🧠 Học lịch sử chat nick này"}
+                  </button>
                   <button
                     onClick={() => handleDeleteBot(p.accountKey)}
                     className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold cursor-pointer"

@@ -11,6 +11,10 @@
  */
 
 import { retrieveRelevantKnowledge } from "./knowledgeBase.js";
+import { generateAiReply } from "./aiRouter.js";
+import { listBotProfiles, MASTER_HEALTH_CONSULTANT_PERSONA } from "./botProfileStore.js";
+import { searchKnowledgeVectors } from "./vectorStore.js";
+import { getAccountLearnedData, findRelevantLearnedExamples } from "./accountLearner.js";
 import { extractPhoneNumbersFromText, normalizePhone } from "../customerIdentityResolver.js";
 import {
   extractMedicalEntities,
@@ -558,11 +562,24 @@ function generateStateAwareResponse({
   }
 
   // =========================================================================
-  // 9. Khi khách nói muốn tăng cân ("Tôi muốn tăng cân")
+  // 9. Khi khách nói muốn tăng cân / tăng cơ ("Tôi muốn tăng cân", "muốn tăng cơ")
   // =========================================================================
-  if (newly.goals?.includes("tăng cân") || msgLower.includes("tăng cân")) {
-    const followUp = pickClosingOrNextStepQuestion(knownState, pronoun, addressWithName);
-    return `${greetingPrefix}Người tiểu đường kém hấp thu nên dễ sụt cân, bổ sung sữa hạt Glucare Plus giúp ${pronoun} tăng cân êm. ${followUp}`;
+  if (newly.goals?.includes("tăng cân") || msgLower.includes("tăng cân") || msgLower.includes("tăng cơ")) {
+    const goalText = msgLower.includes("tăng cơ") ? "tăng cơ và giữ thể lực" : "tăng cân êm";
+    const followUp = hasBloodSugar
+      ? `Hiện ${pronoun} đã thử qua dòng sữa hạt dinh dưỡng chuyên biệt nào chưa ạ?`
+      : `Hiện chỉ số đường huyết lúc đói của ${addressWithName} đang dao động khoảng mấy chấm để em lên thực đơn đạm thực vật và sữa hạt cho sát ạ?`;
+    return `${greetingPrefix}Người tiểu đường dễ bị mất cơ và thiếu đạm thực vật, nên mình kết hợp ăn đảo ngược (Rau -> Đạm -> Tinh bột) cùng 1-2 ly sữa hạt Glucare Plus mỗi ngày sẽ giúp ${goalText} rất tốt mà không làm vọt đường ạ. ${followUp}`;
+  }
+
+  // =========================================================================
+  // 9b. Khi khách trả lời mục tiêu là ổn định đường huyết ("ổn định đường huyết", "giữ đường")
+  // =========================================================================
+  if (/ổn định đường|hạ đường|kiểm soát đường|giữ đường|ổn đường/i.test(msgLower)) {
+    if (hasBloodSugar) {
+      return `Dạ với mức đường ${bsValue} của ${addressWithName}, giải pháp tốt nhất là sáng dậy uống 1 cốc nước ấm, bữa chính ăn đảo ngược (rau xanh trước, đạm sau, tinh bột cuối) và dặm thêm 1 ly sữa hạt đường Isomalt vào bữa phụ xế chiều. ${pronoun} hiện có hay bị mệt hay tê bì chân tay vào buổi tối không ạ?`;
+    }
+    return `Dạ em ghi nhận mục tiêu ổn định đường huyết của ${addressWithName} rồi ạ. Để em tư vấn sát nhất lộ trình ăn uống và dinh dưỡng, hiện chỉ số đường huyết gần nhất của ${pronoun} đang khoảng mấy chấm và ${pronoun} bị tiểu đường lâu chưa ạ?`;
   }
 
   // =========================================================================
@@ -667,7 +684,112 @@ async function callExternalLlmIfAvailable({
 }
 
 /**
- * Hàm chính sinh câu trả lời theo trạng thái (`State-Aware`, `Empathy`, `Anti-Interrogation`, `Anti-Duplicate`)
+ * Tìm Bot Profile riêng của tài khoản đang trực (mỗi tài khoản là 1 Bot AI riêng)
+ */
+function resolveBotProfileForAccount({ channelId = "", accountName = "" } = {}) {
+  try {
+    const profiles = listBotProfiles();
+    if (!Array.isArray(profiles) || profiles.length === 0) return null;
+    const chNorm = String(channelId || "").toLowerCase();
+    const accNorm = String(accountName || "").toLowerCase();
+    const ownIdMatch = chNorm.replace(/^zalo_/, "");
+
+    return (
+      profiles.find((p) => {
+        const pKey = String(p.accountKey || "").toLowerCase();
+        const pAccId = String(p.accountId || "").toLowerCase();
+        const pName = String(p.accountName || "").toLowerCase();
+        return (
+          (chNorm && (pKey === chNorm || pKey.endsWith(`:${ownIdMatch}`) || pAccId === ownIdMatch)) ||
+          (accNorm && pName && (accNorm.includes(pName) || pName.includes(accNorm)))
+        );
+      }) || profiles[0]
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Chuyển đổi lịch sử chat cũ thành mảng turns chuẩn cho LLM (tối đa 40 tin gần nhất),
+ * tự động gộp các tin liên tiếp cùng 1 phía để LLM đọc mạch hội thoại trọn vẹn không bị lặp câu hỏi.
+ */
+function buildConversationTurns(conversationHistory = [], latestCustomerMessage = "") {
+  const raw = Array.isArray(conversationHistory) ? conversationHistory.slice(-40) : [];
+  const turns = [];
+
+  for (const m of raw) {
+    if (!m) continue;
+    const text = String(m.text || m.content || "").trim();
+    if (!text) continue;
+    const role = m.isMe || m.sender === "STAFF" || m.sender === "BOT" ? "assistant" : "user";
+    const last = turns[turns.length - 1];
+    if (last && last.role === role) {
+      if (!last.content.includes(text)) {
+        last.content = `${last.content}\n${text}`;
+      }
+    } else {
+      turns.push({ role, content: text });
+    }
+  }
+
+  const cleanLatest = String(latestCustomerMessage || "").trim();
+  if (cleanLatest) {
+    const last = turns[turns.length - 1];
+    if (!last || last.role !== "user") {
+      turns.push({ role: "user", content: cleanLatest });
+    } else if (!last.content.includes(cleanLatest)) {
+      last.content = `${last.content}\n${cleanLatest}`;
+    }
+  }
+
+  // Đảm bảo luôn kết thúc bằng user message
+  while (turns.length > 0 && turns[turns.length - 1].role !== "user") {
+    turns.pop();
+  }
+  return turns.length > 0 ? turns : [{ role: "user", content: cleanLatest || "Chào bạn" }];
+}
+
+/**
+ * Tổng hợp Hồ sơ Khách hàng 360 (đơn hàng, sản phẩm đã dùng, thẻ Tag, bệnh lý)
+ */
+function buildCustomer360Context(customerProfile = {}, knownState = {}) {
+  const lines = [];
+  if (customerProfile?.fullName || customerProfile?.name) {
+    lines.push(`- Họ tên khách: ${customerProfile.fullName || customerProfile.name}`);
+  }
+  if (customerProfile?.phone) {
+    lines.push(`- SĐT: ${customerProfile.phone}`);
+  }
+  if (Array.isArray(customerProfile?.tags) && customerProfile.tags.length > 0) {
+    lines.push(`- Thẻ phân loại hiện tại: ${customerProfile.tags.join(", ")}`);
+  }
+  if (Array.isArray(customerProfile?.orders) && customerProfile.orders.length > 0) {
+    const orderSummary = customerProfile.orders
+      .slice(0, 5)
+      .map((o) => `${o.code || o.id || "Đơn"} (${o.productName || o.itemsSummary || "SP ADDP"} - ${o.totalAmount || o.total || ""}đ)`)
+      .join("; ");
+    lines.push(`- Lịch sử đơn hàng đã mua: ${orderSummary}`);
+  } else if (customerProfile?.totalOrders > 0) {
+    lines.push(`- Đã từng mua ${customerProfile.totalOrders} đơn hàng tại ADDP (Khách cũ).`);
+  }
+  if (customerProfile?.notes) {
+    lines.push(`- Ghi chú CSKH trước đó: ${String(customerProfile.notes).slice(0, 300)}`);
+  }
+  if (knownState?.bloodSugar) lines.push(`- Đường huyết: ${knownState.bloodSugar}`);
+  if (knownState?.duration) lines.push(`- Thời gian mắc: ${knownState.duration}`);
+  if (knownState?.symptoms?.length) lines.push(`- Triệu chứng: ${knownState.symptoms.join(", ")}`);
+  if (knownState?.goals?.length) lines.push(`- Mục tiêu sức khỏe: ${knownState.goals.join(", ")}`);
+
+  return lines.length > 0 ? lines.join("\n") : "- Chưa có nhiều dữ liệu hồ sơ cũ (Khách mới hoặc mới tương tác).";
+}
+
+/**
+ * Hàm chính sinh câu trả lời thông minh:
+ * 1. Đọc Bot Profile riêng của tài khoản + Phong cách & Q&A đã học từ toàn bộ lịch sử chat của nick đó.
+ * 2. Tìm kiếm Tri thức Vector (Vector RAG) + Hồ sơ 360 + Lịch sử 40 tin nhắn gần nhất của khách.
+ * 3. Gọi LLM thật (OpenAI GPT / Gemini qua aiRouter.js) để trả lời tự nhiên như người thật, tuyệt đối không lặp câu hỏi.
+ * 4. Fallback an toàn sang State-Aware Engine nếu chưa cấu hình API Key.
  */
 export async function generateHumanLikeReply({
   customerMessage = "",
@@ -713,38 +835,116 @@ export async function generateHumanLikeReply({
     conversationHistory
   );
 
-  // 2. Xây dựng System Instruction động chứa `CUSTOMER_KNOWN_STATE` & `lastBotReply`
-  const fullSystemPrompt = buildStateAwareSystemPrompt({
+  // 2. Nạp Bot Profile riêng của tài khoản + Dữ liệu tự học từ lịch sử hội thoại nick đó
+  const botProfile = resolveBotProfileForAccount({
+    channelId: channelConfig?.channelId,
+    accountName: effectiveAccountName,
+  });
+  const learnedData = getAccountLearnedData({
+    accountKey: botProfile?.accountKey || channelConfig?.channelId || effectiveAccountName,
+    homeDir: botProfile?.homeDir || channelConfig?.homeDir || "",
+    accountName: effectiveAccountName,
+  });
+  const learnedExamples = findRelevantLearnedExamples(learnedData, cleanMessage, 4);
+
+  // 3. Tìm kiếm thêm tri thức từ file đã upload (Vector RAG)
+  let vectorContext = "";
+  try {
+    const vectorHits = await searchKnowledgeVectors(cleanMessage, {
+      topK: 4,
+      docIds: botProfile?.assignedDocIds || ["ALL"],
+    });
+    if (Array.isArray(vectorHits) && vectorHits.length > 0) {
+      vectorContext = vectorHits
+        .map((h, idx) => `[Tài liệu ${idx + 1}: ${h.docTitle || "Tri thức ADDP"}]\n${h.text}`)
+        .join("\n\n");
+    }
+  } catch {}
+
+  const personaBase = botProfile?.personaPrompt || MASTER_HEALTH_CONSULTANT_PERSONA;
+  const customer360Text = buildCustomer360Context(customerProfile, knownState);
+  const learnedExamplesText =
+    learnedExamples.length > 0
+      ? learnedExamples
+          .map((ex, i) => `Mẫu ${i + 1} (${ex.topic}):\n- Khách: "${ex.customer}"\n- Cách nick này trả lời: "${ex.staff}"`)
+          .join("\n")
+      : "";
+
+  // 4. Xây dựng System Instruction đầy đủ cho LLM
+  const stateAwareRules = buildStateAwareSystemPrompt({
     staffName,
     pronounInfo,
     knownState,
     alreadyGreeted,
     lastBotReply,
-    ragContext: ragResult.contextPrompt,
+    ragContext: [ragResult.contextPrompt, vectorContext].filter(Boolean).join("\n\n"),
     customerPhone,
   });
 
-  // 3. Sinh câu trả lời chuẩn xác theo State-Aware Empathy Engine
-  let replyText = generateStateAwareResponse({
-    customerMessage: cleanMessage,
-    pronounInfo,
-    staffName,
-    alreadyGreeted,
-    knownState,
-    detectedPhoneInMsg: detectedPhone,
-    lastBotReply,
-  });
+  const fullSystemPrompt = `${personaBase}
 
-  // 4. Chặn tuyệt đối lặp lại cùng một câu trả lời (> 60% similarity với `lastBotReply`)
-  replyText = ensureNonDuplicateReply({
-    candidateReply: replyText,
-    lastBotReply,
-    customerMessage: cleanMessage,
-    pronounInfo,
-    knownState,
-  });
+=== THÔNG TIN TÀI KHOẢN & PHONG CÁCH ĐÃ HỌC TỪ LỊCH SỬ NICK NÀY ===
+- Tên nhân sự trực nick: ${staffName || effectiveAccountName || "Chuyên viên ADDP"}
+- Phong cách giao tiếp thực tế của nick này: ${learnedData?.styleSummary || "Ấm áp, lễ phép, xưng em - anh/chị hoặc con/cháu - cô/chú."}
+${learnedExamplesText ? `\nMẪU CÂU ĐỐI THOẠI THỰC TẾ ĐÃ HỌC TỪ NICK NÀY (hãy học giọng văn tự nhiên này, không copy máy móc):\n${learnedExamplesText}` : ""}
 
-  replyText = sanitizeHumanChatText(replyText);
+=== HỒ SƠ 360 CỦA KHÁCH HÀNG HIỆN TẠI ===
+${customer360Text}
+
+=== QUY TẮC CHỐNG LẶP & PHẢN HỒI NHƯ NGƯỜI THẬT ===
+1. ĐỌC KỸ toàn bộ lịch sử hội thoại bên dưới. TUYỆT ĐỐI KHÔNG hỏi lại câu hỏi đã hỏi ở các tin trước (ví dụ: nếu khách vừa trả lời "ổn định đường huyết" hay "muốn tăng cơ" thì ghi nhận ngay và đi tiếp sang bước tiếp theo, KHÔNG hỏi lại "muốn ổn định đường huyết hay cải thiện thể trạng").
+2. Trả lời ngắn gọn, tự nhiên như tin nhắn Zalo người thật (2-4 câu, có chia ý gọn gàng nếu tư vấn phác đồ, không viết sớ quá dài).
+3. Kết thúc bằng 01 câu hỏi mở nhẹ nhàng để dẫn dắt tiếp cuộc trò chuyện.
+
+${stateAwareRules}`;
+
+  // 5. Gọi LLM thật (OpenAI GPT / Gemini qua aiRouter.js) kèm lịch sử 40 tin nhắn gần nhất
+  const messageTurns = buildConversationTurns(conversationHistory, cleanMessage);
+  let replyText = "";
+  let llmUsed = false;
+  let llmProvider = null;
+  let llmError = null;
+
+  try {
+    const llmRes = await generateAiReply({
+      systemPrompt: fullSystemPrompt,
+      messages: messageTurns,
+      maxTokens: 450,
+      temperature: 0.55,
+    });
+    if (llmRes?.ok && llmRes.text) {
+      replyText = sanitizeHumanChatText(llmRes.text);
+      llmUsed = true;
+      llmProvider = `${llmRes.providerUsed || "llm"}:${llmRes.modelUsed || ""}`;
+    } else if (llmRes?.error) {
+      llmError = llmRes.error;
+    }
+  } catch (err) {
+    llmError = err?.message || "LLM_CALL_ERROR";
+  }
+
+  // 6. Fallback an toàn khi chưa cấu hình API Key hoặc LLM lỗi
+  if (!replyText) {
+    replyText = generateStateAwareResponse({
+      customerMessage: cleanMessage,
+      pronounInfo,
+      staffName,
+      alreadyGreeted,
+      knownState,
+      detectedPhoneInMsg: detectedPhone,
+      lastBotReply,
+    });
+
+    replyText = ensureNonDuplicateReply({
+      candidateReply: replyText,
+      lastBotReply,
+      customerMessage: cleanMessage,
+      pronounInfo,
+      knownState,
+    });
+    replyText = sanitizeHumanChatText(replyText);
+  }
+
   const typingDelayMs = calculateTypingDelayMs(replyText);
   const personaLabel = staffName
     ? `${staffName} - Chuyên viên tư vấn dinh dưỡng Dược phẩm ADDP`
@@ -761,6 +961,10 @@ export async function generateHumanLikeReply({
     pronounInfo,
     staffName,
     alreadyGreeted,
+    llmUsed,
+    llmProvider,
+    llmError,
+    learnedQaUsed: learnedExamples.length,
     medicalRecord: {
       bloodSugar: knownState.bloodSugar,
       bloodSugarNumeric: knownState.bloodSugarNumeric,

@@ -1603,13 +1603,16 @@ export async function processIncomingZaloMessageWithBot({
       channelConfig: {
         channelId,
         accountName: effectiveAccountName,
+        homeDir: targetHome,
       },
       conversationHistory: historyWithLastBotReply,
     });
 
     // Thời gian chờ typing delay 3s (3000ms) trước khi gửi tin
     const delayMs = 3000;
-    console.log(`[Zalo AI Bot] Đang trả lời sau ${delayMs} ms: ${aiResult.replyText}`);
+    console.log(
+      `[Zalo AI Bot] Đang trả lời sau ${delayMs} ms (LLM=${Boolean(aiResult.llmUsed)}, provider=${aiResult.llmProvider || "fallback"}, learnedQA=${aiResult.learnedQaUsed || 0}${aiResult.llmError ? `, err=${aiResult.llmError}` : ""}): ${aiResult.replyText}`
+    );
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
 
@@ -1830,7 +1833,7 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
           isMe: false,
           type: "DIRECT",
           channelId: specificChannelId,
-          conversationHistory: sortedMsgs.slice(-10),
+          conversationHistory: sortedMsgs.slice(-40),
           homeDir: targetHome,
         }).catch((err) => {
           console.error("[Zalo AI Bot] Lỗi xử lý tự động trả lời:", err.message);

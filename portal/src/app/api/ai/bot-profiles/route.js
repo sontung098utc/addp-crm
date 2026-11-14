@@ -4,12 +4,35 @@ import {
   upsertBotProfile,
   deleteBotProfile,
 } from "@/lib/ai/botProfileStore";
+import {
+  getAccountLearnedData,
+  learnFromAccountHistory,
+} from "@/lib/ai/accountLearner";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const profiles = listBotProfiles();
+    const profiles = listBotProfiles().map((p) => {
+      const learned = getAccountLearnedData({
+        accountKey: p.accountKey,
+        homeDir: p.homeDir || "",
+        accountName: p.accountName || "",
+      });
+      return {
+        ...p,
+        learnedStats: learned
+          ? {
+              totalConversations: learned.totalConversations || 0,
+              totalMessages: learned.totalMessages || 0,
+              staffMessagesAnalyzed: learned.staffMessagesAnalyzed || 0,
+              qaCount: learned.qaCount || 0,
+              styleSummary: learned.styleSummary || "",
+              learnedAt: learned.learnedAt || null,
+            }
+          : null,
+      };
+    });
     return NextResponse.json({
       ok: true,
       profiles,
@@ -27,6 +50,30 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
+
+    if (body?.action === "LEARN_HISTORY") {
+      const accountKey = String(body.accountKey || "").trim();
+      const profiles = listBotProfiles();
+      const matched = profiles.find((p) => p.accountKey === accountKey);
+      const learned = learnFromAccountHistory({
+        accountKey: accountKey || matched?.accountKey || "default",
+        homeDir: body.homeDir || matched?.homeDir || "",
+        accountName: body.accountName || matched?.accountName || "",
+      });
+      return NextResponse.json({
+        ok: true,
+        message: `Bot "${learned.accountName || accountKey}" đã học xong ${learned.totalConversations} hội thoại (${learned.qaCount} mẫu tư vấn thực tế)!`,
+        learnedStats: {
+          totalConversations: learned.totalConversations,
+          totalMessages: learned.totalMessages,
+          staffMessagesAnalyzed: learned.staffMessagesAnalyzed,
+          qaCount: learned.qaCount,
+          styleSummary: learned.styleSummary,
+          learnedAt: learned.learnedAt,
+        },
+      });
+    }
+
     let accountKey = String(body.accountKey || "").trim();
     if (!accountKey) {
       const channel = String(body.channel || "ZALO_PERSONAL").trim();
