@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 const MATCH_TYPE_LABELS = {
   CONTAINS: { label: "Chứa từ khóa (Mềm dẻo)", color: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
@@ -8,18 +8,46 @@ const MATCH_TYPE_LABELS = {
   STARTS_WITH: { label: "Bắt đầu bằng từ khóa", color: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
 };
 
-const CHANNEL_OPTIONS = [
-  { value: "ALL", label: "Tất cả kênh (7 Nền tảng)" },
-  { value: "ZALO_PERSONAL", label: "Zalo Cá Nhân (Multi-QR)" },
-  { value: "ZALO_OA", label: "Zalo OA Doanh Nghiệp" },
-  { value: "FACEBOOK_FANPAGE", label: "Fanpage Facebook" },
-  { value: "TIKTOK_SHOP", label: "TikTok Shop" },
-  { value: "SHOPEE", label: "Shopee" },
+const PLATFORM_GROUPS = [
+  {
+    id: "ZALO_PERSONAL",
+    label: "Zalo Cá Nhân",
+    badgeClass: "bg-cyan-500/15 text-cyan-300 border-cyan-500/30",
+    dotClass: "bg-cyan-400",
+  },
+  {
+    id: "FACEBOOK",
+    label: "Fanpage Facebook",
+    badgeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30",
+    dotClass: "bg-blue-400",
+  },
+  {
+    id: "TIKTOK_SHOP",
+    label: "TikTok Shop",
+    badgeClass: "bg-pink-500/15 text-pink-300 border-pink-500/30",
+    dotClass: "bg-pink-400",
+  },
+  {
+    id: "SHOPEE",
+    label: "Shopee",
+    badgeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    dotClass: "bg-amber-400",
+  },
+  {
+    id: "ZALO_OA",
+    label: "Zalo OA",
+    badgeClass: "bg-sky-500/15 text-sky-300 border-sky-500/30",
+    dotClass: "bg-sky-400",
+  },
 ];
+
+const PLATFORM_GROUP_MAP = Object.fromEntries(PLATFORM_GROUPS.map((g) => [g.id, g]));
 
 export default function KeywordAutoReplyTab() {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [connectedChannels, setConnectedChannels] = useState([]);
+  const [channelsLoading, setChannelsLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
   // Modal State
@@ -31,7 +59,8 @@ export default function KeywordAutoReplyTab() {
   const [formName, setFormName] = useState("");
   const [formKeywords, setFormKeywords] = useState("");
   const [formMatchType, setFormMatchType] = useState("CONTAINS");
-  const [formChannels, setFormChannels] = useState(["ALL"]);
+  const [formScopeMode, setFormScopeMode] = useState("ALL");
+  const [formTargetChannels, setFormTargetChannels] = useState([]);
   const [formReplyText, setFormReplyText] = useState("");
   const [formDelay, setFormDelay] = useState(5);
   const [formEnabled, setFormEnabled] = useState(true);
@@ -41,11 +70,12 @@ export default function KeywordAutoReplyTab() {
   const [testCustomerName, setTestCustomerName] = useState("Nguyễn Thị Mai");
   const [testChannel, setTestChannel] = useState("ALL");
 
-  useEffect(() => {
-    fetchRules();
+  const showToast = useCallback((text, type = "success") => {
+    setToast({ text, type });
+    setTimeout(() => setToast(null), 3500);
   }, []);
 
-  async function fetchRules() {
+  const fetchRules = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/broadcast/auto-reply-rules");
@@ -58,19 +88,60 @@ export default function KeywordAutoReplyTab() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [showToast]);
 
-  function showToast(text, type = "success") {
-    setToast({ text, type });
-    setTimeout(() => setToast(null), 3500);
-  }
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [rulesRes, chRes] = await Promise.all([
+          fetch("/api/broadcast/auto-reply-rules"),
+          fetch("/api/channels"),
+        ]);
+        const [rulesData, chData] = await Promise.all([rulesRes.json(), chRes.json()]);
+        if (active && rulesData.ok && Array.isArray(rulesData.rules)) {
+          setRules(rulesData.rules);
+        }
+        if (active && chData.ok && Array.isArray(chData.channels)) {
+          setConnectedChannels(chData.channels);
+        }
+      } catch {
+        if (active) showToast("Không thể tải danh sách quy tắc từ khóa", "error");
+      } finally {
+        if (active) {
+          setLoading(false);
+          setChannelsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [showToast]);
+
+  const groupedChannels = useMemo(() => {
+    return PLATFORM_GROUPS.map((group) => ({
+      ...group,
+      channels: connectedChannels.filter((ch) => ch.platform === group.id),
+    }));
+  }, [connectedChannels]);
+
+  const channelLookup = useMemo(() => {
+    const map = new Map();
+    for (const ch of connectedChannels) {
+      if (ch.id) map.set(String(ch.id), ch);
+      if (ch.externalId) map.set(String(ch.externalId), ch);
+    }
+    return map;
+  }, [connectedChannels]);
 
   function openCreateModal() {
     setEditingRule(null);
     setFormName("");
     setFormKeywords("");
     setFormMatchType("CONTAINS");
-    setFormChannels(["ALL"]);
+    setFormScopeMode("ALL");
+    setFormTargetChannels([]);
     setFormReplyText("Dạ chào {fullName}! Em là {assignedStaff} bên Dược phẩm ADDP đây ạ. Em gửi thông tin chi tiết về {productName} cho mình nhé ạ!");
     setFormDelay(5);
     setFormEnabled(true);
@@ -82,11 +153,33 @@ export default function KeywordAutoReplyTab() {
     setFormName(rule.name || "");
     setFormKeywords(Array.isArray(rule.keywords) ? rule.keywords.join(", ") : "");
     setFormMatchType(rule.matchType || "CONTAINS");
-    setFormChannels(rule.channels || ["ALL"]);
+    const hasSelected =
+      rule.scopeMode === "SELECTED" ||
+      (Array.isArray(rule.targetChannels) && rule.targetChannels.length > 0);
+    setFormScopeMode(hasSelected ? "SELECTED" : "ALL");
+    setFormTargetChannels(Array.isArray(rule.targetChannels) ? rule.targetChannels : []);
     setFormReplyText(rule.replyText || "");
     setFormDelay(rule.delaySeconds || 5);
     setFormEnabled(rule.enabled !== false);
     setModalOpen(true);
+  }
+
+  function toggleTargetChannel(channelId) {
+    setFormTargetChannels((prev) =>
+      prev.includes(channelId) ? prev.filter((id) => id !== channelId) : [...prev, channelId]
+    );
+  }
+
+  function togglePlatformGroup(groupChannels) {
+    const ids = groupChannels.map((c) => c.id);
+    if (ids.length === 0) return;
+    const allSelected = ids.every((id) => formTargetChannels.includes(id));
+    setFormTargetChannels((prev) => {
+      if (allSelected) {
+        return prev.filter((id) => !ids.includes(id));
+      }
+      return [...new Set([...prev, ...ids])];
+    });
   }
 
   async function handleToggleRule(rule) {
@@ -138,13 +231,20 @@ export default function KeywordAutoReplyTab() {
       return;
     }
 
+    if (formScopeMode === "SELECTED" && formTargetChannels.length === 0) {
+      alert("Vui lòng chọn ít nhất 01 kênh hoặc tài khoản áp dụng!");
+      return;
+    }
+
     setSaving(true);
     const payload = {
       id: editingRule?.id,
       name: formName.trim() || "Quy tắc tự động trả lời",
       keywords: kwList,
       matchType: formMatchType,
-      channels: formChannels,
+      scopeMode: formScopeMode,
+      targetChannels: formScopeMode === "SELECTED" ? formTargetChannels : [],
+      channels: formScopeMode === "SELECTED" ? formTargetChannels : ["ALL"],
       replyText: formReplyText.trim(),
       delaySeconds: Number(formDelay) || 5,
       enabled: formEnabled,
@@ -185,15 +285,32 @@ export default function KeywordAutoReplyTab() {
     if (!testMessage.trim()) return null;
     const cleanMsg = testMessage.toLowerCase().trim();
 
+    const selectedCh = connectedChannels.find(
+      (c) => String(c.id) === String(testChannel) || String(c.externalId) === String(testChannel)
+    );
+    const selectedKeys = new Set(
+      [
+        testChannel,
+        selectedCh?.id,
+        selectedCh?.externalId,
+        selectedCh?.config?.ownId,
+        selectedCh?.config?.pageId,
+        selectedCh?.config?.shopId,
+        selectedCh?.config?.oaId,
+      ]
+        .filter(Boolean)
+        .map(String)
+    );
+
     for (const rule of rules) {
       if (!rule.enabled) continue;
-      // Kiểm tra kênh
-      if (
-        testChannel !== "ALL" &&
-        !rule.channels?.includes("ALL") &&
-        !rule.channels?.includes(testChannel)
-      ) {
-        continue;
+      // Kiểm tra phạm vi kênh / tài khoản
+      if (rule.scopeMode === "SELECTED") {
+        const targets = Array.isArray(rule.targetChannels) ? rule.targetChannels : [];
+        if (targets.length === 0) continue;
+        if (testChannel !== "ALL" && !targets.some((t) => selectedKeys.has(String(t)))) {
+          continue;
+        }
       }
 
       const matchFound = (rule.keywords || []).some((kw) => {
@@ -223,7 +340,7 @@ export default function KeywordAutoReplyTab() {
     }
 
     return { matched: false };
-  }, [testMessage, testCustomerName, testChannel, rules]);
+  }, [testMessage, testCustomerName, testChannel, rules, connectedChannels]);
 
   return (
     <div className="space-y-6">
@@ -361,6 +478,31 @@ export default function KeywordAutoReplyTab() {
                           ))}
                         </div>
 
+                        {/* Badges Phạm vi kênh / tài khoản */}
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <span className="text-[11px] text-slate-400">Kênh áp dụng:</span>
+                          {rule.scopeMode === "SELECTED" && Array.isArray(rule.targetChannels) && rule.targetChannels.length > 0 ? (
+                            rule.targetChannels.map((chId) => {
+                              const ch = channelLookup.get(String(chId));
+                              const pGroup = ch ? PLATFORM_GROUP_MAP[ch.platform] : null;
+                              return (
+                                <span
+                                  key={chId}
+                                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                                    pGroup?.badgeClass || "bg-slate-800 text-slate-300 border-slate-700"
+                                  }`}
+                                >
+                                  {ch ? ch.name : chId}
+                                </span>
+                              );
+                            })
+                          ) : (
+                            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
+                              🌐 Tất cả kênh
+                            </span>
+                          )}
+                        </div>
+
                         {/* Nội dung câu trả lời */}
                         <div className="rounded-xl bg-slate-950/70 border border-slate-800/80 p-3 mt-2">
                           <p className="text-xs text-slate-300 leading-relaxed font-sans line-clamp-3">
@@ -419,6 +561,28 @@ export default function KeywordAutoReplyTab() {
             </div>
 
             <div className="space-y-3">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Kênh / tài khoản nhận tin</label>
+                <select
+                  value={testChannel}
+                  onChange={(e) => setTestChannel(e.target.value)}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="ALL">🌐 Tất cả kênh & tài khoản</option>
+                  {groupedChannels.map((group) =>
+                    group.channels.length > 0 ? (
+                      <optgroup key={group.id} label={group.label}>
+                        {group.channels.map((ch) => (
+                          <option key={ch.id} value={ch.id}>
+                            {ch.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null
+                  )}
+                </select>
+              </div>
+
               <div>
                 <label className="text-[11px] text-slate-400 block mb-1">Tên khách hàng thử nghiệm</label>
                 <input
@@ -557,6 +721,143 @@ export default function KeywordAutoReplyTab() {
                     <span>60s (Chậm)</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Phạm vi kênh / tài khoản áp dụng */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Phạm vi kênh / tài khoản áp dụng *
+                  </label>
+                  {formScopeMode === "SELECTED" && (
+                    <span className="text-[11px] text-blue-400 font-semibold">
+                      Đã chọn {formTargetChannels.length} kênh/tài khoản
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setFormScopeMode("ALL")}
+                    className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                      formScopeMode === "ALL"
+                        ? "border-blue-500 bg-blue-500/15 text-white"
+                        : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        formScopeMode === "ALL" ? "border-blue-400 bg-blue-500" : "border-slate-600"
+                      }`}
+                    >
+                      {formScopeMode === "ALL" && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </span>
+                    <div>
+                      <div className="text-xs font-semibold">Tất cả kênh & tài khoản</div>
+                      <div className="text-[10px] text-slate-400">Áp dụng chung cho mọi nền tảng</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormScopeMode("SELECTED")}
+                    className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all ${
+                      formScopeMode === "SELECTED"
+                        ? "border-blue-500 bg-blue-500/15 text-white"
+                        : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`h-3.5 w-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                        formScopeMode === "SELECTED" ? "border-blue-400 bg-blue-500" : "border-slate-600"
+                      }`}
+                    >
+                      {formScopeMode === "SELECTED" && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </span>
+                    <div>
+                      <div className="text-xs font-semibold">Chọn kênh / tài khoản cụ thể</div>
+                      <div className="text-[10px] text-slate-400">Chỉ kích hoạt trên tài khoản đã tick</div>
+                    </div>
+                  </button>
+                </div>
+
+                {formScopeMode === "SELECTED" && (
+                  <div className="space-y-3 pt-2 border-t border-slate-800/80 max-h-64 overflow-y-auto pr-1">
+                    {channelsLoading ? (
+                      <div className="text-xs text-slate-400 py-3 text-center">
+                        Đang tải danh sách kênh & tài khoản kết nối...
+                      </div>
+                    ) : (
+                      groupedChannels.map((group) => {
+                        const groupIds = group.channels.map((c) => c.id);
+                        const allGroupSelected =
+                          groupIds.length > 0 && groupIds.every((id) => formTargetChannels.includes(id));
+
+                        return (
+                          <div key={group.id} className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                                <span className={`h-2 w-2 rounded-full ${group.dotClass}`} />
+                                {group.label}
+                                <span className="text-[10px] font-normal text-slate-500">
+                                  ({group.channels.length})
+                                </span>
+                              </span>
+                              {group.channels.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => togglePlatformGroup(group.channels)}
+                                  className="text-[10px] text-blue-400 hover:underline"
+                                >
+                                  {allGroupSelected ? "Bỏ chọn nhóm" : "Chọn cả nhóm"}
+                                </button>
+                              )}
+                            </div>
+
+                            {group.channels.length === 0 ? (
+                              <div className="text-[11px] text-slate-500 italic pl-3.5">
+                                Chưa có tài khoản {group.label} nào được kết nối.
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pl-2">
+                                {group.channels.map((ch) => {
+                                  const checked = formTargetChannels.includes(ch.id);
+                                  return (
+                                    <label
+                                      key={ch.id}
+                                      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer transition-colors ${
+                                        checked
+                                          ? "border-blue-500/60 bg-blue-500/10 text-white"
+                                          : "border-slate-800 bg-slate-900/50 text-slate-300 hover:border-slate-700"
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleTargetChannel(ch.id)}
+                                        className="rounded accent-blue-500"
+                                      />
+                                      <span className="text-[11px] truncate flex-1" title={ch.name}>
+                                        {ch.name}
+                                      </span>
+                                      <span
+                                        className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                                          ch.status === "CONNECTED" ? "bg-emerald-400" : "bg-slate-500"
+                                        }`}
+                                        title={ch.status === "CONNECTED" ? "Đã kết nối" : ch.status}
+                                      />
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

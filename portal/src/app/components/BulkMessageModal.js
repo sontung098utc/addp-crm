@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   Send,
@@ -15,6 +15,15 @@ import {
   RefreshCw,
 } from "lucide-react";
 
+function hasValidContactInfo(c) {
+  if (!c) return false;
+  const phoneDigits = String(c.phone || "").replace(/\D/g, "");
+  const hasPhone = phoneDigits.length >= 9;
+  const hasZalo = Boolean(c.zaloUid || c.zaloThreadId || c.zaloId || c.threadId);
+  const hasFb = Boolean(c.facebookId || c.psid);
+  return hasPhone || hasZalo || hasFb;
+}
+
 export default function BulkMessageModal({
   isOpen,
   onClose,
@@ -22,54 +31,86 @@ export default function BulkMessageModal({
   facebookPages = [],
   availableTags = [],
   conversations = [],
+  initialSelectedCustomers = null,
   onCampaignCreated,
 }) {
+  const isCustomerMode = Array.isArray(initialSelectedCustomers);
   const [selectedChannel, setSelectedChannel] = useState("ZALO_PERSONAL");
   const [selectedAccount, setSelectedAccount] = useState("ALL");
   const [selectedTag, setSelectedTag] = useState("ALL");
+  const [onlyValidContact, setOnlyValidContact] = useState(true);
   const [messageTemplate, setMessageTemplate] = useState(
     "Dạ em chào {name}, Dược phẩm ADDP xin gửi tặng anh/chị ưu đãi tư vấn sức khỏe đặc biệt trong tuần này ạ!"
   );
-  const [delaySeconds, setDelaySeconds] = useState(15);
-  const [audienceCount, setAudienceCount] = useState(0);
-  const [loadingAudience, setLoadingAudience] = useState(false);
+  const [delaySeconds, setDelaySeconds] = useState(isCustomerMode ? 45 : 15);
   const [sending, setSending] = useState(false);
-  const [progress, setProgress] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
+  const customerModeStats = useMemo(() => {
+    if (!isCustomerMode) {
+      return { tagFiltered: [], validCount: 0, invalidCount: 0 };
+    }
+    const tagFiltered = initialSelectedCustomers.filter((c) => {
+      if (selectedTag !== "ALL") {
+        const custTags = Array.isArray(c.tags) ? c.tags : [];
+        if (!custTags.includes(selectedTag)) return false;
+      }
+      return true;
+    });
+    const validCount = tagFiltered.filter(hasValidContactInfo).length;
+    return {
+      tagFiltered,
+      validCount,
+      invalidCount: tagFiltered.length - validCount,
+    };
+  }, [isCustomerMode, initialSelectedCustomers, selectedTag]);
+
   // Tính toán tệp khách hàng nhận tin
-  useEffect(() => {
-    if (!isOpen) return;
+  const audienceCount = useMemo(() => {
+    if (!isOpen) return 0;
 
-    let count = 0;
-    if (conversations && conversations.length > 0) {
-      count = conversations.filter((c) => {
-        if (selectedChannel !== "ALL") {
-          if (selectedChannel === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
-          if (selectedChannel === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
-          if (selectedChannel === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
-        }
-
-        if (selectedAccount !== "ALL") {
-          const accMatch =
-            c.accountId === selectedAccount ||
-            c.accountOwnId === selectedAccount ||
-            c.accountName === selectedAccount;
-          if (!accMatch) return false;
-        }
-
-        if (selectedTag !== "ALL") {
-          const convTags = Array.isArray(c.tags) ? c.tags : [];
-          if (!convTags.includes(selectedTag)) return false;
-        }
-
-        return true;
-      }).length;
+    if (isCustomerMode) {
+      const targetList = onlyValidContact
+        ? customerModeStats.tagFiltered.filter(hasValidContactInfo)
+        : customerModeStats.tagFiltered;
+      return targetList.length;
     }
 
-    setAudienceCount(count);
-  }, [isOpen, selectedChannel, selectedAccount, selectedTag, conversations]);
+    if (!conversations || conversations.length === 0) return 0;
+
+    return conversations.filter((c) => {
+      if (selectedChannel !== "ALL") {
+        if (selectedChannel === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
+        if (selectedChannel === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
+        if (selectedChannel === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
+      }
+
+      if (selectedAccount !== "ALL") {
+        const accMatch =
+          c.accountId === selectedAccount ||
+          c.accountOwnId === selectedAccount ||
+          c.accountName === selectedAccount;
+        if (!accMatch) return false;
+      }
+
+      if (selectedTag !== "ALL") {
+        const convTags = Array.isArray(c.tags) ? c.tags : [];
+        if (!convTags.includes(selectedTag)) return false;
+      }
+
+      return true;
+    }).length;
+  }, [
+    isOpen,
+    isCustomerMode,
+    onlyValidContact,
+    customerModeStats,
+    selectedChannel,
+    selectedAccount,
+    selectedTag,
+    conversations,
+  ]);
 
   if (!isOpen) return null;
 
@@ -89,39 +130,66 @@ export default function BulkMessageModal({
     setSending(true);
 
     try {
-      // Chuẩn bị danh sách người nhận lọc từ conversations
-      const targetConversations = (conversations || []).filter((c) => {
-        if (selectedChannel !== "ALL") {
-          if (selectedChannel === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
-          if (selectedChannel === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
-          if (selectedChannel === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
-        }
+      let recipients = [];
 
-        if (selectedAccount !== "ALL") {
-          const accMatch =
-            c.accountId === selectedAccount ||
-            c.accountOwnId === selectedAccount ||
-            c.accountName === selectedAccount;
-          if (!accMatch) return false;
-        }
+      if (isCustomerMode) {
+        const targetCustomers = onlyValidContact
+          ? customerModeStats.tagFiltered.filter(hasValidContactInfo)
+          : customerModeStats.tagFiltered;
 
-        if (selectedTag !== "ALL") {
-          const convTags = Array.isArray(c.tags) ? c.tags : [];
-          if (!convTags.includes(selectedTag)) return false;
-        }
+        recipients = targetCustomers.map((c) => ({
+          id: c.id,
+          fullName: c.fullName || c.name || "Khách Hàng",
+          name: c.name || c.fullName || "Khách Hàng",
+          phone: c.phone || "",
+          zaloUid: c.zaloUid || c.zaloThreadId || c.zaloId || c.threadId || null,
+          zaloThreadId: c.zaloThreadId || c.zaloUid || c.threadId || null,
+          facebookId: c.facebookId || c.psid || (c.channel === "FACEBOOK" ? c.id : null),
+          zaloOaUserId: c.zaloOaUserId || c.oaUserId || null,
+          channel: c.channel || selectedChannel,
+          pathology: c.pathology || "",
+          assignedStaff: c.assignedStaff || c.staffName || "",
+          productName:
+            c.productName ||
+            (Array.isArray(c.purchasedProducts) && c.purchasedProducts[0]) ||
+            "",
+          tags: Array.isArray(c.tags) ? c.tags : [],
+        }));
+      } else {
+        // Chuẩn bị danh sách người nhận lọc từ conversations
+        const targetConversations = (conversations || []).filter((c) => {
+          if (selectedChannel !== "ALL") {
+            if (selectedChannel === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
+            if (selectedChannel === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
+            if (selectedChannel === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
+          }
 
-        return true;
-      });
+          if (selectedAccount !== "ALL") {
+            const accMatch =
+              c.accountId === selectedAccount ||
+              c.accountOwnId === selectedAccount ||
+              c.accountName === selectedAccount;
+            if (!accMatch) return false;
+          }
 
-      const recipients = targetConversations.map((c) => ({
-        id: c.id,
-        fullName: c.name || "Khách Hàng",
-        name: c.name || "Khách Hàng",
-        phone: c.phone || "",
-        zaloUid: c.id,
-        zaloThreadId: c.id,
-        facebookId: c.channel === "FACEBOOK" ? c.id : null,
-      }));
+          if (selectedTag !== "ALL") {
+            const convTags = Array.isArray(c.tags) ? c.tags : [];
+            if (!convTags.includes(selectedTag)) return false;
+          }
+
+          return true;
+        });
+
+        recipients = targetConversations.map((c) => ({
+          id: c.id,
+          fullName: c.name || "Khách Hàng",
+          name: c.name || "Khách Hàng",
+          phone: c.phone || "",
+          zaloUid: c.id,
+          zaloThreadId: c.id,
+          facebookId: c.channel === "FACEBOOK" ? c.id : null,
+        }));
+      }
 
       const res = await fetch("/api/broadcast/send", {
         method: "POST",
@@ -289,21 +357,47 @@ export default function BulkMessageModal({
           </div>
 
           {/* Banner Ước Lượng Tệp Khách & Anti-Ban */}
-          <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-xl flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span className="font-medium text-slate-700 dark:text-slate-300">
-                Số người nhận dự kiến:
-              </span>
-              <span className="font-bold text-sm text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded-lg tabular-nums">
-                {audienceCount} người
-              </span>
+          <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-xl space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span className="font-medium text-slate-700 dark:text-slate-300">
+                  Số người nhận dự kiến:
+                </span>
+                <span className="font-bold text-sm text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded-lg tabular-nums">
+                  {audienceCount} người
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                <ShieldCheck className="w-4 h-4" />
+                <span>Chống quét spam Anti-Ban: Bật</span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
-              <ShieldCheck className="w-4 h-4" />
-              <span>Chống quét spam Anti-Ban: Bật</span>
-            </div>
+            {isCustomerMode && (
+              <div className="pt-2 border-t border-blue-200/70 dark:border-blue-800/40 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                    ✓ Hợp lệ (có SĐT / Zalo ID): {customerModeStats.validCount}/{customerModeStats.tagFiltered.length}
+                  </span>
+                  {customerModeStats.invalidCount > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      ({customerModeStats.invalidCount} thiếu SĐT/Zalo ID)
+                    </span>
+                  )}
+                </div>
+                <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 dark:text-slate-300 select-none">
+                  <input
+                    type="checkbox"
+                    checked={onlyValidContact}
+                    onChange={(e) => setOnlyValidContact(e.target.checked)}
+                    className="rounded border-slate-400 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Chỉ gửi khách có SĐT/Zalo hợp lệ</span>
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Soạn Tin Nhắn Mẫu */}

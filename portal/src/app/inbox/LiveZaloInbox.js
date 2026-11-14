@@ -283,6 +283,14 @@ export default function LiveZaloInbox() {
   const [matchedCustomer, setMatchedCustomer] = useState(null);
   const [loadingCustomer, setLoadingCustomer] = useState(false);
   const [detectedChatPhone, setDetectedChatPhone] = useState("");
+  const [customerOrders, setCustomerOrders] = useState([]);
+  const [customerOrdersSummary, setCustomerOrdersSummary] = useState({
+    totalOrders: 0,
+    totalSpent: 0,
+    deliveryRate: "0%",
+  });
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [syncingKiotViet, setSyncingKiotViet] = useState(false);
 
   // Tin nhắn của cuộc trò chuyện đang chọn
   const [messages, setMessages] = useState([]);
@@ -1184,6 +1192,112 @@ export default function LiveZaloInbox() {
       isCancelled = true;
     };
   }, [activeConv?.id, activeConv?.zaloUid, activeConv?.phone, activeConv?.zaloPhone]);
+
+  // SĐT chuẩn hóa dùng để tra cứu đơn hàng KiotViet & CRM của khách đang chat
+  const activeOrderPhone = normalizePhone(
+    activeConv?.phone || matchedCustomer?.phone || detectedChatPhone || ""
+  );
+
+  const fetchCustomerOrders = useCallback(async (phoneToFetch) => {
+    const cleanPhone = normalizePhone(phoneToFetch);
+    if (!cleanPhone) {
+      setCustomerOrders([]);
+      setCustomerOrdersSummary({ totalOrders: 0, totalSpent: 0, deliveryRate: "0%" });
+      return;
+    }
+    try {
+      setLoadingOrders(true);
+      const res = await fetch(`/api/orders?phone=${encodeURIComponent(cleanPhone)}`);
+      const data = await res.json();
+      if (data?.ok) {
+        setCustomerOrders(Array.isArray(data.orders) ? data.orders : []);
+        if (data.summary) {
+          setCustomerOrdersSummary(data.summary);
+        }
+      }
+    } catch (err) {
+      console.warn("[INBOX_ORDERS_FETCH_ERR]", err);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadOrdersForPhone() {
+      if (!activeOrderPhone) {
+        if (!isCancelled) {
+          setCustomerOrders([]);
+          setCustomerOrdersSummary({ totalOrders: 0, totalSpent: 0, deliveryRate: "0%" });
+        }
+        return;
+      }
+      try {
+        setLoadingOrders(true);
+        const res = await fetch(`/api/orders?phone=${encodeURIComponent(activeOrderPhone)}`);
+        const data = await res.json();
+        if (!isCancelled && data?.ok) {
+          setCustomerOrders(Array.isArray(data.orders) ? data.orders : []);
+          if (data.summary) {
+            setCustomerOrdersSummary(data.summary);
+          }
+        }
+      } catch (err) {
+        console.warn("[INBOX_ORDERS_EFFECT_ERR]", err);
+      } finally {
+        if (!isCancelled) setLoadingOrders(false);
+      }
+    }
+    loadOrdersForPhone();
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeOrderPhone]);
+
+  const handleSyncKiotVietForCustomer = async () => {
+    if (!activeOrderPhone) {
+      setToast({
+        type: "error",
+        text: "Khách hàng chưa có số điện thoại để đồng bộ đơn hàng KiotViet.",
+      });
+      setTimeout(() => setToast(null), 3500);
+      return;
+    }
+    try {
+      setSyncingKiotViet(true);
+      const res = await fetch("/api/orders/kiotviet/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: activeOrderPhone }),
+      });
+      const data = await res.json();
+      if (data?.ok) {
+        if (Array.isArray(data.orders)) {
+          setCustomerOrders(data.orders);
+        }
+        if (data.summary) {
+          setCustomerOrdersSummary(data.summary);
+        }
+        setToast({
+          type: "success",
+          text: data.message || `Đã đồng bộ đơn hàng KiotViet cho SĐT ${activeOrderPhone}.`,
+        });
+      } else {
+        setToast({
+          type: "error",
+          text: data?.error || "Không thể đồng bộ đơn hàng KiotViet.",
+        });
+      }
+    } catch (err) {
+      setToast({
+        type: "error",
+        text: `Lỗi đồng bộ KiotViet: ${err?.message || "Không xác định"}`,
+      });
+    } finally {
+      setSyncingKiotViet(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
 
   // Đồng bộ trạng thái Bot AI theo cấp tài khoản & cấp hội thoại
   useEffect(() => {
@@ -5002,15 +5116,27 @@ export default function LiveZaloInbox() {
 
             {/* KHỐI ĐƠN HÀNG & CHỐT DEAL */}
             <div className="space-y-2.5">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
-                <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Lịch Sử Mua Hàng &amp; Đơn Hàng
-                </h5>
-                {matchedCustomer?.code && (
-                  <span className="font-mono bg-blue-950 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 rounded text-[10px] font-bold">
-                    {matchedCustomer.code}
-                  </span>
-                )}
+              <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h5 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                    Lịch Sử Mua Hàng &amp; Đơn Hàng
+                  </h5>
+                  {matchedCustomer?.code && (
+                    <span className="font-mono bg-blue-950 text-blue-400 border border-blue-800/60 px-1.5 py-0.2 rounded text-[10px] font-bold shrink-0">
+                      {matchedCustomer.code}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSyncKiotVietForCustomer}
+                  disabled={syncingKiotViet || !activeOrderPhone}
+                  title="Kéo trạng thái đơn mới nhất từ KiotViet & tạo lịch chăm sóc"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 px-2 py-1 text-[10px] font-semibold text-sky-400 transition-colors shrink-0 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncingKiotViet ? "animate-spin" : ""}`} />
+                  <span>{syncingKiotViet ? "Đang đồng bộ..." : "Đồng bộ KiotViet"}</span>
+                </button>
               </div>
 
               {/* Lịch sử mua hàng ngắn gọn */}
@@ -5018,22 +5144,94 @@ export default function LiveZaloInbox() {
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-400">Tổng chi tiêu:</span>
                   <span className="font-bold text-white tabular-nums">
-                    {(matchedCustomer?.totalSpent || 0).toLocaleString("vi-VN")} đ
+                    {(customerOrders.length > 0 || customerOrdersSummary.totalSpent > 0
+                      ? customerOrdersSummary.totalSpent
+                      : matchedCustomer?.totalSpent || 0
+                    ).toLocaleString("vi-VN")}{" "}
+                    đ
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-400">Số đơn đã mua:</span>
                   <span className="font-semibold text-blue-400 tabular-nums">
-                    {matchedCustomer?.totalOrders || 0} đơn
+                    {customerOrders.length > 0 || customerOrdersSummary.totalOrders > 0
+                      ? customerOrdersSummary.totalOrders
+                      : matchedCustomer?.totalOrders || 0}{" "}
+                    đơn
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-slate-400">Tỷ lệ nhận hàng:</span>
                   <span className="font-semibold text-emerald-400 tabular-nums">
-                    {matchedCustomer?.deliveryRate || "100%"}
+                    {customerOrders.length > 0
+                      ? customerOrdersSummary.deliveryRate
+                      : matchedCustomer?.deliveryRate || "0%"}
                   </span>
                 </div>
               </div>
+
+              {/* Danh sách đơn hàng KiotViet & CRM khớp SĐT */}
+              {loadingOrders ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-2.5 text-[11px] text-slate-400 text-center">
+                  Đang tải lịch sử đơn hàng...
+                </div>
+              ) : customerOrders.length > 0 ? (
+                <div className="max-h-56 overflow-y-auto space-y-1.5 pr-0.5">
+                  {customerOrders.map((ord) => {
+                    const statusBadge =
+                      ord.status === "DELIVERED"
+                        ? { label: "Hoàn thành", cls: "bg-emerald-950 text-emerald-400 border-emerald-800/70" }
+                        : ord.status === "SHIPPING"
+                        ? { label: "Đang giao hàng", cls: "bg-sky-950 text-sky-400 border-sky-800/70" }
+                        : ord.status === "CANCELLED"
+                        ? { label: "Đã hủy", cls: "bg-rose-950 text-rose-400 border-rose-800/70" }
+                        : { label: "Đang xử lý", cls: "bg-amber-950 text-amber-400 border-amber-800/70" };
+                    const itemsText = Array.isArray(ord.items) && ord.items.length > 0
+                      ? ord.items.map((it) => `${it.name || it.sku} x${it.quantity || 1}`).join(", ")
+                      : "Đơn hàng";
+                    const buyDate = ord.createdAt
+                      ? new Date(ord.createdAt).toLocaleDateString("vi-VN")
+                      : "—";
+                    return (
+                      <div
+                        key={ord.id || ord.orderCode}
+                        className="rounded-xl border border-slate-800 bg-slate-950 p-2.5 space-y-1 text-[11px]"
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="font-mono font-bold text-slate-200 truncate">
+                              #{ord.kiotVietOrderCode || ord.orderCode}
+                            </span>
+                            {(ord.channel === "KIOTVIET" || ord.syncedKiotViet) && (
+                              <span className="px-1 py-0.2 rounded bg-sky-950 text-sky-400 border border-sky-800/60 text-[9px] font-semibold shrink-0">
+                                KiotViet
+                              </span>
+                            )}
+                          </div>
+                          <span className={`px-1.5 py-0.5 rounded border text-[9px] font-semibold shrink-0 ${statusBadge.cls}`}>
+                            {statusBadge.label}
+                          </span>
+                        </div>
+                        <p className="text-slate-400 line-clamp-2 leading-snug" title={itemsText}>
+                          {itemsText}
+                        </p>
+                        <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                          <span>{buyDate}</span>
+                          <span className="font-bold text-slate-200 tabular-nums">
+                            {Number(ord.finalAmount ?? ord.totalAmount ?? 0).toLocaleString("vi-VN")} đ
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-2.5 text-[11px] text-slate-500 text-center">
+                  {activeOrderPhone
+                    ? "Chưa có đơn hàng nào khớp SĐT trên CRM / KiotViet."
+                    : "Chưa có SĐT để đối soát đơn hàng KiotViet."}
+                </div>
+              )}
 
               {/* Nút to Tạo Đơn Hàng Mới */}
               <button
@@ -5082,6 +5280,7 @@ export default function LiveZaloInbox() {
           setTimeout(() => setToast(null), 3500);
           const orderMsg = `Dạ em đã tạo đơn hàng #${order.orderCode || "KiotViet"} thành công cho mình trên hệ thống Dược Phẩm ADDP rồi ạ! Tổng tiền: ${Number(order.finalAmount || 0).toLocaleString("vi-VN")}đ. Kho đang chuẩn bị đóng gói để gửi sớm nhất cho anh/chị nhé ạ!`;
           setInputMessage(orderMsg);
+          fetchCustomerOrders(order?.phone || activeOrderPhone);
         }}
       />
 

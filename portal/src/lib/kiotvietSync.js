@@ -4,9 +4,11 @@ import { normalizePhone } from "./phone.js";
 import { resolveComboFormulaList } from "./comboResolver.js";
 import { getStoredOrders, upsertStoredOrders } from "./ordersStore.js";
 import {
+  getAllCustomers,
   getOrCreateCustomerByPhone,
   updateCustomer,
 } from "./customerIdentityResolver.js";
+import { getAllCareTasks, appendOrderCareTasks } from "./careAutomation.js";
 import { broadcastMessage } from "./unifiedMessageRouter.js";
 import { getKiotVietConfig, saveKiotVietConfig } from "./kiotvietConnector.js";
 import { isSafePilotMode, isAutoSyncAllowed } from "./pilotConfig.js";
@@ -167,27 +169,56 @@ function mapKiotVietItemToCrmOrder(item, type = "INVOICE", resolvedPhone = "") {
   const discount = Number(item.discount || 0);
   const finalAmount = Number(item.totalPayment || totalAmount - discount || 0);
 
-  // Ánh xạ trạng thái
+  // Ánh xạ trạng thái chuẩn CRM (Đang xử lý / Đang giao hàng / Hoàn thành / Đã hủy)
   let status = "CONFIRMED";
   let deliveryStatus = "CHỜ_ĐÓNG_GÓI";
+  const statusVal = String(item.statusValue || "").trim().toLowerCase();
   if (type === "INVOICE") {
-    // Invoice status: 1: Hoàn thành / Giao thành công, 2: Đã hủy
-    if (item.status === 1 || item.statusValue === "Hoàn thành") {
+    // Invoice status: 1: Hoàn thành / Giao thành công, 2: Đã hủy, 3: Đang xử lý
+    if (item.status === 1 || statusVal === "hoàn thành" || statusVal === "đã giao") {
       status = "DELIVERED";
       deliveryStatus = "GIAO_THÀNH_CÔNG";
-    } else if (item.status === 2 || item.statusValue === "Đã hủy") {
+    } else if (item.status === 2 || statusVal === "đã hủy") {
       status = "CANCELLED";
       deliveryStatus = "ĐÃ_HỦY";
+    } else if (item.status === 3 || statusVal.includes("đang xử lý")) {
+      status = "CONFIRMED";
+      deliveryStatus = "ĐANG_XỬ_LÝ";
     }
   } else {
     // Order status: 1: Phiếu tạm / Chưa xử lý, 2: Đang giao, 3: Hoàn thành, 4: Đã hủy
-    if (item.status === 3 || item.statusValue === "Đã giao hàng" || item.statusValue === "Hoàn thành") {
+    if (
+      item.status === 3 ||
+      statusVal === "đã giao hàng" ||
+      statusVal === "đã giao" ||
+      statusVal === "hoàn thành"
+    ) {
       status = "DELIVERED";
       deliveryStatus = "GIAO_THÀNH_CÔNG";
-    } else if (item.status === 2 || item.statusValue === "Đang giao") {
+    } else if (
+      item.status === 2 ||
+      statusVal === "đang giao" ||
+      statusVal === "đang giao hàng"
+    ) {
       status = "SHIPPING";
       deliveryStatus = "ĐANG_VẬN_CHUYỂN";
-    } else if (item.status === 4 || item.statusValue === "Đã hủy") {
+    } else if (item.status === 4 || statusVal === "đã hủy") {
+      status = "CANCELLED";
+      deliveryStatus = "ĐÃ_HỦY";
+    }
+  }
+
+  // Bổ sung đối chiếu trạng thái giao vận (orderDelivery / invoiceDelivery) nếu chưa hoàn tất/hủy
+  const deliveryObj = item.invoiceDelivery || item.orderDelivery;
+  if (deliveryObj && status !== "DELIVERED" && status !== "CANCELLED") {
+    const delivVal = String(deliveryObj.statusValue || "").trim().toLowerCase();
+    if (deliveryObj.status === 3 || delivVal.includes("đã giao") || delivVal.includes("hoàn thành")) {
+      status = "DELIVERED";
+      deliveryStatus = "GIAO_THÀNH_CÔNG";
+    } else if (deliveryObj.status === 2 || delivVal.includes("đang giao")) {
+      status = "SHIPPING";
+      deliveryStatus = "ĐANG_VẬN_CHUYỂN";
+    } else if (deliveryObj.status === 4 || deliveryObj.status === 5 || delivVal.includes("hủy") || delivVal.includes("chuyển hoàn")) {
       status = "CANCELLED";
       deliveryStatus = "ĐÃ_HỦY";
     }
@@ -241,9 +272,71 @@ function mapKiotVietItemToCrmOrder(item, type = "INVOICE", resolvedPhone = "") {
 }
 
 /**
- * Cập nhật số liệu chi tiêu & số đơn của Khách Hàng 360
+ * Tính toán tổng hợp đơn hàng (Tổng chi tiêu, Số đơn, Tỷ lệ nhận hàng) theo SĐT chuẩn hóa
  */
-async function updateCustomer360ForOrder(order) {
+export function calculateOrderSummaryForPhone(orders = [], rawPhone = "") {
+  const normPhone = normalizePhone(rawPhone);
+  const matched = normPhone
+    ? (Array.isArray(orders) ? orders : []).filter(
+        (o) => normalizePhone(o.phone) === normPhone
+      )
+    : Array.isArray(orders)
+    ? orders
+    : [];
+
+  const activeOrders = matched.filter((o) => o.status !== "CANCELLED");
+  const totalOrders = activeOrders.length;
+  const totalSpent = activeOrders.reduce(
+    (sum, o) => sum + Number(o.finalAmount ?? o.totalAmount ?? 0),
+    0
+  );
+  const deliveredCount = matched.filter((o) => o.status === "DELIVERED").length;
+  const cancelledCount = matched.filter((o) => o.status === "CANCELLED").length;
+  const terminalCount = deliveredCount + cancelledCount;
+  const deliveryRate =
+    matched.length === 0
+      ? "0%"
+      : terminalCount === 0
+      ? "100%"
+      : `${Math.round((deliveredCount / terminalCount) * 100)}%`;
+
+  return {
+    totalOrders,
+    totalSpent,
+    deliveredCount,
+    cancelledCount,
+    deliveryRate,
+  };
+}
+
+/**
+ * Tự động sinh Lịch Chăm Sóc (Ngày 1, 3, 7, 14, 21, 1/2, 2/3) cho các đơn hàng đã Hoàn thành / Đã giao
+ */
+export function triggerCareScheduleForDeliveredOrders(orders = []) {
+  let createdCount = 0;
+  try {
+    getAllCareTasks(getAllCustomers());
+    for (const order of orders) {
+      if (order && order.status === "DELIVERED") {
+        const created = appendOrderCareTasks({
+          ...order,
+          channel: order.channel || "KIOTVIET",
+        });
+        if (Array.isArray(created)) {
+          createdCount += created.length;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[KIOTVIET_CARE_SCHEDULE_WARN]", err?.message || err);
+  }
+  return createdCount;
+}
+
+/**
+ * Cập nhật số liệu chi tiêu & số đơn của Khách Hàng 360 (không cộng dồn trùng lặp)
+ */
+async function updateCustomer360ForOrder(order, allOrders = null) {
   if (!order.phone) return;
   try {
     const cust = await getOrCreateCustomerByPhone({
@@ -269,14 +362,15 @@ async function updateCustomer360ForOrder(order) {
         }
       }
 
-      const prevOrders = Number(cust.totalOrders) || 0;
-      const prevSpent = Number(cust.totalSpent) || 0;
+      const ordersSource = Array.isArray(allOrders) ? allOrders : getStoredOrders();
+      const summary = calculateOrderSummaryForPhone(ordersSource, order.phone);
 
       updateCustomer(cust.id, {
         fullName: order.customerName || cust.fullName,
         address: order.address || cust.address,
-        totalOrders: Math.max(prevOrders + 1, 1),
-        totalSpent: prevSpent + order.finalAmount,
+        totalOrders: Math.max(summary.totalOrders, 1),
+        totalSpent: summary.totalSpent,
+        deliveryRate: summary.deliveryRate,
         lastOrderDate: (order.createdAt || new Date().toISOString()).slice(0, 10),
         tags: Array.from(currentTags),
       });
@@ -419,26 +513,30 @@ export async function syncAllKiotVietOrders({
     // 3. Upsert vào bộ nhớ và file orders.json
     const allStored = upsertStoredOrders(mappedOrders);
 
-    // 4. Cập nhật hồ sơ khách hàng 360 cho các đơn mới (chạy nền)
+    // 4. Tự động sinh Lịch Chăm Sóc (Ngày 1, 3, 7, 14, 21) cho đơn Hoàn thành / Đã giao
+    const careTasksCreated = triggerCareScheduleForDeliveredOrders(mappedOrders);
+
+    // 5. Cập nhật hồ sơ khách hàng 360 cho các đơn mới (chạy nền)
     setTimeout(() => {
       for (const o of mappedOrders) {
-        updateCustomer360ForOrder(o);
+        updateCustomer360ForOrder(o, allStored);
       }
     }, 100);
 
-    // 5. Cập nhật thời điểm đồng bộ
+    // 6. Cập nhật thời điểm đồng bộ
     const nowIso = new Date().toISOString();
     syncCache.lastSyncTime = Date.now();
     saveKiotVietConfig({
       lastSyncedAt: nowIso,
     });
 
-    // 6. Phát SSE cập nhật giao diện thời gian thực
+    // 7. Phát SSE cập nhật giao diện thời gian thực
     broadcastMessage({
       type: "KIOTVIET_SYNC_SUCCESS",
       count: mappedOrders.length,
       syncedInvoicesCount,
       syncedOrdersCount,
+      careTasksCreated,
       timestamp: nowIso,
     });
 
@@ -447,9 +545,10 @@ export async function syncAllKiotVietOrders({
       syncedCount: mappedOrders.length,
       syncedInvoicesCount,
       syncedOrdersCount,
+      careTasksCreated,
       totalOrders: allStored.length,
       durationMs: Date.now() - startTime,
-      message: `Đã đồng bộ thành công ${mappedOrders.length} đơn hàng & hóa đơn từ KiotViet (${syncedInvoicesCount} hóa đơn, ${syncedOrdersCount} đơn đặt hàng)!`,
+      message: `Đã đồng bộ thành công ${mappedOrders.length} đơn hàng & hóa đơn từ KiotViet (${syncedInvoicesCount} hóa đơn, ${syncedOrdersCount} đơn đặt hàng)${careTasksCreated > 0 ? `, tạo ${careTasksCreated} lịch chăm sóc mới` : ""}!`,
     };
   } catch (err) {
     console.error("[KIOTVIET_SYNC_EXCEPTION]", err);
@@ -515,4 +614,173 @@ export async function registerKiotVietWebhooks(targetUrl = null) {
   }
 
   return { ok: true, webhooks: results, targetUrl: finalUrl };
+}
+
+/**
+ * Đồng bộ đơn hàng & hóa đơn KiotViet theo SĐT khách hàng cụ thể (dùng cho nút "Đồng bộ KiotViet" ở Inbox / Hồ sơ 360)
+ * - Chuẩn hóa SĐT 10 số qua normalizePhone()
+ * - Kéo đơn mới nhất từ KiotViet (nếu có cấu hình & ngoài safe-mode) hoặc đối soát đơn đã lưu
+ * - Tự động tạo/cập nhật Lịch Chăm Sóc (Ngày 1, 3, 7, 14, 21) cho đơn Hoàn thành / Đã giao
+ * - Cập nhật Tổng chi tiêu, Số đơn, Tỷ lệ nhận hàng vào Hồ sơ Khách hàng 360
+ */
+export async function syncKiotVietOrdersByPhone(rawPhone) {
+  const cleanPhone = normalizePhone(rawPhone);
+  if (!cleanPhone) {
+    return { ok: false, error: "Số điện thoại khách hàng không hợp lệ để đồng bộ KiotViet." };
+  }
+
+  const getMatchedLocal = (ordersList) =>
+    (Array.isArray(ordersList) ? ordersList : [])
+      .filter((o) => normalizePhone(o.phone) === cleanPhone)
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt || b.createdDate || 0).getTime() -
+          new Date(a.createdAt || a.createdDate || 0).getTime()
+      );
+
+  // Nếu đang ở safe-mode hoặc chưa cấu hình KiotViet API, vẫn đồng bộ trạng thái & lịch chăm sóc từ dữ liệu nội bộ
+  const canCallRemote = !isSafePilotMode() && isAutoSyncAllowed();
+  const tokenRes = canCallRemote ? await getKiotVietSyncToken() : { ok: false, error: "PILOT_SAFE_MODE" };
+
+  if (!canCallRemote || !tokenRes.ok) {
+    const existingOrders = getMatchedLocal(getStoredOrders());
+    const careTasksCreated = triggerCareScheduleForDeliveredOrders(existingOrders);
+    const summary = calculateOrderSummaryForPhone(existingOrders, cleanPhone);
+    if (existingOrders.length > 0) {
+      await updateCustomer360ForOrder(existingOrders[0], existingOrders);
+    }
+    return {
+      ok: true,
+      mode: "local",
+      phone: cleanPhone,
+      syncedCount: 0,
+      orders: existingOrders,
+      summary,
+      careTasksCreated,
+      warning: !canCallRemote
+        ? "Đang ở chế độ an toàn (Safe Mode) — đã đối soát đơn hàng CRM hiện có."
+        : tokenRes.error || "Chưa kết nối KiotViet API — đã đối soát đơn hàng CRM hiện có.",
+      message: `Đã đối soát ${existingOrders.length} đơn hàng cho SĐT ${cleanPhone}${careTasksCreated > 0 ? ` và tạo ${careTasksCreated} lịch chăm sóc mới` : ""}.`,
+    };
+  }
+
+  try {
+    const token = tokenRes.token;
+    const cfg = getKiotVietConfig();
+    const retailer = cfg.retailer || process.env.KIOTVIET_RETAILER || "0904637007";
+
+    // 1. Tìm khách hàng trên KiotViet theo SĐT
+    const custRes = await fetch(
+      `${KIOTVIET_API_BASE}/customers?contactNumber=${encodeURIComponent(cleanPhone)}&pageSize=20`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Retailer: retailer,
+          "User-Agent": "ADDP-CRM/1.0",
+        },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    const matchedCustomerIds = [];
+    if (custRes.ok) {
+      const custData = await custRes.json().catch(() => ({}));
+      const list = Array.isArray(custData?.data) ? custData.data : [];
+      for (const c of list) {
+        const cPhone = normalizePhone(c.contactNumber || c.mobilePhone || "");
+        if (cPhone === cleanPhone && c.id) {
+          matchedCustomerIds.push(c.id);
+        }
+      }
+    }
+
+    const mappedOrders = [];
+    for (const kvCustId of matchedCustomerIds) {
+      // Kéo Hóa đơn (Invoices) của khách hàng
+      try {
+        const invRes = await fetch(
+          `${KIOTVIET_API_BASE}/invoices?customerIds=${kvCustId}&pageSize=100&orderBy=createdDate&orderDirection=Desc&includeInvoiceDelivery=true`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Retailer: retailer,
+              "User-Agent": "ADDP-CRM/1.0",
+            },
+            signal: AbortSignal.timeout(12000),
+          }
+        );
+        if (invRes.ok) {
+          const invData = await invRes.json().catch(() => ({}));
+          for (const inv of invData?.data || []) {
+            mappedOrders.push(mapKiotVietItemToCrmOrder(inv, "INVOICE", cleanPhone));
+          }
+        }
+      } catch (e) {
+        console.warn("[KIOTVIET_PHONE_INVOICE_WARN]", e.message);
+      }
+
+      // Kéo Đơn đặt hàng (Orders) của khách hàng
+      try {
+        const ordRes = await fetch(
+          `${KIOTVIET_API_BASE}/orders?customerIds=${kvCustId}&pageSize=100&orderBy=createdDate&orderDirection=Desc&includeOrderDelivery=true`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Retailer: retailer,
+              "User-Agent": "ADDP-CRM/1.0",
+            },
+            signal: AbortSignal.timeout(12000),
+          }
+        );
+        if (ordRes.ok) {
+          const ordData = await ordRes.json().catch(() => ({}));
+          for (const ord of ordData?.data || []) {
+            mappedOrders.push(mapKiotVietItemToCrmOrder(ord, "ORDER", cleanPhone));
+          }
+        }
+      } catch (e) {
+        console.warn("[KIOTVIET_PHONE_ORDER_WARN]", e.message);
+      }
+    }
+
+    const allStored =
+      mappedOrders.length > 0 ? upsertStoredOrders(mappedOrders) : getStoredOrders();
+    const matchedOrders = getMatchedLocal(allStored);
+    const careTasksCreated = triggerCareScheduleForDeliveredOrders(matchedOrders);
+    const summary = calculateOrderSummaryForPhone(matchedOrders, cleanPhone);
+
+    if (matchedOrders.length > 0) {
+      await updateCustomer360ForOrder(matchedOrders[0], matchedOrders);
+    }
+
+    if (mappedOrders.length > 0) {
+      broadcastMessage({
+        type: "KIOTVIET_SYNC_SUCCESS",
+        phone: cleanPhone,
+        count: mappedOrders.length,
+        careTasksCreated,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return {
+      ok: true,
+      mode: "kiotviet_api",
+      phone: cleanPhone,
+      syncedCount: mappedOrders.length,
+      orders: matchedOrders,
+      summary,
+      careTasksCreated,
+      message:
+        mappedOrders.length > 0
+          ? `Đã đồng bộ ${mappedOrders.length} đơn từ KiotViet cho ${cleanPhone}${careTasksCreated > 0 ? ` (tạo ${careTasksCreated} lịch chăm sóc)` : ""}!`
+          : `Không có đơn mới trên KiotViet cho ${cleanPhone} (hiển thị ${matchedOrders.length} đơn CRM).`,
+    };
+  } catch (err) {
+    console.error("[KIOTVIET_SYNC_PHONE_ERR]", err);
+    return {
+      ok: false,
+      error: `Lỗi đồng bộ KiotViet cho SĐT ${cleanPhone}: ${err.message}`,
+    };
+  }
 }

@@ -8,12 +8,27 @@ export const dynamic = "force-dynamic";
 
 const RULES_PATH = path.join(process.cwd(), "config", "auto_reply_rules.json");
 
+function normalizeRule(rule) {
+  const targetChannels = Array.isArray(rule.targetChannels)
+    ? [...new Set(rule.targetChannels.map((c) => String(c).trim()).filter(Boolean))]
+    : [];
+  const scopeMode =
+    rule.scopeMode === "SELECTED" || (rule.scopeMode !== "ALL" && targetChannels.length > 0)
+      ? "SELECTED"
+      : "ALL";
+  return {
+    ...rule,
+    scopeMode,
+    targetChannels: scopeMode === "SELECTED" ? targetChannels : [],
+  };
+}
+
 function getAutoReplyRules() {
   if (fs.existsSync(RULES_PATH)) {
     try {
       const raw = fs.readFileSync(RULES_PATH, "utf8");
       const list = JSON.parse(raw);
-      if (Array.isArray(list)) return list;
+      if (Array.isArray(list)) return list.map(normalizeRule);
     } catch {}
   }
 
@@ -25,6 +40,8 @@ function getAutoReplyRules() {
       keywords: ["giá", "bao nhiêu", "giá bao nhiêu", "nhiêu tiền", "bao tiền"],
       matchType: "CONTAINS",
       channels: ["ALL"],
+      scopeMode: "ALL",
+      targetChannels: [],
       replyText: "Dạ chào {fullName}! Sữa hạt Glucare Plus chuyên biệt cho người tiểu đường & tiền tiểu đường hiện đang có chương trình dùng thử chỉ 9.000đ/gói hoặc hộp lon 400g/900g ưu đãi kèm quà tặng. Mình đang quan tâm dòng hộp lon hay gói tiện lợi để em báo giá chi tiết và gửi thực đơn dinh dưỡng cho mình ạ?",
       delaySeconds: 5,
       enabled: true,
@@ -38,6 +55,8 @@ function getAutoReplyRules() {
       keywords: ["cách dùng", "uống như nào", "uống lúc nào", "liều lượng", "hướng dẫn dùng"],
       matchType: "CONTAINS",
       channels: ["ALL"],
+      scopeMode: "ALL",
+      targetChannels: [],
       replyText: "Dạ {fullName} ơi, tốt nhất mình nên uống 1 cốc nước ấm vào buổi sáng ngủ dậy, sau đó pha 3 muỗng gạt sữa hạt Glucare Plus với 150ml nước ấm (50-60 độ C) dùng thay thế bữa sáng hoặc bữa phụ lúc 15h chiều ạ. Bác sĩ nhà em dặn dùng đều đặn 2 ly/ngày sẽ giúp ổn định đường huyết rất êm bụng. Hiện tại chỉ số đường huyết lúc đói của mình đang là bao nhiêu ạ?",
       delaySeconds: 8,
       enabled: true,
@@ -51,6 +70,8 @@ function getAutoReplyRules() {
       keywords: ["đơn hàng", "khi nào giao", "mã vận đơn", "giao chưa", "gửi chưa"],
       matchType: "CONTAINS",
       channels: ["ALL"],
+      scopeMode: "ALL",
+      targetChannels: [],
       replyText: "Dạ {fullName}, em đã tiếp nhận yêu cầu kiểm tra đơn của mình. Chuyên viên chăm sóc {assignedStaff} đang đối soát ngay mã vận đơn để gửi lộ trình giao hàng trực tiếp qua Zalo cho mình trong ít phút nữa ạ. Mình cho em xin số điện thoại đặt hàng để em tra cứu nhanh nhất nhé?",
       delaySeconds: 5,
       enabled: true,
@@ -92,7 +113,17 @@ export async function POST(request) {
     if (!guard.ok) return guard.response;
 
     const body = await request.json();
-    const { name, keywords, matchType, channels, replyText, delaySeconds, enabled } = body;
+    const {
+      name,
+      keywords,
+      matchType,
+      channels,
+      scopeMode,
+      targetChannels,
+      replyText,
+      delaySeconds,
+      enabled,
+    } = body;
 
     if (!name || !replyText) {
       return NextResponse.json(
@@ -116,19 +147,38 @@ export async function POST(request) {
       );
     }
 
-    const newRule = {
+    const cleanTargetChannels = Array.isArray(targetChannels)
+      ? [...new Set(targetChannels.map((c) => String(c).trim()).filter(Boolean))]
+      : [];
+    const normalizedScopeMode = scopeMode === "SELECTED" ? "SELECTED" : "ALL";
+
+    if (normalizedScopeMode === "SELECTED" && cleanTargetChannels.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Vui lòng chọn ít nhất 1 kênh hoặc tài khoản áp dụng." },
+        { status: 400 }
+      );
+    }
+
+    const newRule = normalizeRule({
       id: `rule_${Date.now()}`,
       name: String(name).trim(),
       keywords: cleanKeywords,
       matchType: matchType || "CONTAINS",
-      channels: Array.isArray(channels) && channels.length > 0 ? channels : ["ALL"],
+      scopeMode: normalizedScopeMode,
+      targetChannels: normalizedScopeMode === "SELECTED" ? cleanTargetChannels : [],
+      channels:
+        normalizedScopeMode === "SELECTED"
+          ? cleanTargetChannels
+          : Array.isArray(channels) && channels.length > 0
+          ? channels
+          : ["ALL"],
       replyText: String(replyText).trim(),
       delaySeconds: Math.max(2, Math.min(60, Number(delaySeconds) || 5)),
       enabled: enabled !== false,
       triggerCount: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    };
+    });
 
     rules.unshift(newRule);
     saveAutoReplyRules(rules);
@@ -151,7 +201,18 @@ export async function PUT(request) {
     if (!guard.ok) return guard.response;
 
     const body = await request.json();
-    const { id, name, keywords, matchType, channels, replyText, delaySeconds, enabled } = body;
+    const {
+      id,
+      name,
+      keywords,
+      matchType,
+      channels,
+      scopeMode,
+      targetChannels,
+      replyText,
+      delaySeconds,
+      enabled,
+    } = body;
 
     if (!id) {
       return NextResponse.json({ ok: false, error: "Thiếu ID quy tắc cần cập nhật." }, { status: 400 });
@@ -172,17 +233,42 @@ export async function PUT(request) {
           .filter(Boolean)
       : rules[idx].keywords;
 
-    rules[idx] = {
+    const nextScopeMode =
+      scopeMode !== undefined
+        ? scopeMode === "SELECTED"
+          ? "SELECTED"
+          : "ALL"
+        : rules[idx].scopeMode || "ALL";
+    const nextTargetChannels =
+      nextScopeMode === "ALL"
+        ? []
+        : targetChannels !== undefined
+        ? [...new Set((Array.isArray(targetChannels) ? targetChannels : []).map((c) => String(c).trim()).filter(Boolean))]
+        : rules[idx].targetChannels || [];
+
+    if (nextScopeMode === "SELECTED" && nextTargetChannels.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Vui lòng chọn ít nhất 1 kênh hoặc tài khoản áp dụng." },
+        { status: 400 }
+      );
+    }
+
+    rules[idx] = normalizeRule({
       ...rules[idx],
       ...(name ? { name: String(name).trim() } : {}),
       keywords: cleanKeywords,
       ...(matchType ? { matchType } : {}),
-      ...(channels ? { channels } : {}),
+      scopeMode: nextScopeMode,
+      targetChannels: nextTargetChannels,
+      channels:
+        nextScopeMode === "SELECTED"
+          ? nextTargetChannels
+          : channels || ["ALL"],
       ...(replyText !== undefined ? { replyText: String(replyText).trim() } : {}),
       ...(delaySeconds !== undefined ? { delaySeconds: Math.max(2, Math.min(60, Number(delaySeconds) || 5)) } : {}),
       ...(enabled !== undefined ? { enabled: Boolean(enabled) } : {}),
       updatedAt: new Date().toISOString(),
-    };
+    });
 
     saveAutoReplyRules(rules);
     return NextResponse.json({ ok: true, rule: rules[idx], rules });

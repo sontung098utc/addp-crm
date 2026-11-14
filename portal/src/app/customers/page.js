@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { Send } from "lucide-react";
 import { VIP_LEVELS, calculateVipLevel } from "@/lib/customerTiers";
+import BulkMessageModal from "../components/BulkMessageModal";
 
 const CHANNEL_META = {
   KHACHHANG_OLD: {
@@ -146,12 +148,14 @@ export default function CustomersPage() {
   const [deletingCustomer, setDeletingCustomer] = useState(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
-  // Chọn hàng loạt & Thao tác hàng loạt (Bulk Selection / Bulk Tag / Bulk Delete)
+  // Chọn hàng loạt & Thao tác hàng loạt (Bulk Selection / Bulk Tag / Bulk Delete / Bulk Message)
   const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
   const [isBulkTagModalOpen, setIsBulkTagModalOpen] = useState(false);
   const [selectedBulkTagId, setSelectedBulkTagId] = useState("");
   const [customBulkTagName, setCustomBulkTagName] = useState("");
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isBulkMessageModalOpen, setIsBulkMessageModalOpen] = useState(false);
+  const [zaloAccounts, setZaloAccounts] = useState([]);
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
 
   const fetchCustomers = async () => {
@@ -189,6 +193,21 @@ export default function CustomersPage() {
       .then((data) => {
         if (data?.ok && Array.isArray(data.staff || data.staffList)) {
           setStaffDirectory(data.staff || data.staffList);
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/channels", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.ok && Array.isArray(data.channels)) {
+          const zaloChs = data.channels.filter(
+            (ch) =>
+              ch.platform === "ZALO_PERSONAL" ||
+              ch.type === "zalo_personal" ||
+              ch.platform === "ZALO_OA"
+          );
+          setZaloAccounts(zaloChs);
         }
       })
       .catch(() => {});
@@ -402,6 +421,45 @@ export default function CustomersPage() {
     const start = (currentPage - 1) * PAGE_SIZE;
     return customers.slice(start, start + PAGE_SIZE);
   }, [customers, currentPage]);
+
+  const selectedCustomers = useMemo(() => {
+    if (selectedCustomerIds.length === 0) return [];
+    const idSet = new Set(selectedCustomerIds);
+    return customers
+      .filter((c) => idSet.has(c.id))
+      .map((c) => ({
+        id: c.id,
+        name: c.fullName || c.name || "Khách hàng",
+        fullName: c.fullName || c.name || "Khách hàng",
+        phone: c.phone || "",
+        zaloId: c.zaloUid || c.zaloThreadId || c.zaloId || null,
+        zaloUid: c.zaloUid || c.zaloThreadId || c.zaloId || null,
+        zaloThreadId: c.zaloThreadId || c.zaloUid || c.threadId || null,
+        threadId: c.zaloThreadId || c.threadId || null,
+        facebookId: c.facebookId || c.psid || null,
+        zaloOaUserId: c.zaloOaUserId || c.oaUserId || null,
+        channel:
+          c.normalizedPlatform ||
+          c.sourceChannel ||
+          c.source ||
+          c.channel ||
+          "ZALO_PERSONAL",
+        pathology: c.pathology || "",
+        assignedStaff: c.assignedStaff || c.staffName || "",
+        purchasedProducts: Array.isArray(c.purchasedProducts) ? c.purchasedProducts : [],
+        tags: Array.isArray(c.tags) ? c.tags : [],
+      }));
+  }, [customers, selectedCustomerIds]);
+
+  const selectedValidContactCount = useMemo(() => {
+    return selectedCustomers.filter((c) => {
+      const phoneDigits = String(c.phone || "").replace(/\D/g, "");
+      return (
+        phoneDigits.length >= 9 ||
+        Boolean(c.zaloUid || c.zaloThreadId || c.zaloId || c.facebookId)
+      );
+    }).length;
+  }, [selectedCustomers]);
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -1284,12 +1342,24 @@ export default function CustomersPage() {
 
       {/* Thanh Tác Vụ Hàng Loạt Nổi (Floating Bulk Action Bar) */}
       {selectedCustomerIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex items-center gap-4 z-50 border border-slate-700">
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl flex flex-wrap items-center gap-3 z-50 border border-slate-700 max-w-[95vw]">
           <span className="text-sm font-medium whitespace-nowrap">
             Đã chọn <b className="text-blue-400">{selectedCustomerIds.length}</b> khách hàng
+            <span className="ml-1.5 text-xs text-emerald-400">
+              ({selectedValidContactCount} có SĐT/Zalo)
+            </span>
           </span>
 
-          <div className="h-5 w-[1px] bg-slate-700" />
+          <div className="h-5 w-[1px] bg-slate-700 hidden sm:block" />
+
+          <button
+            type="button"
+            onClick={() => setIsBulkMessageModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-emerald-600 hover:from-purple-500 hover:to-emerald-500 text-white rounded-lg text-xs font-bold shadow-md shadow-purple-500/20 transition-all cursor-pointer whitespace-nowrap"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>Gửi Tin Nhắn Hàng Loạt</span>
+          </button>
 
           <button
             type="button"
@@ -1310,7 +1380,7 @@ export default function CustomersPage() {
           <button
             type="button"
             onClick={() => setSelectedCustomerIds([])}
-            className="text-xs text-slate-400 hover:text-white ml-2 cursor-pointer whitespace-nowrap"
+            className="text-xs text-slate-400 hover:text-white ml-1 cursor-pointer whitespace-nowrap"
           >
             Bỏ chọn
           </button>
@@ -1448,6 +1518,23 @@ export default function CustomersPage() {
           </div>
         </div>
       )}
+
+      {/* Modal Gửi Tin Nhắn Hàng Loạt */}
+      <BulkMessageModal
+        isOpen={isBulkMessageModalOpen}
+        onClose={() => setIsBulkMessageModalOpen(false)}
+        zaloAccounts={zaloAccounts}
+        availableTags={tagCatalog}
+        initialSelectedCustomers={selectedCustomers}
+        onCampaignCreated={(camp) => {
+          setIsBulkMessageModalOpen(false);
+          setSelectedCustomerIds([]);
+          setActionMessage({
+            type: "success",
+            text: `Đã khởi tạo chiến dịch "${camp?.name || "Gửi tin hàng loạt"}" cho ${camp?.totalRecipients || selectedValidContactCount} khách hàng!`,
+          });
+        }}
+      />
     </div>
   );
 }

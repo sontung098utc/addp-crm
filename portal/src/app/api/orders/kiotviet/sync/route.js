@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { guardApiRequest } from "@/lib/rbac.js";
 import {
   syncAllKiotVietOrders,
+  syncKiotVietOrdersByPhone,
   registerKiotVietWebhooks,
 } from "@/lib/kiotvietSync.js";
 import { getStoredOrders } from "@/lib/ordersStore.js";
@@ -53,6 +54,13 @@ export async function POST(request) {
     }
 
     const body = await request.json().catch(() => ({}));
+
+    // Nếu truyền phone cụ thể (từ Inbox / Hồ sơ 360), chỉ đồng bộ cho khách hàng đó
+    if (body?.phone) {
+      const phoneResult = await syncKiotVietOrdersByPhone(body.phone);
+      return NextResponse.json(phoneResult, { status: phoneResult.ok ? 200 : 400 });
+    }
+
     const mode = body?.mode || "incremental"; // "incremental" | "full"
     const maxPages = Number(body?.maxPages || (mode === "full" ? 50 : 15));
     const registerWebhooksFlag = Boolean(body?.registerWebhooks);

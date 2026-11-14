@@ -5,7 +5,9 @@ import {
   updateOrderStatus,
 } from "@/lib/ordersStore";
 import { getSessionStaff } from "@/lib/auth";
-import { filterRecordsByRbac } from "@/lib/rbac";
+import { filterRecordsByRbac, buildDataScopeFilter } from "@/lib/rbac";
+import { normalizePhone } from "@/lib/phone";
+import { calculateOrderSummaryForPhone } from "@/lib/kiotvietSync";
 
 export const dynamic = "force-dynamic";
 
@@ -16,31 +18,91 @@ export async function GET(req) {
     const channel = searchParams.get("channel");
     const status = searchParams.get("status");
     const search = searchParams.get("search");
+    const phoneParam = searchParams.get("phone");
 
     let orders = getStoredOrders();
 
-    // 1. Lọc RBAC (Điều 5 AGENTS.md)
+    // 1. Tra cứu nhanh theo SĐT chuẩn hóa (dùng cho Inbox Right Panel & Hồ sơ 360)
+    if (phoneParam !== null) {
+      const normPhone = normalizePhone(phoneParam);
+      const scope = buildDataScopeFilter(staff, "orders");
+      if (!scope.allowed || !normPhone) {
+        return NextResponse.json({
+          ok: true,
+          total: 0,
+          orders: [],
+          summary: {
+            totalOrders: 0,
+            totalSpent: 0,
+            deliveredCount: 0,
+            cancelledCount: 0,
+            deliveryRate: "0%",
+          },
+        });
+      }
+
+      let matched = orders.filter((o) => normalizePhone(o.phone) === normPhone);
+
+      if (scope.scopeType !== "COMPANY_ALL" && scope.scopeType !== "OPERATIONS_ONLY") {
+        matched = matched.filter(
+          (o) =>
+            filterRecordsByRbac(staff, [o], "orders").length > 0 ||
+            ((o.channel === "KIOTVIET" || o.syncedKiotViet) && !o.staffId)
+        );
+      }
+
+      if (!scope.canViewFinancialCost) {
+        matched = matched.map((o) => {
+          const clone = { ...o };
+          delete clone.costPrice;
+          delete clone.cogs;
+          delete clone.grossProfit;
+          delete clone.netProfit;
+          delete clone.adsCost;
+          delete clone.kiotVietPayload;
+          return clone;
+        });
+      }
+
+      matched.sort(
+        (a, b) =>
+          new Date(b.createdAt || b.createdDate || 0).getTime() -
+          new Date(a.createdAt || a.createdDate || 0).getTime()
+      );
+
+      const summary = calculateOrderSummaryForPhone(matched, normPhone);
+      return NextResponse.json({
+        ok: true,
+        total: matched.length,
+        orders: matched,
+        summary,
+      });
+    }
+
+    // 2. Lọc RBAC (Điều 5 AGENTS.md)
     orders = filterRecordsByRbac(staff, orders, "orders");
 
-    // 2. Lọc theo kênh
+    // 3. Lọc theo kênh
     if (channel && channel !== "ALL") {
       orders = orders.filter((o) => o.channel === channel);
     }
 
-    // 3. Lọc theo trạng thái
+    // 4. Lọc theo trạng thái
     if (status && status !== "ALL") {
       orders = orders.filter((o) => o.status === status);
     }
 
-    // 4. Tìm kiếm từ khóa (Mã đơn, Mã KiotViet, SĐT, Tên)
+    // 5. Tìm kiếm từ khóa (Mã đơn, Mã KiotViet, SĐT chuẩn hóa, Tên)
     if (search && search.trim()) {
       const q = search.trim().toLowerCase();
+      const normQ = normalizePhone(search);
       orders = orders.filter(
         (o) =>
           o.orderCode?.toLowerCase().includes(q) ||
           o.kiotVietOrderCode?.toLowerCase().includes(q) ||
           o.customerName?.toLowerCase().includes(q) ||
-          o.phone?.includes(q)
+          o.phone?.includes(q) ||
+          (normQ && normalizePhone(o.phone).includes(normQ))
       );
     }
 
