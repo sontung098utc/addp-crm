@@ -124,4 +124,7 @@
 - `NÂNG_CẤP_03`: **Nối LLM thật + Vector RAG + Kịch bản Bác sĩ 3 bước:** Chấm dứt triệt để tình trạng lặp câu hỏi, tư vấn dinh dưỡng ăn đảo ngược & sữa hạt chuyên sâu.
 - `NÂNG_CẤP_04`: **Cơ chế xóa Bot vĩnh viễn (`deleted_bot_profiles.json`):** Ngăn chặn hệ thống tự động tái sinh bot đã xóa; bổ sung nút phục hồi Bot mặc định.
 - `NÂNG_CẤP_05`: **Watcher 24/7 & Cửa sổ phản hồi 30 phút:** Tự động trả lời ngầm không cần mở tab trình duyệt.
+- `NÂNG_CẤP_06`: **Prompt Caching thông minh (OpenAI / Anthropic / Gemini):** Chuẩn hóa tiền tố tĩnh Bác sĩ 10 năm (>1.024 tokens) giảm 50-90% chi phí token đầu vào; theo dõi lượng token cached và tích lũy tiền tiết kiệm VNĐ/USD.
+- `NÂNG_CẤP_07`: **Cảnh báo Khách hàng Cáu gắt & Auto-Handover (Sentiment Alert):** Phát hiện tức thì khách phàn nàn, đe dọa, đòi gặp quản lý; tự động ngắt bot AI sang HUMAN để bảo vệ thương hiệu; tỷ lệ False Positive 0% trên triệu chứng bệnh lý.
+- `NÂNG_CẤP_08`: **AI Lead Scoring (Chấm điểm mức độ quan tâm HOT/WARM/COLD):** Đánh giá ý định mua hàng 0-100 điểm, tự động phân cấp khách và gợi ý hành động chốt đơn tức thì cho Sale.
 

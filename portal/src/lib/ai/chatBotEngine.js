@@ -20,6 +20,10 @@ import {
   extractMedicalEntities,
   analyzeVietnameseGenderAndPronoun,
 } from "../customerStore.js";
+import { processMessageForSentimentAlert } from "./sentimentAlertStore.js";
+import { buildDeterministicPrompt, SENIOR_DOCTOR_STATIC_PREFIX } from "./promptCache.js";
+import { evaluateLeadScore } from "./leadScorer.js";
+import { recalculateAndSaveLeadScore } from "./leadScoreStore.js";
 
 /**
  * Xác định cách xưng hô giới tính khách hàng ("chị" / "anh" / "mình") và tên ngắn gọn (ví dụ "chị Quyên", "anh Hoàng")
@@ -835,6 +839,61 @@ export async function generateHumanLikeReply({
     conversationHistory
   );
 
+  // 1b. Phân tích sắc thái khách hàng: Phát hiện cáu gắt & tự động kích hoạt bảo vệ thương hiệu
+  const sentimentCheck = processMessageForSentimentAlert({
+    messageText: cleanMessage,
+    customerId: customerProfile?.id || customerProfile?.customerId || customerProfile?.phone,
+    customerName,
+    customerPhone,
+    channelId: channelConfig?.channelId || channelConfig?.id || "DEFAULT",
+    threadId: customerProfile?.threadId || customerProfile?.id,
+  });
+
+  // 1c. Đánh giá Lead Scoring (HOT / WARM / COLD) & Cập nhật Hồ sơ Khách hàng
+  let leadScoreResult = null;
+  try {
+    const custId = customerProfile?.id || customerProfile?.customerId || customerProfile?.phone;
+    const allMsgs = [...(conversationHistory || []), { role: "user", text: cleanMessage }];
+    if (custId) {
+      const res = recalculateAndSaveLeadScore(customerProfile || custId, allMsgs);
+      leadScoreResult = res?.leadScore || null;
+    } else {
+      leadScoreResult = evaluateLeadScore({
+        messages: allMsgs,
+        customer: customerProfile,
+      });
+    }
+  } catch (err) {
+    console.warn("[LEAD_SCORE_CALC_WARN]", err.message);
+  }
+
+  if (sentimentCheck.handoverTriggered) {
+    const custTitle = pronounInfo.customerTitle || "mình";
+    const deescalationReply = `Dạ em xin lỗi ${custTitle} vì trải nghiệm chưa trọn vẹn ạ! Em đã báo ngay cho Dược sĩ trưởng và Quản lý để trực tiếp kiểm tra và gọi điện hỗ trợ giải quyết thỏa đáng ngay cho ${custTitle} nhé ạ.`;
+    return {
+      replyText: deescalationReply,
+      typingDelayMs: 2000,
+      detectedPhone,
+      sentiment: sentimentCheck.sentiment,
+      sentimentAlert: sentimentCheck.alert,
+      handoverTriggered: true,
+      requiresHandover: true,
+      leadScore: leadScoreResult,
+      leadTier: leadScoreResult?.tier || "COLD",
+      staffName,
+      pronounInfo,
+      medicalRecord: {
+        bloodSugar: knownState.bloodSugar,
+        bloodSugarNumeric: knownState.bloodSugarNumeric,
+        duration: knownState.duration,
+        symptoms: knownState.symptoms,
+        goals: knownState.goals,
+        desiredWeightGain: knownState.desiredWeightGain,
+      },
+      autoTags: [...(knownState.autoTags || []), "KHACH_CAU_GAT", "CAN_HO_TRO_GAP"],
+    };
+  }
+
   // 2. Nạp Bot Profile riêng của tài khoản + Dữ liệu tự học từ lịch sử hội thoại nick đó
   const botProfile = resolveBotProfileForAccount({
     channelId: channelConfig?.channelId,
@@ -870,7 +929,7 @@ export async function generateHumanLikeReply({
           .join("\n")
       : "";
 
-  // 4. Xây dựng System Instruction đầy đủ cho LLM
+  // 4. Xây dựng System Instruction động & tất định tối ưu Prompt Caching (Deterministic Prompt Structure)
   const stateAwareRules = buildStateAwareSystemPrompt({
     staffName,
     pronounInfo,
@@ -881,33 +940,41 @@ export async function generateHumanLikeReply({
     customerPhone,
   });
 
-  const fullSystemPrompt = `${personaBase}
+  const deterministicPrompt = buildDeterministicPrompt({
+    staticPrefix: SENIOR_DOCTOR_STATIC_PREFIX,
+    ragDocs: [
+      ...(ragResult.contextPrompt ? [{ id: "rag_product", title: "Kiến thức sản phẩm ADDP", content: ragResult.contextPrompt }] : []),
+      ...(vectorContext ? [{ id: "rag_vector", title: "Tài liệu chuyên sâu đã tải lên", content: vectorContext }] : []),
+    ],
+    accountContext: [
+      personaBase && personaBase !== SENIOR_DOCTOR_STATIC_PREFIX ? `=== VAI TRÒ & BOT PROFILE RIÊNG CỦA TÀI KHOẢN ===\n${personaBase}` : "",
+      `- Tên nhân sự trực nick: ${staffName || effectiveAccountName || "Chuyên viên ADDP"}`,
+      `- Phong cách giao tiếp thực tế của nick này: ${learnedData?.styleSummary || "Ấm áp, lễ phép, xưng em - anh/chị hoặc con/cháu - cô/chú."}`,
+      learnedExamplesText ? `\nMẪU CÂU ĐỐI THOẠI THỰC TẾ ĐÃ HỌC TỪ NICK NÀY (hãy học giọng văn tự nhiên này, không copy máy móc):\n${learnedExamplesText}` : "",
+    ].filter(Boolean).join("\n"),
+    customer360: customer360Text,
+    rules: [
+      "1. ĐỌC KỸ toàn bộ lịch sử hội thoại bên dưới. TUYỆT ĐỐI KHÔNG hỏi lại câu hỏi đã hỏi ở các tin trước (ví dụ: nếu khách vừa trả lời 'ổn định đường huyết' hay 'muốn tăng cơ' thì ghi nhận ngay và đi tiếp sang bước tiếp theo, KHÔNG hỏi lại 'muốn ổn định đường huyết hay cải thiện thể trạng').",
+      "2. Trả lời ngắn gọn, tự nhiên như tin nhắn Zalo người thật (2-4 câu, có chia ý gọn gàng nếu tư vấn phác đồ, không viết sớ quá dài).",
+      "3. Kết thúc bằng 01 câu hỏi mở nhẹ nhàng để dẫn dắt tiếp cuộc trò chuyện.",
+      stateAwareRules,
+    ].filter(Boolean).join("\n\n"),
+    conversationTurns: buildConversationTurns(conversationHistory, cleanMessage),
+  });
 
-=== THÔNG TIN TÀI KHOẢN & PHONG CÁCH ĐÃ HỌC TỪ LỊCH SỬ NICK NÀY ===
-- Tên nhân sự trực nick: ${staffName || effectiveAccountName || "Chuyên viên ADDP"}
-- Phong cách giao tiếp thực tế của nick này: ${learnedData?.styleSummary || "Ấm áp, lễ phép, xưng em - anh/chị hoặc con/cháu - cô/chú."}
-${learnedExamplesText ? `\nMẪU CÂU ĐỐI THOẠI THỰC TẾ ĐÃ HỌC TỪ NICK NÀY (hãy học giọng văn tự nhiên này, không copy máy móc):\n${learnedExamplesText}` : ""}
-
-=== HỒ SƠ 360 CỦA KHÁCH HÀNG HIỆN TẠI ===
-${customer360Text}
-
-=== QUY TẮC CHỐNG LẶP & PHẢN HỒI NHƯ NGƯỜI THẬT ===
-1. ĐỌC KỸ toàn bộ lịch sử hội thoại bên dưới. TUYỆT ĐỐI KHÔNG hỏi lại câu hỏi đã hỏi ở các tin trước (ví dụ: nếu khách vừa trả lời "ổn định đường huyết" hay "muốn tăng cơ" thì ghi nhận ngay và đi tiếp sang bước tiếp theo, KHÔNG hỏi lại "muốn ổn định đường huyết hay cải thiện thể trạng").
-2. Trả lời ngắn gọn, tự nhiên như tin nhắn Zalo người thật (2-4 câu, có chia ý gọn gàng nếu tư vấn phác đồ, không viết sớ quá dài).
-3. Kết thúc bằng 01 câu hỏi mở nhẹ nhàng để dẫn dắt tiếp cuộc trò chuyện.
-
-${stateAwareRules}`;
-
-  // 5. Gọi LLM thật (OpenAI GPT / Gemini qua aiRouter.js) kèm lịch sử 40 tin nhắn gần nhất
-  const messageTurns = buildConversationTurns(conversationHistory, cleanMessage);
+  const fullSystemPrompt = deterministicPrompt.fullSystemPrompt;
+  const messageTurns = deterministicPrompt.conversationTurns;
   let replyText = "";
   let llmUsed = false;
   let llmProvider = null;
   let llmError = null;
+  let llmUsage = null;
 
   try {
     const llmRes = await generateAiReply({
       systemPrompt: fullSystemPrompt,
+      systemMessages: deterministicPrompt.openAiSystemMessages,
+      anthropicSystem: deterministicPrompt.anthropicSystem,
       messages: messageTurns,
       maxTokens: 450,
       temperature: 0.55,
@@ -916,6 +983,7 @@ ${stateAwareRules}`;
       replyText = sanitizeHumanChatText(llmRes.text);
       llmUsed = true;
       llmProvider = `${llmRes.providerUsed || "llm"}:${llmRes.modelUsed || ""}`;
+      llmUsage = llmRes.usage || null;
     } else if (llmRes?.error) {
       llmError = llmRes.error;
     }
@@ -974,5 +1042,14 @@ ${stateAwareRules}`;
       desiredWeightGain: knownState.desiredWeightGain,
     },
     autoTags: knownState.autoTags,
+    sentiment: sentimentCheck.sentiment,
+    leadScore: leadScoreResult,
+    leadTier: leadScoreResult?.tier || "COLD",
+    leadFactors: leadScoreResult?.factors || [],
+    suggestedAction: leadScoreResult?.suggestedAction || "Gửi thực đơn miễn phí",
+    cacheUsage: llmUsage,
+    cacheHit: Boolean(llmUsage?.cacheHit),
+    savedVnd: llmUsage?.savedVnd || 0,
+    savedUsd: llmUsage?.savedUsd || 0,
   };
 }

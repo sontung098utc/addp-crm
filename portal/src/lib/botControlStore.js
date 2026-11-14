@@ -422,3 +422,49 @@ export function resumeAiBot(threadId) {
   saveBotStoreToDisk(store);
   return nextState;
 }
+
+/**
+ * Đặt chế độ Bot cho khách hàng / hội thoại cụ thể (AI hoặc HUMAN).
+ * Hỗ trợ chuyển giao tự động khi khách hàng cáu gắt (Sentiment Alert Auto-Handover)
+ * hoặc khi nhân viên tiếp quản thủ công.
+ *
+ * @param {string} channelId
+ * @param {string} customerId
+ * @param {'AI' | 'HUMAN'} [mode='HUMAN']
+ * @param {string} [reason='AUTO_HANDOVER_ANGRY_CUSTOMER']
+ * @param {string} [staffId='STAFF']
+ * @returns {object|null}
+ */
+export function setBotModeForCustomer(
+  channelId = "",
+  customerId = "",
+  mode = "HUMAN",
+  reason = "AUTO_HANDOVER_ANGRY_CUSTOMER",
+  staffId = "STAFF"
+) {
+  const targetId = String(customerId || "").trim();
+  if (!targetId) return null;
+
+  const normalizedMode = String(mode).toUpperCase() === "AI" ? "AI" : "HUMAN";
+  const store = getStore();
+  const now = Date.now();
+  // Khóa 24h hoặc không giới hạn nếu là cáu gắt / chuyển giao nhân viên
+  const pausedUntil = normalizedMode === "HUMAN" ? now + 24 * 60 * 60 * 1000 : null;
+
+  const nextState = {
+    threadId: targetId,
+    channelId: channelId || null,
+    customerId: targetId,
+    mode: normalizedMode,
+    pausedUntil,
+    staffId: String(staffId || "STAFF"),
+    reason: reason || (normalizedMode === "HUMAN" ? "HANDOVER_TO_HUMAN" : "RESUME_AI"),
+    updatedAt: now,
+    isExplicit: true,
+  };
+
+  store.conversations[targetId] = nextState;
+  saveBotStoreToDisk(store);
+  return nextState;
+}
+
