@@ -19,6 +19,115 @@ import {
 
 const SENSITIVE_FINANCIAL_FIELDS = ["cogsAmount", "netProfit", "adsCostAllocated", "costPrice"];
 
+/**
+ * Kiểm tra nhân sự có bị giới hạn phạm vi tài khoản kênh (Channel ACL) hay không.
+ * - ADMIN: Luôn xem toàn bộ kênh.
+ * - SALE_LEADER: Xem toàn bộ nếu customerScope === "all" và chưa gán danh sách kênh cụ thể.
+ * - SALE / CSKH / KHO / KE_TOAN: Luôn giới hạn theo `assignedChannels` (nếu rỗng = 0 kênh).
+ */
+export function isChannelScopeRestricted(staff) {
+  if (!staff) return true;
+  if (staff.role === "ADMIN") return false;
+  const assigned = Array.isArray(staff.assignedChannels)
+    ? staff.assignedChannels.map((c) => String(c).trim()).filter(Boolean)
+    : [];
+  if (staff.role === "SALE_LEADER") {
+    const scope = staff.customerScope || "all";
+    if (scope === "all" && assigned.length === 0) return false;
+    return true;
+  }
+  return true;
+}
+
+/**
+ * Trả về tập hợp các mã định danh kênh được phân quyền cho nhân sự (`assignedChannels`).
+ */
+export function getAssignedChannelKeysSet(staff) {
+  if (!staff || !Array.isArray(staff.assignedChannels)) return new Set();
+  return new Set(
+    staff.assignedChannels.map((c) => String(c || "").trim()).filter(Boolean)
+  );
+}
+
+/**
+ * Trích xuất tất cả các khóa định danh có thể có của 1 tài khoản kênh
+ * (Zalo Personal, Fanpage Facebook, TikTok Shop, Shopee, Zalo OA, v.v.).
+ */
+export function getChannelIdentifierKeys(channelObj) {
+  if (!channelObj || typeof channelObj !== "object") return [];
+  const cfg = channelObj.config || {};
+  const raw = [
+    channelObj.id,
+    channelObj.externalId,
+    channelObj.ownId,
+    channelObj.accountOwnId,
+    channelObj.pageId,
+    channelObj.shopId,
+    channelObj.oaId,
+    channelObj.accountId,
+    channelObj.channelId,
+    channelObj.channelAccountId,
+    cfg.ownId,
+    cfg.pageId,
+    cfg.shopId,
+    cfg.oaId,
+  ];
+  return Array.from(
+    new Set(raw.map((v) => String(v || "").trim()).filter(Boolean))
+  );
+}
+
+/**
+ * Kiểm tra nhân sự có quyền xem/thao tác trên tài khoản kênh `channelObj` hay không.
+ */
+export function isChannelAllowedForStaff(staff, channelObj) {
+  if (!staff) return false;
+  if (!isChannelScopeRestricted(staff)) return true;
+  const allowedSet = getAssignedChannelKeysSet(staff);
+  if (allowedSet.size === 0) return false;
+  const keys = getChannelIdentifierKeys(channelObj);
+  return keys.some((k) => allowedSet.has(k));
+}
+
+/**
+ * Lọc danh sách tài khoản kênh theo phân quyền của nhân sự.
+ */
+export function filterChannelsForStaff(staff, channels = []) {
+  if (!Array.isArray(channels)) return [];
+  if (!staff) return [];
+  if (!isChannelScopeRestricted(staff)) return channels;
+  return channels.filter((ch) => isChannelAllowedForStaff(staff, ch));
+}
+
+/**
+ * Kiểm tra nhân sự có quyền xem cuộc hội thoại `conv` hay không
+ * (áp dụng cho Zalo Cá Nhân, Fanpage Facebook, TikTok Shop, Shopee, Zalo OA).
+ */
+export function isConversationAllowedForStaff(staff, conv, allChannels = null) {
+  if (!staff || !conv) return false;
+  if (!isChannelScopeRestricted(staff)) return true;
+  const allowedSet = getAssignedChannelKeysSet(staff);
+  if (allowedSet.size === 0) return false;
+
+  const convKeys = getChannelIdentifierKeys(conv);
+  if (convKeys.some((k) => allowedSet.has(k))) {
+    return true;
+  }
+
+  // Đối chiếu chéo qua danh sách kênh hệ thống (trường hợp staff lưu ch.id còn conv lưu pageId/shopId/ownId hoặc ngược lại)
+  if (Array.isArray(allChannels) && convKeys.length > 0) {
+    const convKeySet = new Set(convKeys);
+    const matchedChannel = allChannels.find((ch) =>
+      getChannelIdentifierKeys(ch).some((k) => convKeySet.has(k))
+    );
+    if (matchedChannel) {
+      return isChannelAllowedForStaff(staff, matchedChannel);
+    }
+  }
+
+  return false;
+}
+
 export function getCurrentStaffFromCookieOrHeader(cookieStore, headers) {
   let token = cookieStore?.get?.(SESSION_COOKIE_NAME)?.value;
   if (!token && headers?.get) {
@@ -167,11 +276,11 @@ export function buildDataScopeFilter(staff, resourceType = "customers") {
     allowed: true,
     scopeType: "OWN_ASSIGNED_ONLY",
     customerScope,
-    description: `Chỉ xem dữ liệu do cá nhân phụ trách (staffId = ${staffId} / ${staff.code}) và ${assignedChannels.length || allowedChannels.length} tài khoản kênh được phân quyền.`,
+    description: `Chỉ xem dữ liệu do cá nhân phụ trách (staffId = ${staffId} / ${staff.code}) và ${assignedChannels.length} tài khoản kênh được phân quyền.`,
     prismaWhere,
     allowedStaffIds: [staffId],
     allowedStaffNames: staffFullName ? [staffFullName] : [],
-    allowedChannelAccountIds: allowedChannels.length ? assignedChannels : allowedChannels,
+    allowedChannelAccountIds: assignedChannels,
     canViewFinancialCost: false,
     canExportAllCustomers: false,
   };
@@ -190,10 +299,7 @@ export function filterRecordsByRbac(staff, records = [], resourceType = "custome
     }
 
     if (resourceType === "conversations") {
-      const chId = String(item.channelAccountId || item.accountId || item.ownId || "");
-      const channelOk =
-        !chId ||
-        scope.allowedChannelAccountIds.some((c) => String(c) === chId);
+      const channelOk = isConversationAllowedForStaff(staff, item);
       const staffTarget = item.assignedStaffId ?? item.staffId;
       const staffOk =
         !staffTarget || scope.allowedStaffIds?.includes(Number(staffTarget));

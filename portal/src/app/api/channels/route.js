@@ -8,7 +8,7 @@ import {
   deleteChannelAccount,
 } from "../../../lib/connectionHub.js";
 import { syncBotStatesWithChannels } from "../../../lib/botControlStore.js";
-import { guardApiRequest } from "../../../lib/rbac.js";
+import { guardApiRequest, filterChannelsForStaff } from "../../../lib/rbac.js";
 
 /**
  * API Quản lý Đa Tài Khoản Kênh (ConnectionHub - WBS-11)
@@ -27,7 +27,7 @@ export async function GET(request) {
       return guard.response;
     }
 
-    const channels = listAllChannels();
+    const channels = filterChannelsForStaff(guard.staff, listAllChannels());
     // Che giấu bí mật / token trong cấu hình kênh để client không đọc được plain secret
     const safeChannels = channels.map((ch) => {
       const cfg = ch.config ? { ...ch.config } : {};

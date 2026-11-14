@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { getSessionStaff } from "@/lib/auth";
-import { filterRecordsByRbac } from "@/lib/rbac";
+import {
+  filterRecordsByRbac,
+  filterChannelsForStaff,
+  isConversationAllowedForStaff,
+} from "@/lib/rbac";
 import { listAllChannels } from "@/lib/connectionHub";
 import { getAllCareTasks } from "@/lib/careAutomation";
 import { getOmnichannelConversations } from "@/lib/unifiedMessageRouter";
@@ -37,24 +41,7 @@ export async function GET(request) {
       return st !== "DISCONNECTED" && st !== "DELETED" && st !== "INACTIVE";
     });
 
-    const isZaloPersonal = (c) =>
-      c.platform === "ZALO_PERSONAL" ||
-      c.type === "zalo_personal" ||
-      c.channel_type === "zalo_personal" ||
-      c.type === "zalo";
-
-    let visibleChannels = activeChannels;
-    if (
-      currentStaff.role !== "ADMIN" &&
-      Array.isArray(currentStaff.assignedChannels)
-    ) {
-      const allowedSet = new Set(currentStaff.assignedChannels.map(String));
-      visibleChannels = activeChannels.filter((c) => {
-        if (!isZaloPersonal(c)) return true;
-        const ownId = String(c.config?.ownId || c.externalId || c.id || "");
-        return ownId && allowedSet.has(ownId);
-      });
-    }
+    const visibleChannels = filterChannelsForStaff(currentStaff, activeChannels);
     const channelsCount = visibleChannels.length;
 
     // 2. Đếm số lịch chăm sóc đến hạn / quá hạn thực tế của nhân viên hiện tại
@@ -66,7 +53,7 @@ export async function GET(request) {
       (t) => !t.isCompleted && (!t.deadline || String(t.deadline).slice(0, 10) <= todayStr)
     ).length;
 
-    // 3. Đếm số hội thoại có tin nhắn chưa đọc thực tế trên các kênh đang kết nối
+    // 3. Đếm số hội thoại có tin nhắn chưa đọc thực tế trên các kênh được phân quyền
     let inboxUnreadCount = 0;
     if (visibleChannels.length > 0) {
       try {
@@ -74,14 +61,10 @@ export async function GET(request) {
           getOmnichannelConversations(false),
           new Promise((resolve) => setTimeout(() => resolve([]), 1500)),
         ]);
-        const activeNonZaloTypes = new Set(
-          visibleChannels.filter((c) => !isZaloPersonal(c)).map((c) => c.platform)
-        );
         inboxUnreadCount = (omnichannelConvs || []).filter((c) => {
           const unread = Number(c.unreadCount || c.unread || 0);
           if (unread <= 0) return false;
-          if (c.channel === "FACEBOOK") return activeNonZaloTypes.has("FACEBOOK");
-          return true;
+          return isConversationAllowedForStaff(currentStaff, c, activeChannels);
         }).length;
       } catch {
         inboxUnreadCount = 0;

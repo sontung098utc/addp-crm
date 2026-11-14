@@ -19,7 +19,11 @@ import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.j
 import { getAllConversationTags } from "@/lib/tagStore.js";
 import { getAllReadReceipts } from "@/lib/readReceiptStore.js";
 import { normalizePhone } from "@/lib/phone.js";
-import { guardApiRequest } from "@/lib/rbac.js";
+import {
+  guardApiRequest,
+  filterChannelsForStaff,
+  isConversationAllowedForStaff,
+} from "@/lib/rbac.js";
 import { getStaffByIdOrCode } from "@/lib/auth.js";
 import { isAutoSyncAllowed } from "@/lib/pilotConfig.js";
 import fs from "fs";
@@ -254,7 +258,10 @@ export async function GET(request) {
     if (!globalThis.__ADDP_CONV_CACHE__) {
       globalThis.__ADDP_CONV_CACHE__ = new Map();
     }
-    const cacheKey = `${liveStaff?.id || "anon"}_${liveStaff?.role || "ADMIN"}`;
+    const assignedKey = Array.isArray(liveStaff?.assignedChannels)
+      ? [...liveStaff.assignedChannels].map(String).sort().join(",")
+      : "";
+    const cacheKey = `${liveStaff?.id || "anon"}_${liveStaff?.role || "ADMIN"}_${liveStaff?.customerScope || ""}_${assignedKey}`;
     const cachedEntry = globalThis.__ADDP_CONV_CACHE__.get(cacheKey);
     const nowTs = Date.now();
     if (!forceRefresh && cachedEntry && nowTs - cachedEntry.timestamp < 3000) {
@@ -262,7 +269,8 @@ export async function GET(request) {
     }
 
     // 1. Lấy danh sách TẤT CẢ các tài khoản Zalo Cá Nhân đang active trong cấu hình Channels (đồng bộ 100% với /channels)
-    const systemActiveZaloChannels = listAllChannels().filter(
+    const allSystemChannels = listAllChannels();
+    const systemActiveZaloChannels = allSystemChannels.filter(
       (c) =>
         (c.platform === "ZALO_PERSONAL" ||
           c.type === "zalo_personal" ||
@@ -273,21 +281,7 @@ export async function GET(request) {
         c.status !== "INACTIVE"
     );
 
-    const hasChannelScope =
-      liveStaff &&
-      liveStaff.role !== "ADMIN" &&
-      Array.isArray(liveStaff.assignedChannels);
-    const allowedZaloSet = new Set(
-      hasChannelScope ? liveStaff.assignedChannels.map((id) => String(id).trim()) : []
-    );
-
-    const activeChannels = hasChannelScope
-      ? systemActiveZaloChannels.filter((c) => {
-          const ownId = String(c.config?.ownId || c.externalId || "").trim();
-          const chId = String(c.id || "").trim();
-          return (ownId && allowedZaloSet.has(ownId)) || (chId && allowedZaloSet.has(chId));
-        })
-      : systemActiveZaloChannels;
+    const activeChannels = filterChannelsForStaff(liveStaff, systemActiveZaloChannels);
 
     // 2. NẾU KHÔNG CÒN TÀI KHOẢN ZALO CÁ NHÂN NÀO ĐANG ACTIVE / ĐƯỢC PHÂN QUYỀN CHO NHÂN VIÊN:
     // Chỉ dừng daemon khi cả hệ thống thực sự có 0 nick Zalo đang kết nối; trả về connectedZaloAccounts: []
@@ -302,7 +296,8 @@ export async function GET(request) {
           (c) =>
             c.channel !== "ZALO_PERSONAL" &&
             c.channel !== "zalo" &&
-            c.type !== "zalo_personal"
+            c.type !== "zalo_personal" &&
+            isConversationAllowedForStaff(liveStaff, c, allSystemChannels)
         )
         .sort(
           (a, b) => (b.timestamp || 0) - (a.timestamp || 0) || String(a.id).localeCompare(String(b.id))
@@ -316,8 +311,8 @@ export async function GET(request) {
         total: combinedWithTags.length,
         activeCount: combinedWithTags.length,
         connectedZaloAccounts: [],
-        connectedPages: getConnectedFacebookPages(),
-        connectedTikTokShops: getConnectedTikTokShops(),
+        connectedPages: filterChannelsForStaff(liveStaff, getConnectedFacebookPages()),
+        connectedTikTokShops: filterChannelsForStaff(liveStaff, getConnectedTikTokShops()),
         currentUserRole: liveStaff?.role || "ADMIN",
         currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
         conversations: combinedWithTags,
@@ -585,15 +580,18 @@ export async function GET(request) {
       return String(a.name).localeCompare(String(b.name), "vi");
     });
 
-    // 6. Hợp nhất tất cả cuộc hội thoại có tin nhắn thật (Đa Zalo QR + Fanpage FB + Zalo OA)
+    // 6. Hợp nhất tất cả cuộc hội thoại có tin nhắn thật (Đa Zalo QR + Fanpage FB + Zalo OA + TikTok Shop + Shopee)
     // Sắp xếp cố định theo thời gian thực giảm dần, khử hoàn toàn hiện tượng nhảy danh sách
-    const allActive = [...activeZaloConversations, ...otherConversations].sort(
+    const allowedOtherConversations = (otherConversations || []).filter((c) =>
+      isConversationAllowedForStaff(liveStaff, c, allSystemChannels)
+    );
+    const allActive = [...activeZaloConversations, ...allowedOtherConversations].sort(
       (a, b) => b.timestamp - a.timestamp || String(a.id).localeCompare(String(b.id))
     );
 
     const combined = [...allActive, ...contactOnlyConversations];
-    const connectedPages = getConnectedFacebookPages();
-    const connectedTikTokShops = getConnectedTikTokShops();
+    const connectedPages = filterChannelsForStaff(liveStaff, getConnectedFacebookPages());
+    const connectedTikTokShops = filterChannelsForStaff(liveStaff, getConnectedTikTokShops());
 
     // Gắn thẻ tag đã lưu vào từng hội thoại (hỗ trợ cả threadId và SĐT chuẩn từ migrate)
     const allThreadTags = getAllConversationTags();

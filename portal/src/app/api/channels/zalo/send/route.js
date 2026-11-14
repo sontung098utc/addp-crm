@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import { cookies, headers } from "next/headers";
+import {
+  guardApiRequest,
+  isChannelScopeRestricted,
+  isConversationAllowedForStaff,
+} from "@/lib/rbac.js";
+import { listAllChannels } from "@/lib/connectionHub.js";
 import { normalizePhone } from "@/lib/phone.js";
 import {
   runZaloCommand,
@@ -27,12 +34,24 @@ import path from "path";
 
 export async function POST(request) {
   try {
+    const cookieStore = await cookies();
+    const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "SALE", "CSKH"],
+      moduleKey: "inbox",
+      resourceType: "conversations",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const body = await request.json();
     let {
       recipient,
       recipientId,
       recipientPhone = "",
       pageId,
+      shopId = "",
       type = "DIRECT",
       message,
       homeDir,
@@ -42,6 +61,20 @@ export async function POST(request) {
       staffName = "Chuyên viên ADDP",
       staffConfirmed = false,
     } = body;
+
+    if (isChannelScopeRestricted(guard.staff) && (pageId || accountId || shopId)) {
+      const allowed = isConversationAllowedForStaff(
+        guard.staff,
+        { pageId, accountId, shopId },
+        listAllChannels()
+      );
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Từ chối truy cập (RBAC): Bạn chưa được phân quyền gửi tin từ tài khoản kênh này." },
+          { status: 403 }
+        );
+      }
+    }
 
     if (!recipient || !String(recipient).trim()) {
       return NextResponse.json(

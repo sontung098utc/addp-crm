@@ -2951,15 +2951,15 @@ export default function LiveZaloInbox() {
       )}
 
       {/* GIAO DIỆN CHAT 3 CỘT THỰC CHIẾN */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="relative flex flex-1 min-h-0 overflow-hidden">
         {/* ========================================================================= */}
         {/* CỘT 1: DANH SÁCH HỘI THOẠI (CONVERSATIONS LIST)                           */}
         {/* ========================================================================= */}
-        <div className="w-84 flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
+        <div className="w-[255px] xl:w-[275px] 2xl:w-[310px] flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
           {/* Header gọn gàng & Tìm kiếm */}
           <div className="p-3 border-b border-slate-800 space-y-2.5 shrink-0">
             {/* Hàng 1: Tiêu đề Hộp Thư Đa Kênh + Cụm nút công cụ */}
-            <div className="flex items-center justify-between gap-2 pb-0.5">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-0.5">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs shrink-0 badge-solid-white shadow-xs">
                   Z
@@ -2970,16 +2970,16 @@ export default function LiveZaloInbox() {
               </div>
 
               {/* Cụm nút công cụ tác nghiệp */}
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 {/* Nút Gửi Tin Nhắn Hàng Loạt */}
                 <button
                   type="button"
                   onClick={() => setIsBulkModalOpen(true)}
                   title="Gửi tin nhắn hàng loạt (Broadcast) có Anti-Ban"
-                  className="rounded-lg border border-blue-500/40 bg-blue-600/20 px-2 py-1 text-blue-300 hover:text-white hover:bg-blue-600 transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
+                  className="rounded-lg border border-blue-500/40 bg-blue-600/20 px-2 py-1.5 text-blue-300 hover:text-white hover:bg-blue-600 transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
                 >
                   <Send className="w-3 h-3" />
-                  <span className="hidden sm:inline">Gửi Loạt</span>
+                  <span className="hidden 2xl:inline">Gửi Loạt</span>
                 </button>
 
                 {(effectiveTikTokShops.length > 0 || channelFilter === "TIKTOK_SHOP") && (
@@ -2989,10 +2989,10 @@ export default function LiveZaloInbox() {
                     disabled={isSyncingTikTok}
                     aria-label="Đồng bộ tin nhắn TikTok Shop"
                     title="Kéo hội thoại và tin nhắn từ TikTok Shop Open API về CRM"
-                    className="rounded-lg border border-pink-500/40 bg-pink-600/15 px-2 py-1 text-pink-600 dark:text-pink-300 hover:bg-pink-600 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold disabled:opacity-50"
+                    className="rounded-lg border border-pink-500/40 bg-pink-600/15 px-2 py-1.5 text-pink-600 dark:text-pink-300 hover:bg-pink-600 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3 h-3 ${isSyncingTikTok ? "animate-spin" : ""}`} />
-                    <span className="hidden sm:inline">
+                    <span className="hidden 2xl:inline">
                       {isSyncingTikTok ? "Đang kéo..." : "Đồng bộ TikTok"}
                     </span>
                   </button>
@@ -3727,28 +3727,28 @@ export default function LiveZaloInbox() {
         {/* ========================================================================= */}
         {/* CỘT 2: KHUNG CHAT 2 CHIỀU (MESSAGE STREAM & COMPOSER)                     */}
         {/* ========================================================================= */}
-        <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 min-w-0 min-h-0">
+        <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 min-w-0 lg:min-w-[380px] min-h-0">
           {activeConv ? (
             <>
               {/* Header khung chat 2 dòng gọn gàng: Dòng 1 Tên + SĐT + Nút tác nghiệp; Dòng 2 Kênh + Dải thẻ gọn */}
-              <div className="px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex flex-col gap-1.5 flex-shrink-0">
-                <div className="flex items-center justify-between gap-3">
+              <div className="px-3 xl:px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex flex-col gap-1.5 flex-shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1.5">
                   {/* Cụm Trái: Avatar + Tên khách đầy đủ + Badge SĐT */}
-                  <div className="flex-1 min-w-0 flex items-center gap-2.5">
+                  <div className="flex-1 min-w-[180px] flex items-center gap-2">
                     <div className="relative flex-shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={getSafeAvatarUrl(activeConv)}
                         alt={activeConv.name}
                         onError={(e) => handleAvatarImgError(e, activeConv.name)}
-                        className="h-9 w-9 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
+                        className="h-8 w-8 xl:h-9 xl:w-9 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
                       />
                       <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
                     </div>
 
-                    <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                    <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
                       <h3
-                        className="font-bold text-sm text-slate-900 dark:text-white truncate max-w-[220px] sm:max-w-[280px]"
+                        className="font-bold text-sm text-slate-900 dark:text-white truncate max-w-[160px] xl:max-w-[220px] 2xl:max-w-[280px]"
                         title={activeConv.name}
                       >
                         {activeConv.name}
@@ -3774,15 +3774,15 @@ export default function LiveZaloInbox() {
                   </div>
 
                   {/* Cụm Phải: Điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Hồ Sơ */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0 max-w-full">
                     {(() => {
                       const isThreadHuman = convBotMode === "HUMAN";
 
                       return (
                         <>
                           {/* Công tắc Toggle Switch Bật/Tắt AI cho từng khách */}
-                          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs">
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden sm:inline">Khách này:</span>
+                          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0">
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden 2xl:inline">Khách này:</span>
                             <button
                               type="button"
                               role="switch"
@@ -3830,7 +3830,7 @@ export default function LiveZaloInbox() {
                             type="button"
                             onClick={() => setIsOrderModalOpen(true)}
                             title="Tạo đơn hàng nhanh cho khách"
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0"
+                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap"
                           >
                             <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                             <span>Lên Đơn</span>
@@ -3851,7 +3851,7 @@ export default function LiveZaloInbox() {
                       }`}
                     >
                       <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span className="hidden sm:inline">Hồ Sơ 360</span>
+                      <span className="hidden md:inline">Hồ Sơ 360</span>
                     </button>
                   </div>
                 </div>
@@ -4398,12 +4398,11 @@ export default function LiveZaloInbox() {
                   <span className="truncate">
                     Nhắn tin trực tiếp qua <strong className="text-slate-300">{activeChannelName}</strong>
                   </span>
-                  <span className="whitespace-nowrap hidden sm:inline">Enter để gửi • Shift+Enter xuống dòng • Ctrl+Q mở Trả lời nhanh</span>
                 </div>
 
-                {/* 3. Khung soạn thảo tin nhắn */}
-                <form onSubmit={handleSendMessage} className="flex items-end gap-2">
-                  <div className="flex-1 relative">
+                {/* 3. Khung soạn thảo tin nhắn (Textarea luôn full-width thoải mái, nút AI Gợi Ý & Gửi ở hàng dưới) */}
+                <form onSubmit={handleSendMessage} className="flex flex-col gap-1.5">
+                  <div className="w-full relative">
                     <textarea
                       rows={2}
                       value={inputMessage}
@@ -4415,42 +4414,50 @@ export default function LiveZaloInbox() {
                     />
                   </div>
 
-                  {/* Nút ✨ AI Gợi Ý */}
-                  <button
-                    type="button"
-                    onClick={handleAiCompose}
-                    disabled={aiComposing || sending}
-                    title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
-                    className="h-10 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
-                  >
-                    {aiComposing ? (
-                      <>
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                        <span className="hidden sm:inline">Đang soạn...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                        <span className="hidden sm:inline">✨ AI Gợi Ý</span>
-                      </>
-                    )}
-                  </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-slate-500 truncate hidden md:inline">
+                      Enter để gửi • Shift+Enter xuống dòng • Ctrl+Q Trả lời nhanh
+                    </span>
 
-                  {/* Nút Gửi */}
-                  <button
-                    type="submit"
-                    disabled={sending || (!inputMessage.trim() && attachedFiles.length === 0)}
-                    className="h-10 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
-                  >
-                    {sending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <span>Gửi</span>
-                        <Send className="w-3.5 h-3.5 shrink-0" />
-                      </>
-                    )}
-                  </button>
+                    <div className="flex items-center gap-2 ml-auto shrink-0">
+                      {/* Nút ✨ AI Gợi Ý */}
+                      <button
+                        type="button"
+                        onClick={handleAiCompose}
+                        disabled={aiComposing || sending}
+                        title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
+                        className="h-9 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
+                      >
+                        {aiComposing ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            <span>Đang soạn...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                            <span>✨ AI Gợi Ý</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Nút Gửi */}
+                      <button
+                        type="submit"
+                        disabled={sending || (!inputMessage.trim() && attachedFiles.length === 0)}
+                        className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
+                      >
+                        {sending ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>
+                            <span>Gửi</span>
+                            <Send className="w-3.5 h-3.5 shrink-0" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 </form>
 
                 {/* 4. Thanh Công Cụ Nhắn Tin Đa Kênh Chuẩn Vpage (6 Mục theo yêu cầu) */}
@@ -4478,8 +4485,27 @@ export default function LiveZaloInbox() {
         {/* CỘT 3: HỒ SƠ KHÁCH HÀNG 360 & TRỢ LÝ AI TÓM TẮT 4 MỤC                      */}
         {/* ========================================================================= */}
         {showSidePanel && activeConv && (
-          <div className="w-80 flex-shrink-0 border-l border-slate-800 bg-slate-900/90 p-4 flex flex-col overflow-y-auto space-y-4 min-h-0">
-            {/* Header thông tin khách */}
+          <>
+            {/* Backdrop cho màn hình nhỏ (< 1280px) khi mở drawer Hồ sơ 360 */}
+            <div
+              onClick={() => setShowSidePanel(false)}
+              className="xl:hidden fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px]"
+              aria-hidden="true"
+            />
+            <div className="absolute xl:static inset-y-0 right-0 z-30 w-[290px] max-w-[85vw] xl:w-[270px] 2xl:w-[320px] flex-shrink-0 border-l border-slate-800 bg-slate-900/95 xl:bg-slate-900/90 p-3.5 xl:p-4 flex flex-col overflow-y-auto space-y-4 min-h-0 shadow-2xl xl:shadow-none">
+              {/* Nút đóng drawer trên màn hình nhỏ (< 1280px) */}
+              <div className="flex xl:hidden items-center justify-between border-b border-slate-800 pb-2 -mt-1">
+                <span className="text-xs font-bold text-slate-300">Hồ Sơ 360 &amp; AI Tóm Tắt</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSidePanel(false)}
+                  aria-label="Đóng Hồ sơ 360"
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {/* Header thông tin khách */}
             <div className="text-center space-y-2 border-b border-slate-800 pb-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -4822,6 +4848,7 @@ export default function LiveZaloInbox() {
               />
             </div>
           </div>
+          </>
         )}
       </div>
 

@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import { cookies, headers } from "next/headers";
+import {
+  guardApiRequest,
+  isChannelScopeRestricted,
+  isConversationAllowedForStaff,
+} from "@/lib/rbac.js";
+import { listAllChannels } from "@/lib/connectionHub.js";
 import {
   runZaloCommand,
   getOwnIdForHome,
@@ -139,11 +146,23 @@ function getThreadMessagesFromAllHistories(
 
 export async function GET(request) {
   try {
+    const cookieStore = await cookies();
+    const reqHeaders = await headers();
+    const guard = guardApiRequest(cookieStore, reqHeaders, {
+      allowedRoles: ["ADMIN", "SALE_LEADER", "SALE", "CSKH"],
+      moduleKey: "inbox",
+      resourceType: "conversations",
+    });
+    if (!guard.ok) {
+      return guard.response;
+    }
+
     const { searchParams } = new URL(request.url);
     const threadId = searchParams.get("threadId");
     const channel = searchParams.get("channel") || "";
     const pageId = searchParams.get("pageId") || "";
     const accountId = searchParams.get("accountId") || "";
+    const shopId = searchParams.get("shopId") || "";
     const homeDirParam = searchParams.get("homeDir") || "";
     const sinceParam = Math.max(0, Number(searchParams.get("since")) || 0);
     const beforeParam = Math.max(0, Number(searchParams.get("before")) || 0);
@@ -151,6 +170,20 @@ export async function GET(request) {
 
     if (!threadId) {
       return NextResponse.json({ error: "Thiếu tham số threadId." }, { status: 400 });
+    }
+
+    if (isChannelScopeRestricted(guard.staff) && (pageId || accountId || shopId)) {
+      const allowed = isConversationAllowedForStaff(
+        guard.staff,
+        { pageId, accountId, shopId },
+        listAllChannels()
+      );
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Từ chối truy cập (RBAC): Bạn chưa được phân quyền tài khoản kênh này." },
+          { status: 403 }
+        );
+      }
     }
 
     // 1. Nếu là hội thoại Fanpage Facebook (t_xxx hoặc channel === FACEBOOK) -> Lấy trực tiếp từ Meta Graph API
@@ -232,6 +265,19 @@ export async function GET(request) {
     const resolvedAcc = resolveZaloHomeForThread(threadId, homeDirParam, accountId);
     const targetHome = resolvedAcc.homeDir;
     const ownId = resolvedAcc.ownId || getOwnIdForHome(targetHome);
+    if (
+      isChannelScopeRestricted(guard.staff) &&
+      !isConversationAllowedForStaff(
+        guard.staff,
+        { accountId: resolvedAcc.accountId, ownId },
+        listAllChannels()
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Từ chối truy cập (RBAC): Bạn chưa được phân quyền tài khoản Zalo này." },
+        { status: 403 }
+      );
+    }
     const selfName = resolvedAcc.displayName || getActiveZaloAccountName(targetHome);
     if (!getZaloSyncStatus(targetHome).isSyncing) {
       ensureZaloMcpDaemon(targetHome);

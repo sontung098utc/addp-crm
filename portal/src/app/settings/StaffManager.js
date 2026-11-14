@@ -41,6 +41,206 @@ const ROLE_OPTIONS = [
   { value: "ADMIN", label: "ADMIN — Quản trị viên Toàn quyền" },
 ];
 
+const CHANNEL_PLATFORM_GROUPS = [
+  { key: "ZALO_PERSONAL", label: "Zalo Cá Nhân (Multi-QR)", icon: "💬" },
+  { key: "FACEBOOK", label: "Fanpage Facebook", icon: "📘" },
+  { key: "TIKTOK_SHOP", label: "TikTok Shop", icon: "🎵" },
+  { key: "SHOPEE", label: "Shopee", icon: "🛒" },
+  { key: "ZALO_OA", label: "Zalo Official Account (OA)", icon: "🏢" },
+];
+
+function normalizeChannelPlatform(ch) {
+  const raw = String(ch?.platform || ch?.type || ch?.channel_type || "").toUpperCase();
+  if (raw === "ZALO_PERSONAL" || raw === "ZALO") return "ZALO_PERSONAL";
+  if (raw === "FACEBOOK") return "FACEBOOK";
+  if (raw === "TIKTOK_SHOP" || raw === "TIKTOK") return "TIKTOK_SHOP";
+  if (raw === "SHOPEE") return "SHOPEE";
+  if (raw === "ZALO_OA") return "ZALO_OA";
+  return "";
+}
+
+function extractAssignableChannelItem(c) {
+  const platform = normalizeChannelPlatform(c);
+  if (!platform) return null;
+  const st = String(c?.status || "").toUpperCase();
+  if (st === "DISCONNECTED" || st === "DELETED" || st === "INACTIVE") return null;
+
+  const cfg = c?.config || {};
+  let canonicalKey = "";
+  if (platform === "ZALO_PERSONAL") {
+    canonicalKey = String(cfg.ownId || c.externalId || c.id || "").trim();
+  } else if (platform === "FACEBOOK") {
+    canonicalKey = String(cfg.pageId || c.externalId || c.id || "").trim();
+  } else if (platform === "TIKTOK_SHOP" || platform === "SHOPEE") {
+    canonicalKey = String(c.shopId || cfg.shopId || c.externalId || c.id || "").trim();
+  } else if (platform === "ZALO_OA") {
+    canonicalKey = String(cfg.oaId || c.externalId || c.id || "").trim();
+  }
+  if (!canonicalKey) return null;
+
+  const keys = Array.from(
+    new Set(
+      [canonicalKey, c.id, c.externalId, c.shopId, cfg.ownId, cfg.pageId, cfg.shopId, cfg.oaId]
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const label = String(
+    cfg.accountName || cfg.label || c.sellerName || c.name || canonicalKey
+  ).trim();
+
+  return {
+    key: canonicalKey,
+    keys,
+    platform,
+    label,
+    shortId: canonicalKey.slice(-6),
+  };
+}
+
+function ChannelAssignmentSection({ assignableChannels = [], assignedChannels = [], onChange }) {
+  const assignedSet = new Set((assignedChannels || []).map((v) => String(v).trim()).filter(Boolean));
+  const isItemChecked = (ch) => ch.keys.some((k) => assignedSet.has(k));
+  const selectedCount = assignableChannels.filter(isItemChecked).length;
+
+  const handleToggleItem = (ch) => {
+    const currentlyChecked = isItemChecked(ch);
+    const keySet = new Set(ch.keys);
+    const next = (assignedChannels || [])
+      .map((v) => String(v).trim())
+      .filter((v) => v && !keySet.has(v));
+    if (!currentlyChecked) {
+      next.push(ch.key);
+    }
+    onChange(next);
+  };
+
+  const handleSelectAll = () => {
+    const allKeys = assignableChannels.map((ch) => ch.key);
+    onChange(Array.from(new Set(allKeys)));
+  };
+
+  const handleClearAll = () => {
+    onChange([]);
+  };
+
+  const handleToggleGroup = (groupItems) => {
+    if (groupItems.length === 0) return;
+    const allGroupChecked = groupItems.every(isItemChecked);
+    const groupKeySet = new Set(groupItems.flatMap((ch) => ch.keys));
+    const remaining = (assignedChannels || [])
+      .map((v) => String(v).trim())
+      .filter((v) => v && !groupKeySet.has(v));
+    if (allGroupChecked) {
+      onChange(remaining);
+    } else {
+      onChange(Array.from(new Set([...remaining, ...groupItems.map((ch) => ch.key)])));
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <span className="font-semibold text-slate-200">
+            Phân quyền Tài khoản Đa Kênh được xem (/inbox)
+          </span>
+          <span className="ml-2 text-[11px] text-blue-400">
+            Đã gán {selectedCount} / {assignableChannels.length} kênh
+          </span>
+        </div>
+        {assignableChannels.length > 0 && (
+          <div className="flex items-center gap-2 text-[11px]">
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              className="text-emerald-400 hover:text-emerald-300 underline"
+            >
+              Chọn tất cả
+            </button>
+            <span className="text-slate-600">|</span>
+            <button
+              type="button"
+              onClick={handleClearAll}
+              className="text-slate-400 hover:text-slate-200 underline"
+            >
+              Bỏ chọn tất cả
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2.5">
+        {CHANNEL_PLATFORM_GROUPS.map((group) => {
+          const items = assignableChannels.filter((ch) => ch.platform === group.key);
+          const groupSelected = items.filter(isItemChecked).length;
+          const allGroupChecked = items.length > 0 && groupSelected === items.length;
+
+          return (
+            <div
+              key={group.key}
+              className="rounded-lg border border-slate-800/80 bg-slate-900/40 p-2.5 space-y-2"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-300">
+                  {group.icon} {group.label}{" "}
+                  <span className="text-slate-500 font-normal">
+                    ({groupSelected}/{items.length})
+                  </span>
+                </span>
+                {items.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleGroup(items)}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 underline"
+                  >
+                    {allGroupChecked ? "Bỏ chọn nhóm" : "Chọn hết nhóm"}
+                  </button>
+                )}
+              </div>
+
+              {items.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {items.map((ch) => {
+                    const checked = isItemChecked(ch);
+                    return (
+                      <label
+                        key={`${group.key}_${ch.key}`}
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer transition ${
+                          checked
+                            ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+                            : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => handleToggleItem(ch)}
+                          className="rounded border-slate-700"
+                        />
+                        <span className="truncate font-medium">
+                          {group.icon} {ch.label}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono ml-auto">
+                          {ch.shortId}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500 italic">
+                  Chưa có tài khoản {group.label} đang kết nối tại /channels.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const createDefaultAddForm = (role = "SALE") => ({
   code: "",
   name: "",
@@ -63,7 +263,7 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
   const [editingStaff, setEditingStaff] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [banner, setBanner] = useState(null);
-  const [zaloChannels, setZaloChannels] = useState([]);
+  const [assignableChannels, setAssignableChannels] = useState([]);
 
   const [newForm, setNewForm] = useState(() => createDefaultAddForm("SALE"));
 
@@ -72,24 +272,10 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data?.ok || !Array.isArray(data.channels)) return;
-        const zaloList = data.channels
-          .filter(
-            (c) =>
-              (c.platform === "ZALO_PERSONAL" ||
-                c.type === "zalo_personal" ||
-                c.channel_type === "zalo_personal" ||
-                c.type === "zalo") &&
-              c.status !== "DISCONNECTED" &&
-              c.status !== "deleted" &&
-              c.status !== "INACTIVE"
-          )
-          .map((c) => {
-            const ownId = String(c.config?.ownId || c.externalId || c.id || "").trim();
-            const label = String(c.config?.accountName || c.config?.label || c.name || ownId).trim();
-            return { ownId, label, id: c.id };
-          })
-          .filter((c) => c.ownId);
-        setZaloChannels(zaloList);
+        const parsed = data.channels
+          .map(extractAssignableChannelItem)
+          .filter(Boolean);
+        setAssignableChannels(parsed);
       })
       .catch(() => {});
   }, []);
@@ -301,7 +487,7 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] mt-1.5">
                         <span className="text-blue-400">
-                          Nick Zalo: {s.role === "ADMIN" ? "Toàn bộ" : `${staffAssignedChannels.length} kênh`}
+                          Kênh (/inbox): {s.role === "ADMIN" ? "Toàn bộ" : `${staffAssignedChannels.length} kênh`}
                         </span>
                         <span className="text-slate-600">•</span>
                         <span className={staffCustomerScope === "all" ? "text-emerald-400" : "text-amber-300"}>
@@ -528,54 +714,14 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                 </div>
               </div>
 
-              {/* Phân quyền Tài khoản Zalo / Kênh được xem */}
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-200">
-                    Phân quyền Tài khoản Zalo Cá Nhân được xem (/inbox)
-                  </span>
-                  <span className="text-[11px] text-blue-400">
-                    Đã gán {newForm.assignedChannels?.length || 0} nick Zalo
-                  </span>
-                </div>
-                {zaloChannels.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {zaloChannels.map((ch) => {
-                      const checked = (newForm.assignedChannels || []).includes(ch.ownId);
-                      return (
-                        <label
-                          key={ch.ownId}
-                          className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer transition ${
-                            checked
-                              ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
-                              : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              setNewForm((prev) => ({
-                                ...prev,
-                                assignedChannels: toggleFormArrayItem(prev.assignedChannels, ch.ownId),
-                              }))
-                            }
-                            className="rounded border-slate-700"
-                          />
-                          <span className="truncate font-medium">💬 {ch.label}</span>
-                          <span className="text-[10px] text-slate-500 font-mono ml-auto">
-                            {ch.ownId.slice(-6)}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-slate-500 italic">
-                    Hiện chưa có tài khoản Zalo cá nhân nào đang kết nối tại trang Kết nối Kênh (/channels).
-                  </p>
-                )}
-              </div>
+              {/* Phân quyền Tài khoản Đa Kênh (Zalo, Fanpage, TikTok Shop, Shopee, Zalo OA) */}
+              <ChannelAssignmentSection
+                assignableChannels={assignableChannels}
+                assignedChannels={newForm.assignedChannels || []}
+                onChange={(nextChannels) =>
+                  setNewForm((prev) => ({ ...prev, assignedChannels: nextChannels }))
+                }
+              />
 
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div>
@@ -655,7 +801,7 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                   Cấu Hình Tài Khoản & Phân Quyền: <span className="text-blue-400">{editingStaff.code}</span>
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Cập nhật vai trò RBAC, tab truy cập, nick Zalo được xem và phạm vi khách hàng
+                  Cập nhật vai trò RBAC, tab truy cập, tài khoản đa kênh được xem (Zalo, Fanpage, TikTok, Shopee, Zalo OA) và phạm vi khách hàng
                 </p>
               </div>
               <button onClick={() => setEditingStaff(null)} className="text-slate-400 hover:text-white">
@@ -777,54 +923,14 @@ export default function StaffManager({ staffList = [], roles = {}, onRefresh }) 
                     </div>
                   </div>
 
-                  {/* Phân quyền Tài khoản Zalo được xem */}
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-200">
-                        Phân quyền Tài khoản Zalo Cá Nhân được xem (/inbox)
-                      </span>
-                      <span className="text-[11px] text-blue-400">
-                        Đã gán {editingStaff.assignedChannels?.length || 0} nick Zalo
-                      </span>
-                    </div>
-                    {zaloChannels.length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {zaloChannels.map((ch) => {
-                          const checked = (editingStaff.assignedChannels || []).includes(ch.ownId);
-                          return (
-                            <label
-                              key={ch.ownId}
-                              className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 cursor-pointer transition ${
-                                checked
-                                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
-                                  : "border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() =>
-                                  setEditingStaff((prev) => ({
-                                    ...prev,
-                                    assignedChannels: toggleFormArrayItem(prev.assignedChannels, ch.ownId),
-                                  }))
-                                }
-                                className="rounded border-slate-700"
-                              />
-                              <span className="truncate font-medium">💬 {ch.label}</span>
-                              <span className="text-[10px] text-slate-500 font-mono ml-auto">
-                                {ch.ownId.slice(-6)}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-slate-500 italic">
-                        Hiện chưa có tài khoản Zalo cá nhân nào đang kết nối tại /channels.
-                      </p>
-                    )}
-                  </div>
+                  {/* Phân quyền Tài khoản Đa Kênh được xem */}
+                  <ChannelAssignmentSection
+                    assignableChannels={assignableChannels}
+                    assignedChannels={editingStaff.assignedChannels || []}
+                    onChange={(nextChannels) =>
+                      setEditingStaff((prev) => ({ ...prev, assignedChannels: nextChannels }))
+                    }
+                  />
                 </>
               )}
 
