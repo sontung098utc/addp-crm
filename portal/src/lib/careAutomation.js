@@ -67,14 +67,57 @@ export const CARE_MILESTONES = [
   },
 ];
 
+/**
+ * Ước lượng số ngày sử dụng theo tên sản phẩm / SKU và số lượng.
+ * - Sữa hạt Glucare Plus lon 800g/850g/900g ~ 15 ngày/lon
+ * - Sữa hạt Glucare Plus hộp 400g ~ 8 ngày/hộp
+ * - Viên An Đường ~ 30 ngày/hộp
+ * - Sủi Dovital ~ 20 ngày/tuýp (Dovital hộp 60 viên ~ 30 ngày/hộp)
+ */
+export function estimateUsageDays(productName = "", quantity = 1) {
+  const qty = Math.max(1, Number(quantity) || 1);
+  const raw = String(productName || "").toLowerCase();
+
+  // Sủi Dovital
+  if (raw.includes("dovital") || raw.includes("dov")) {
+    if (raw.includes("60v") || raw.includes("60 viên") || (raw.includes("hộp") && !raw.includes("sủi"))) {
+      return 30 * qty;
+    }
+    return 20 * qty;
+  }
+
+  // Viên An Đường
+  if (raw.includes("an đường") || raw.includes("an duong") || raw.includes("vad")) {
+    return 30 * qty;
+  }
+
+  // Sữa hạt Glucare Plus / Glusure
+  if (raw.includes("glucare") || raw.includes("glusure") || raw.includes("glu")) {
+    if (raw.includes("400g") || raw.includes("400 g") || (raw.includes("hộp") && !raw.includes("800") && !raw.includes("850") && !raw.includes("900"))) {
+      return 8 * qty;
+    }
+    if (raw.includes("gói lẻ") || raw.includes("goiglucare")) {
+      return Math.max(1, qty);
+    }
+    return 15 * qty;
+  }
+
+  return 30 * qty;
+}
+
 export function buildCareSchedule({
   customerName = "Anh/Chị",
   productName = "Sữa hạt tiểu đường Glucare Plus",
+  quantity = 1,
   startDate = new Date(),
-  durationDays = 30,
+  durationDays,
 } = {}) {
   const baseDate = new Date(startDate);
-  const totalDays = Math.max(7, Number(durationDays) || 30);
+  const resolvedDuration =
+    durationDays !== undefined && durationDays !== null && durationDays !== ""
+      ? Number(durationDays)
+      : estimateUsageDays(productName, quantity);
+  const totalDays = Math.max(7, Number(resolvedDuration) || 30);
 
   const addDays = (days) => {
     const d = new Date(baseDate);
@@ -166,14 +209,26 @@ export function appendOrderCareTasks(order = {}) {
   if (order?.isDuplicate) {
     return store.filter((t) => t.orderCode === order.orderCode);
   }
+  const firstItem = Array.isArray(order.items) && order.items[0] ? order.items[0] : null;
+  const totalEstimatedDays =
+    Array.isArray(order.items) && order.items.length > 0
+      ? order.items.reduce(
+          (sum, it) =>
+            sum + estimateUsageDays(it.name || it.sku || "", it.quantity || 1),
+          0
+        )
+      : undefined;
+
   const schedule = buildCareSchedule({
     customerName: order.customerName || "Anh/Chị",
-    productName:
-      Array.isArray(order.items) && order.items[0]?.name
-        ? order.items[0].name
-        : "Sữa hạt Glucare Plus",
+    productName: firstItem?.name || "Sữa hạt Glucare Plus",
+    quantity: firstItem?.quantity || 1,
     startDate: order.createdAt || new Date(),
-    durationDays: 30,
+    ...(order.durationDays !== undefined && order.durationDays !== null
+      ? { durationDays: order.durationDays }
+      : totalEstimatedDays !== undefined
+      ? { durationDays: totalEstimatedDays }
+      : {}),
   });
 
   const orderTag = order.orderCode || order.id || Date.now();

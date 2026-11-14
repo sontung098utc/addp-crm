@@ -13,6 +13,12 @@ const PRIORITY_BADGE = {
   99: { text: "Đã CS hôm nay", cls: "bg-teal-50 text-teal-700 border-teal-200" },
 };
 
+function getVietnamHour() {
+  const now = new Date();
+  const vnTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  return vnTime.getUTCHours();
+}
+
 export default function WorkTrackingPage() {
   const [rows, setRows] = useState([]);
   const [staffs, setStaffs] = useState([]);
@@ -37,8 +43,16 @@ export default function WorkTrackingPage() {
   const [filterCareStatus, setFilterCareStatus] = useState("");
   const [filterResponseStatus, setFilterResponseStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [showFutureOrUnscheduled, setShowFutureOrUnscheduled] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 50;
+
+  // Multi-select & bulk delete
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  // Vietnam time (UTC+7) hour for after-17:00 warning banner
+  const [vnHour, setVnHour] = useState(() => getVietnamHour());
 
   // Inline row edits: { [rowId]: { carePath, careStatus, responseStatus, note, nextDate } }
   const [rowStates, setRowStates] = useState({});
@@ -74,6 +88,13 @@ export default function WorkTrackingPage() {
   useEffect(() => {
     fetchTasks();
   }, [staffFilter]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setVnHour(getVietnamHour());
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSyncLegacy = async () => {
     try {
@@ -153,9 +174,36 @@ export default function WorkTrackingPage() {
     }
   };
 
+  const hiddenFutureCount = useMemo(
+    () => rows.filter((r) => r.priority === 5 || r.priority === 10).length,
+    [rows]
+  );
+
+  const dueCount = useMemo(
+    () => rows.filter((r) => r.priority === 1 || r.priority === 2).length,
+    [rows]
+  );
+
+  const overdueCount = useMemo(
+    () => rows.filter((r) => r.priority === 3).length,
+    [rows]
+  );
+
+  const showAfter17Alert = !loading && vnHour >= 17 && (dueCount > 0 || overdueCount > 0);
+
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const hasActiveFilterOrSearch = Boolean(
+      q || filterPriority || filterCarePath || filterCareStatus || filterResponseStatus
+    );
     return rows.filter((r) => {
+      if (
+        !showFutureOrUnscheduled &&
+        !hasActiveFilterOrSearch &&
+        (r.priority === 5 || r.priority === 10)
+      ) {
+        return false;
+      }
       if (filterPriority && String(r.priority) !== String(filterPriority)) return false;
       if (filterCarePath && String(r.carePath || "") !== String(filterCarePath)) return false;
       if (
@@ -176,11 +224,72 @@ export default function WorkTrackingPage() {
       }
       return true;
     });
-  }, [rows, filterPriority, filterCarePath, filterCareStatus, filterResponseStatus, search]);
+  }, [
+    rows,
+    filterPriority,
+    filterCarePath,
+    filterCareStatus,
+    filterResponseStatus,
+    search,
+    showFutureOrUnscheduled,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pagedRows = filteredRows.slice((safePage - 1) * pageSize, safePage * pageSize);
+
+  const pagedIds = pagedRows.map((r) => r.id);
+  const allPagedSelected =
+    pagedIds.length > 0 && pagedIds.every((id) => selectedIds.includes(id));
+
+  const toggleSelectAllPaged = () => {
+    if (allPagedSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !pagedIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...pagedIds])));
+    }
+  };
+
+  const toggleSelectRow = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    const confirmed = window.confirm(
+      `Bạn có chắc chắn muốn xóa ${selectedIds.length} khách hàng đã chọn? Hành động này không thể hoàn tác.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setBulkDeleting(true);
+      const res = await fetch("/api/customers/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete",
+          customerIds: selectedIds,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        showToast("error", data.error || "Không thể xóa hàng loạt khách hàng đã chọn.");
+        return;
+      }
+      showToast(
+        "success",
+        data.message || `Đã xóa thành công ${selectedIds.length} khách hàng.`
+      );
+      setSelectedIds([]);
+      await fetchTasks();
+    } catch (err) {
+      showToast("error", `Lỗi xóa hàng loạt: ${err.message}`);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-4 md:p-6">
@@ -235,6 +344,30 @@ export default function WorkTrackingPage() {
             </Link>
           </div>
         </div>
+
+        {/* Cảnh báo đỏ sau 17h00 (giờ Việt Nam UTC+7) nếu còn khách đến hẹn / quá hạn */}
+        {showAfter17Alert && (
+          <div className="rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3.5 text-rose-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-start sm:items-center gap-2.5 text-sm font-semibold">
+              <span className="text-lg leading-none">🚨</span>
+              <span>
+                Cảnh báo cuối ngày (đã qua 17:00 giờ VN): Vẫn còn{" "}
+                <span className="font-bold underline">{dueCount} khách đến hẹn chăm sóc</span> và{" "}
+                <span className="font-bold underline">{overdueCount} khách quá hạn chăm sóc</span>{" "}
+                chưa được hoàn thành hôm nay!
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setFilterPriority("1");
+                setPage(1);
+              }}
+              className="shrink-0 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition cursor-pointer"
+            >
+              Lọc khách đến hẹn
+            </button>
+          </div>
+        )}
 
         {/* Chỉ Số Mục Tiêu & Thực Tế (Apple Widgets) */}
         <div className="bg-white dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-4 shadow-xs space-y-3">
@@ -369,6 +502,36 @@ export default function WorkTrackingPage() {
             className="flex-1 min-w-[200px] rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-[#007aff]"
           />
 
+          <button
+            type="button"
+            onClick={() => {
+              setShowFutureOrUnscheduled((prev) => !prev);
+              setPage(1);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              showFutureOrUnscheduled
+                ? "bg-sky-600 text-white border-sky-600"
+                : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+            }`}
+          >
+            {showFutureOrUnscheduled
+              ? `✓ Đang hiện cả sắp đến hẹn / chưa có hẹn (${hiddenFutureCount})`
+              : `Hiện cả sắp đến hẹn / chưa có hẹn (${hiddenFutureCount})`}
+          </button>
+
+          {selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer disabled:opacity-60"
+            >
+              {bulkDeleting
+                ? "Đang xóa..."
+                : `🗑️ Xóa hàng loạt (${selectedIds.length})`}
+            </button>
+          )}
+
           {(filterPriority || filterCarePath || filterCareStatus || filterResponseStatus || search) && (
             <button
               onClick={() => {
@@ -412,6 +575,15 @@ export default function WorkTrackingPage() {
               <table className="w-full text-left border-collapse min-w-[1160px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    <th className="py-3 px-3 w-[40px] text-center">
+                      <input
+                        type="checkbox"
+                        checked={allPagedSelected}
+                        onChange={toggleSelectAllPaged}
+                        aria-label="Chọn tất cả khách hàng trên trang"
+                        className="h-4 w-4 rounded border-slate-300 text-[#007aff] cursor-pointer"
+                      />
+                    </th>
                     <th className="py-3 px-3 w-[155px]">Phân loại</th>
                     <th className="py-3 px-3 w-[210px]">Khách hàng</th>
                     <th className="py-3 px-3 w-[155px]">Lộ trình CS</th>
@@ -442,6 +614,15 @@ export default function WorkTrackingPage() {
 
                     return (
                       <tr key={row.id} className="hover:bg-slate-50/70 transition align-top">
+                        <td className="py-3 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(row.id)}
+                            onChange={() => toggleSelectRow(row.id)}
+                            aria-label={`Chọn ${row.fullName}`}
+                            className="h-4 w-4 rounded border-slate-300 text-[#007aff] cursor-pointer mt-1"
+                          />
+                        </td>
                         <td className="py-3 px-3">
                           <span
                             className={`inline-block px-2 py-1 rounded-md text-xs font-semibold border ${badge.cls}`}

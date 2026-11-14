@@ -72,5 +72,26 @@ module.exports = {
         NODE_ENV: "production",
       },
     },
+    {
+      name: "addp-crm-kiotviet-cron",
+      cwd: "./portal",
+      script: "src/scripts/kiotviet_sync_cron.js",
+      instances: 1,
+      autorestart: false,
+      watch: false,
+      cron_restart: "*/15 * * * *", // Tự động đồng bộ đơn hàng & hóa đơn KiotViet mỗi 15 phút
+      env: {
+        NODE_ENV: "production",
+        APP_ENV: "production",
+        PORT: 3000,
+      },
+      env_staging: {
+        NODE_ENV: "production",
+        APP_ENV: "staging",
+        PORT: 3006,
+        PILOT_SAFE_MODE: "true",
+        QA_DISABLE_AUTO_SYNC: "true",
+      },
+    },
   ],
 };

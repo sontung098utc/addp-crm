@@ -116,7 +116,15 @@ export async function PUT(request, { params }) {
       updates.phone = cleanPhone || String(body.phone || "").trim();
     }
 
-    if (body.assignedStaff !== undefined || body.staffId !== undefined) {
+    const isUnassignRequested = body.unassign === true || body.staffId === null;
+
+    if (isUnassignRequested) {
+      // Đưa khách hàng về kho vô chủ, giữ nguyên toàn bộ lịch sử đơn hàng & chăm sóc
+      updates.staffId = null;
+      updates.staffCode = null;
+      updates.assignedStaff = "";
+      updates.staffName = "";
+    } else if (body.assignedStaff !== undefined || body.staffId !== undefined) {
       const allStaff = listAllStaff();
       let matchedStaff = null;
       if (body.staffId) {
@@ -187,7 +195,10 @@ export async function PUT(request, { params }) {
     return Response.json({
       ok: true,
       customer: updated,
-      message: "Cập nhật hồ sơ khách hàng thành công",
+      unassigned: isUnassignRequested,
+      message: isUnassignRequested
+        ? "Đã đưa khách hàng về kho vô chủ (giữ nguyên toàn bộ lịch sử đơn hàng & chăm sóc)"
+        : "Cập nhật hồ sơ khách hàng thành công",
     });
   } catch (error) {
     console.error("PUT /api/customers/[id] error:", error);

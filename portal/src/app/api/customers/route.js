@@ -1,11 +1,12 @@
 import {
   getAllCustomers,
+  updateCustomer,
   resolveCustomerIdentity,
   normalizePhone,
   isValidVietnamPhone,
 } from "../../../lib/customerIdentityResolver.js";
 import { getTags, getAllConversationTags } from "../../../lib/tagStore.js";
-import { getSessionStaff } from "../../../lib/auth.js";
+import { getSessionStaff, listAllStaff } from "../../../lib/auth.js";
 import { filterRecordsByRbac, guardApiRequest } from "../../../lib/rbac.js";
 
 function normalizeCustomerPlatform(customer = {}) {
@@ -320,14 +321,123 @@ export async function POST(request) {
       );
     }
 
+    const allStaff = listAllStaff();
+    const requestedStaffId =
+      guard.staff?.role === "SALE" || guard.staff?.role === "CSKH"
+        ? guard.staff.id
+        : body?.staffId || guard.staff?.id || 1;
+    const targetStaff = allStaff.find((s) => Number(s.id) === Number(requestedStaffId));
+
+    // Kiểm tra tồn tại theo SĐT chuẩn (Điều 3 AGENTS.md + Cơ chế Khách hàng vô chủ)
+    const allCustomers = getAllCustomers();
+    const existingByPhone = allCustomers.find(
+      (c) => normalizePhone(c.phone) === cleanPhone
+    );
+
+    if (existingByPhone) {
+      const isUnassigned =
+        existingByPhone.staffId === null ||
+        existingByPhone.staffId === undefined ||
+        existingByPhone.staffId === "";
+
+      if (isUnassigned) {
+        // Khách vô chủ -> Tự động gán chủ mới và cập nhật thông tin bổ sung (nếu có)
+        const newOwnerId = targetStaff ? targetStaff.id : Number(requestedStaffId) || guard.staff?.id || 1;
+        const newOwnerName = String(
+          targetStaff?.fullName ||
+            targetStaff?.name ||
+            guard.staff?.fullName ||
+            guard.staff?.name ||
+            "Nhân viên"
+        ).trim();
+
+        const adoptUpdates = {
+          staffId: newOwnerId,
+          staffCode: targetStaff?.code || existingByPhone.staffCode || "",
+          assignedStaff: newOwnerName,
+          staffName: newOwnerName,
+        };
+
+        if (body?.fullName && String(body.fullName).trim()) {
+          adoptUpdates.fullName = String(body.fullName).trim();
+        }
+        if (body?.pathology && String(body.pathology).trim()) {
+          adoptUpdates.pathology = String(body.pathology).trim();
+        }
+        if (body?.notes && String(body.notes).trim()) {
+          adoptUpdates.notes = String(body.notes).trim();
+        }
+        if (body?.address && String(body.address).trim()) {
+          adoptUpdates.address = String(body.address).trim();
+        }
+        if (body?.province && String(body.province).trim()) {
+          adoptUpdates.province = String(body.province).trim();
+        }
+        if (body?.age !== undefined && body?.age !== null && body?.age !== "") {
+          adoptUpdates.age = body.age;
+        }
+        if (body?.gender && String(body.gender).trim()) {
+          adoptUpdates.gender = String(body.gender).trim();
+        }
+        if (body?.purchaseLevel && String(body.purchaseLevel).trim()) {
+          adoptUpdates.purchaseLevel = String(body.purchaseLevel).trim();
+        }
+        if (body?.zaloUid && !existingByPhone.zaloUid) {
+          adoptUpdates.zaloUid = body.zaloUid;
+        }
+        if (body?.facebookUrl && !existingByPhone.facebookUrl) {
+          adoptUpdates.facebookUrl = body.facebookUrl;
+        }
+        if (Array.isArray(body?.tags) && body.tags.length > 0) {
+          adoptUpdates.tags = Array.from(
+            new Set([
+              ...(Array.isArray(existingByPhone.tags) ? existingByPhone.tags : []),
+              ...body.tags.map((t) => String(t || "").trim()).filter(Boolean),
+            ])
+          );
+        }
+
+        const adoptedCustomer = updateCustomer(existingByPhone.id, adoptUpdates);
+        return Response.json({
+          ok: true,
+          adopted: true,
+          customer: adoptedCustomer,
+          isNew: false,
+          matchMethod: "PHONE_ADOPTED_UNASSIGNED",
+          message: "Đã tự động nhận chăm sóc khách hàng vô chủ từ kho chung",
+        });
+      }
+
+      // Đã có nhân viên phụ trách -> Trả về HTTP 409 kèm tên nhân viên (nếu có)
+      const ownerStaff = allStaff.find(
+        (s) => Number(s.id) === Number(existingByPhone.staffId)
+      );
+      const rawOwnerName =
+        existingByPhone.assignedStaff && existingByPhone.assignedStaff !== "Chưa gán"
+          ? existingByPhone.assignedStaff
+          : existingByPhone.staffName && existingByPhone.staffName !== "Chưa gán"
+            ? existingByPhone.staffName
+            : ownerStaff?.fullName || ownerStaff?.name || "";
+      const ownerName = String(rawOwnerName || "").trim();
+
+      return Response.json(
+        {
+          ok: false,
+          error: ownerName
+            ? `Khách hàng đã thuộc quyền phụ trách của nhân viên khác (${ownerName}).`
+            : "Khách hàng đã thuộc quyền phụ trách của nhân viên khác.",
+          existingCustomerId: existingByPhone.id,
+          staffId: existingByPhone.staffId,
+          assignedStaff: ownerName || null,
+        },
+        { status: 409 }
+      );
+    }
+
     const payload = {
       ...body,
       phone: cleanPhone,
-      staffId:
-        body?.staffId ||
-        (guard.staff?.role === "SALE" || guard.staff?.role === "CSKH"
-          ? guard.staff.id
-          : body?.staffId || 1),
+      staffId: requestedStaffId,
     };
 
     const result = await resolveCustomerIdentity(payload);

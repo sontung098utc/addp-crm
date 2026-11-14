@@ -34,6 +34,28 @@ const formatMoney = (val) => {
   return (Number(val) || 0).toLocaleString("vi-VN") + " đ";
 };
 
+const KPI_PERIODS = [
+  { key: "today", label: "Hôm nay" },
+  { key: "week", label: "Tuần này" },
+  { key: "month", label: "Tháng này" },
+  { key: "all", label: "Toàn thời gian" },
+];
+
+/**
+ * Định dạng ngày YYYY-MM-DD theo múi giờ Việt Nam (UTC+7), tránh lệch ngày lúc 00:00-07:00 sáng VN.
+ */
+function formatDateVN(date = new Date()) {
+  const vnDate = new Date(date.getTime() + 7 * 3600 * 1000);
+  const y = vnDate.getUTCFullYear();
+  const m = String(vnDate.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(vnDate.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function addDaysVN(daysOffset) {
+  return formatDateVN(new Date(Date.now() + daysOffset * 86400000));
+}
+
 export default function ReportsClient({
   initialReport = null,
   initialTab = "channels",
@@ -50,31 +72,25 @@ export default function ReportsClient({
   const [adsData, setAdsData] = useState(null);
   const [taxData, setTaxData] = useState(null);
   const [kpiData, setKpiData] = useState(null);
+  const [kpiPeriod, setKpiPeriod] = useState("all");
   const [customersData, setCustomersData] = useState(null);
   const [tabLoading, setTabLoading] = useState(false);
 
-  // Tính startDate theo preset
+  // Tính startDate theo preset (Múi giờ Việt Nam UTC+7)
   const getDateRange = () => {
-    const now = new Date();
     if (preset === "today") {
-      const d = now.toISOString().slice(0, 10);
+      const d = addDaysVN(0);
       return { startDate: d, endDate: d };
     }
     if (preset === "yesterday") {
-      const y = new Date(now);
-      y.setDate(now.getDate() - 1);
-      const d = y.toISOString().slice(0, 10);
+      const d = addDaysVN(-1);
       return { startDate: d, endDate: d };
     }
     if (preset === "7days") {
-      const p = new Date(now);
-      p.setDate(now.getDate() - 7);
-      return { startDate: p.toISOString().slice(0, 10), endDate: now.toISOString().slice(0, 10) };
+      return { startDate: addDaysVN(-7), endDate: addDaysVN(0) };
     }
     if (preset === "30days") {
-      const p = new Date(now);
-      p.setDate(now.getDate() - 30);
-      return { startDate: p.toISOString().slice(0, 10), endDate: now.toISOString().slice(0, 10) };
+      return { startDate: addDaysVN(-30), endDate: addDaysVN(0) };
     }
     return { startDate: null, endDate: null };
   };
@@ -127,8 +143,8 @@ export default function ReportsClient({
           const res = await fetch(`/api/reports/tax?${p.toString()}`);
           const d = await res.json();
           if (d.ok) setTaxData(d.report);
-        } else if (activeTab === "kpi" && !kpiData) {
-          const res = await fetch("/api/reports/staff-kpi");
+        } else if (activeTab === "kpi") {
+          const res = await fetch(`/api/reports/staff-kpi?period=${encodeURIComponent(kpiPeriod)}`);
           const d = await res.json();
           if (d.ok) setKpiData(d.report);
         } else if (activeTab === "customers" && !customersData) {
@@ -144,7 +160,7 @@ export default function ReportsClient({
     };
 
     loadSpecializedData();
-  }, [activeTab, channel, preset]);
+  }, [activeTab, channel, preset, kpiPeriod]);
 
   const metrics = report?.metricsOverview || {
     gmv: 0,
@@ -222,11 +238,70 @@ export default function ReportsClient({
     link.setAttribute("href", encodedUri);
     link.setAttribute(
       "download",
-      `Bang_Ke_Thue_ADDP_${channel}_${new Date().toISOString().slice(0, 10)}.csv`
+      `Bang_Ke_Thue_ADDP_${channel}_${formatDateVN(new Date())}.csv`
     );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportKpiCsv = () => {
+    const rankings = kpiData?.staffRankings || [];
+    if (rankings.length === 0) return;
+
+    const headers = [
+      "Hạng",
+      "Mã NV",
+      "Họ Tên",
+      "Vai Trò",
+      "Kỳ Đánh Giá",
+      "Doanh Thu Chốt (VNĐ)",
+      "Chỉ Tiêu Doanh Thu (VNĐ)",
+      "Số Đơn",
+      "Chỉ Tiêu Đơn",
+      "Tỷ Lệ Chốt (%)",
+      "Tỷ Lệ Tái Mua (%)",
+      "Khách Đã Chăm Trong Kỳ",
+      "Chỉ Tiêu CS/Ngày",
+      "Đạt Chỉ Tiêu CS (%)",
+      "Quá Hạn Tồn Đọng",
+      "Phản Hồi Tích Cực (%)",
+      "Điểm KPI (0-100)",
+      "Xếp Loại",
+    ];
+
+    const periodLabel = KPI_PERIODS.find((p) => p.key === kpiPeriod)?.label || kpiPeriod;
+    const rows = rankings.map((s, idx) => [
+      idx + 1,
+      `"${s.code || ""}"`,
+      `"${(s.name || "").replace(/"/g, '""')}"`,
+      `"${s.role || ""}"`,
+      `"${periodLabel}"`,
+      s.revenue || 0,
+      s.targetRevenue || 0,
+      s.totalOrders || 0,
+      s.targetOrders || 0,
+      s.closingRate || 0,
+      s.repeatPurchaseRate || 0,
+      s.careCompleted || 0,
+      s.dailyCareTarget || 0,
+      s.careTargetPct || 0,
+      s.overdueCareCount || 0,
+      s.positiveResponseRate || 0,
+      s.kpiScore || 0,
+      `"${s.rating || ""}"`,
+    ]);
+
+    const csvString = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Danh_Gia_KPI_Nhan_Vien_${kpiPeriod}_${formatDateVN(new Date())}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -827,51 +902,108 @@ export default function ReportsClient({
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 6: BẢNG XẾP HẠNG KPI NHÂN VIÊN SALE (WBS-47)                          */}
+      {/* TAB 6: BẢNG XẾP HẠNG & ĐÁNH GIÁ KPI NHÂN VIÊN (SALE + CSKH) (WBS-47)      */}
       {/* ========================================================================= */}
       {activeTab === "kpi" && (
         <div className="space-y-6">
+          {/* Thanh lọc kỳ đánh giá + Xuất CSV */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-400 mr-1">Kỳ đánh giá:</span>
+              {KPI_PERIODS.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setKpiPeriod(p.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    kpiPeriod === p.key
+                      ? "bg-indigo-600 text-white shadow"
+                      : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+              {kpiData?.startDate && (
+                <span className="text-[11px] text-slate-400 font-mono ml-2">
+                  ({kpiData.startDate} → {kpiData.endDate})
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleExportKpiCsv}
+              disabled={!kpiData?.staffRankings?.length}
+              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs transition flex items-center gap-1.5 self-start sm:self-auto"
+            >
+              <span>📥</span> Xuất CSV Đánh Giá KPI
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-5 shadow-xl">
-              <span className="text-indigo-400 text-xs font-bold uppercase tracking-wider block mb-1">Tổng Doanh Thu Sale</span>
+              <span className="text-indigo-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Tổng Doanh Thu Sale
+              </span>
               <div className="text-2xl font-black text-white font-mono">
                 {formatMoney(kpiData?.teamSummary?.totalRevenue)}
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Tổng doanh số đội ngũ Sale đã chốt.</p>
+              <p className="text-[11px] text-slate-400 mt-2">
+                {kpiData?.teamSummary?.totalOrders || 0} đơn chốt • Chốt TB {kpiData?.teamSummary?.avgClosingRate || 0}%
+              </p>
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Tổng Đơn Hàng Đã Chốt</span>
-              <div className="text-2xl font-black text-white font-mono">
-                {kpiData?.teamSummary?.totalOrders || 0} đơn
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Khách Đã Chăm Trong Kỳ
+              </span>
+              <div className="text-2xl font-black text-teal-400 font-mono">
+                {kpiData?.teamSummary?.totalCareCompleted || 0} lượt
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Phát sinh từ tư vấn qua tin nhắn.</p>
+              <p className="text-[11px] text-slate-400 mt-2">
+                Quá hạn tồn đọng:{" "}
+                <span className="text-rose-400 font-bold">
+                  {kpiData?.teamSummary?.totalOverdueCare || 0} khách
+                </span>
+              </p>
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Tỷ Lệ Chốt Trung Bình</span>
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Tỷ Lệ Tái Mua & Phản Hồi
+              </span>
               <div className="text-2xl font-black text-emerald-400 font-mono">
-                {kpiData?.teamSummary?.avgClosingRate || 0}%
+                {kpiData?.teamSummary?.avgRepeatRate || 0}% tái mua
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Tỷ lệ chuyển đổi Lead thành khách mua.</p>
+              <p className="text-[11px] text-slate-400 mt-2">
+                Phản hồi tích cực TB: {kpiData?.teamSummary?.avgResponseRate || 0}%
+              </p>
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Tỷ Lệ Phản Hồi Tin Nhắn</span>
-              <div className="text-2xl font-black text-blue-400 font-mono">
-                {kpiData?.teamSummary?.avgResponseRate || 96.5}%
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Điểm KPI Trung Bình Đội Ngũ
+              </span>
+              <div className="text-2xl font-black text-amber-400 font-mono">
+                {kpiData?.teamSummary?.avgKpiScore || 0} / 100
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Thời gian phản hồi TB: 42 giây.</p>
+              <p className="text-[11px] text-slate-400 mt-2">
+                Xuất sắc: {kpiData?.teamSummary?.excellentCount || 0} • Đạt:{" "}
+                {kpiData?.teamSummary?.achievedCount || 0} • Cần cải thiện:{" "}
+                {kpiData?.teamSummary?.needsImprovementCount || 0}
+              </p>
             </div>
           </div>
 
           {/* Bảng xếp hạng nhân viên */}
           <div className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+            <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <h4 className="font-bold text-sm text-white flex items-center gap-2">
-                <span>🏆</span> Bảng Xếp Hạng & Chỉ Số Hiệu Suất Từng Nhân Viên Sale
+                <span>🏆</span> Bảng Xếp Hạng & Đánh Giá Hiệu Suất Nhân Viên (Sale + CSKH)
               </h4>
-              <span className="text-xs text-slate-400">Chỉ tiêu tháng: 150.000.000 đ/nhân viên</span>
+              <span className="text-xs text-slate-400">
+                Chỉ tiêu cá nhân đọc từ Cấu hình Nhân sự (auth / staffStore)
+              </span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -879,59 +1011,117 @@ export default function ReportsClient({
                   <tr>
                     <th className="p-3.5">Hạng / Nhân Viên</th>
                     <th className="p-3.5">Vai Trò</th>
-                    <th className="p-3.5 text-right">Doanh Thu Chốt</th>
-                    <th className="p-3.5 text-right">Số Đơn</th>
-                    <th className="p-3.5 text-right">Khách Phụ Trách</th>
-                    <th className="p-3.5 text-right">Tỷ Lệ Chốt</th>
-                    <th className="p-3.5 text-right">Tiến Độ KPI</th>
+                    <th className="p-3.5 text-right">Doanh Thu / Chỉ Tiêu</th>
+                    <th className="p-3.5 text-right">Đơn / Chốt / Tái Mua</th>
+                    <th className="p-3.5 text-right">CSKH Trong Kỳ</th>
+                    <th className="p-3.5 text-right">Quá Hạn / Phản Hồi (+)</th>
+                    <th className="p-3.5 text-right">Điểm KPI & Xếp Loại</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
-                  {(kpiData?.staffRankings || []).map((s, idx) => (
-                    <tr key={s.staffId} className="hover:bg-slate-800/40 transition">
-                      <td className="p-3.5 font-bold text-white flex items-center gap-3">
-                        <span
-                          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-black ${
-                            idx === 0
-                              ? "bg-amber-500 text-slate-950"
-                              : idx === 1
-                              ? "bg-slate-300 text-slate-950"
-                              : idx === 2
-                              ? "bg-amber-700 text-white"
-                              : "bg-slate-800 text-slate-400"
-                          }`}
-                        >
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <div>{s.name}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">@{s.username}</div>
-                        </div>
-                      </td>
-                      <td className="p-3.5">
-                        <span className="rounded bg-indigo-500/20 text-indigo-300 px-2 py-0.5 text-[10px] font-semibold border border-indigo-500/30">
-                          {s.role}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-bold text-emerald-400">
-                        {(s.revenue || 0).toLocaleString("vi-VN")} đ
-                      </td>
-                      <td className="p-3.5 text-right font-mono text-white">{s.totalOrders} đơn</td>
-                      <td className="p-3.5 text-right font-mono text-slate-300">{s.assignedCustomersCount} khách</td>
-                      <td className="p-3.5 text-right font-mono font-bold text-cyan-400">{s.closingRate}%</td>
-                      <td className="p-3.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-20 bg-slate-800 rounded-full h-2 overflow-hidden">
-                            <div
-                              className="bg-emerald-500 h-2 rounded-full"
-                              style={{ width: `${Math.min(100, s.kpiCompletionPct)}%` }}
-                            />
-                          </div>
-                          <span className="font-mono text-xs font-semibold text-slate-300">{s.kpiCompletionPct}%</span>
-                        </div>
+                  {(kpiData?.staffRankings || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-6 text-center text-slate-400">
+                        Chưa có nhân viên Sale / CSKH nào trong hệ thống.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    (kpiData?.staffRankings || []).map((s, idx) => {
+                      const ratingClass =
+                        s.rating === "Xuất sắc"
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                          : s.rating === "Đạt"
+                          ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                          : "bg-amber-500/20 text-amber-300 border-amber-500/40";
+                      return (
+                        <tr key={s.staffId} className="hover:bg-slate-800/40 transition">
+                          <td className="p-3.5 font-bold text-white flex items-center gap-3">
+                            <span
+                              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                                idx === 0
+                                  ? "bg-amber-500 text-slate-950"
+                                  : idx === 1
+                                  ? "bg-slate-300 text-slate-950"
+                                  : idx === 2
+                                  ? "bg-amber-700 text-white"
+                                  : "bg-slate-800 text-slate-400"
+                              }`}
+                            >
+                              {idx + 1}
+                            </span>
+                            <div>
+                              <div>{s.name}</div>
+                              <div className="text-[10px] text-slate-500 font-mono">
+                                @{s.username || s.code}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="rounded bg-indigo-500/20 text-indigo-300 px-2 py-0.5 text-[10px] font-semibold border border-indigo-500/30">
+                              {s.role}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-right font-mono">
+                            <div className="font-bold text-emerald-400">
+                              {(s.revenue || 0).toLocaleString("vi-VN")} đ
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Chỉ tiêu:{" "}
+                              {s.targetRevenue > 0
+                                ? `${s.targetRevenue.toLocaleString("vi-VN")} đ`
+                                : "Chưa đặt"}
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-right font-mono">
+                            <div className="text-white font-semibold">
+                              {s.totalOrders}
+                              {s.targetOrders > 0 ? ` / ${s.targetOrders}` : ""} đơn
+                            </div>
+                            <div className="text-[10px] text-cyan-400">
+                              Chốt {s.closingRate}% • Tái mua {s.repeatPurchaseRate}%
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-right font-mono">
+                            <div className="text-teal-300 font-bold">
+                              {s.careCompleted} / {s.periodCareTarget} khách
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Đạt {s.careTargetPct}% ({s.dailyCareTarget}/ngày)
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-right font-mono">
+                            <div className={s.overdueCareCount > 0 ? "text-rose-400 font-bold" : "text-slate-300"}>
+                              {s.overdueCareCount} quá hạn
+                            </div>
+                            <div className="text-[10px] text-emerald-400">
+                              Phản hồi (+):{" "}
+                              {s.feedbackSampleCount > 0 ? `${s.positiveResponseRate}%` : "Chưa có"}
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-right">
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center gap-2">
+                                <div className="w-16 bg-slate-800 rounded-full h-2 overflow-hidden">
+                                  <div
+                                    className="bg-emerald-500 h-2 rounded-full"
+                                    style={{ width: `${Math.min(100, s.kpiScore || 0)}%` }}
+                                  />
+                                </div>
+                                <span className="font-mono text-xs font-black text-white">
+                                  {s.kpiScore || 0}đ
+                                </span>
+                              </div>
+                              <span
+                                className={`rounded px-2 py-0.5 text-[10px] font-bold border ${ratingClass}`}
+                              >
+                                {s.rating}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -940,41 +1130,183 @@ export default function ReportsClient({
       )}
 
       {/* ========================================================================= */}
-      {/* TAB 7: PHÂN TÍCH KHÁCH HÀNG & TỶ LỆ MUA LẠI RETENTION (WBS-48)            */}
+      {/* TAB 7: PHÂN TÍCH KHÁCH HÀNG, PHỄU CSKH & CHURN PROXY (WBS-48)            */}
       {/* ========================================================================= */}
       {activeTab === "customers" && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="rounded-2xl border border-teal-500/30 bg-teal-950/20 p-5 shadow-xl">
-              <span className="text-teal-400 text-xs font-bold uppercase tracking-wider block mb-1">Tổng Số Khách Hàng 360</span>
+          {/* Thẻ KPI click được dẫn tới /customers hoặc /work-tracking với bộ lọc tương ứng */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            <Link
+              href="/customers"
+              className="rounded-2xl border border-teal-500/30 bg-teal-950/20 p-5 shadow-xl hover:border-teal-400 transition group block"
+            >
+              <span className="text-teal-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Tổng Số Khách Hàng 360
+              </span>
               <div className="text-2xl font-black text-white font-mono">
                 {customersData?.totalCustomers || 0} hồ sơ
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Hợp nhất từ 7 kênh theo SĐT chuẩn.</p>
-            </div>
+              <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
+                <span>Hợp nhất từ 7 kênh</span>
+                <span className="text-teal-400 group-hover:translate-x-0.5 transition">Xem →</span>
+              </p>
+            </Link>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Tỷ Lệ Mua Lại (Retention)</span>
+            <Link
+              href="/customers?purchaseLevel=REPEAT"
+              className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl hover:border-emerald-500/60 transition group block"
+            >
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Tỷ Lệ Tái Mua (Re-purchase)
+              </span>
               <div className="text-2xl font-black text-emerald-400 font-mono">
-                {customersData?.retentionRate || 0}%
+                {customersData?.repurchaseRate ?? customersData?.retentionRate ?? 0}%
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Khách mua từ 2 lần trở lên.</p>
-            </div>
+              <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
+                <span>{customersData?.repeatCustomers || 0} khách mua ≥ 2 lần</span>
+                <span className="text-emerald-400 group-hover:translate-x-0.5 transition">Lọc →</span>
+              </p>
+            </Link>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Khách Mua Lại (Lần 2, 3+)</span>
-              <div className="text-2xl font-black text-teal-300 font-mono">
-                {customersData?.repeatCustomers || 0} khách
+            <Link
+              href="/customers?purchaseLevel=FIRST"
+              className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl hover:border-cyan-500/60 transition group block"
+            >
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Khách Mua Lần 1
+              </span>
+              <div className="text-2xl font-black text-cyan-300 font-mono">
+                {customersData?.firstTimeBuyers || 0} khách
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Đang duy trì uống liệu trình ADDP.</p>
-            </div>
+              <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
+                <span>Đang dùng liệu trình đầu</span>
+                <span className="text-cyan-400 group-hover:translate-x-0.5 transition">Lọc →</span>
+              </p>
+            </Link>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
-              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">Tiềm Năng (Chưa Lên Đơn)</span>
+            <Link
+              href="/customers?purchaseLevel=NO_ORDER"
+              className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl hover:border-amber-500/60 transition group block"
+            >
+              <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Tiềm Năng (Chưa Lên Đơn)
+              </span>
               <div className="text-2xl font-black text-amber-400 font-mono">
                 {customersData?.noOrderLeads || 0} leads
               </div>
-              <p className="text-[11px] text-slate-400 mt-2">Cần chăm sóc kịch bản Ngày 1 - 3.</p>
+              <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
+                <span>Cần tư vấn chốt đơn</span>
+                <span className="text-amber-400 group-hover:translate-x-0.5 transition">Lọc →</span>
+              </p>
+            </Link>
+
+            <Link
+              href="/work-tracking?filterDate=OVERDUE"
+              className="rounded-2xl border border-rose-500/30 bg-rose-950/20 p-5 shadow-xl hover:border-rose-400 transition group block"
+            >
+              <span className="text-rose-400 text-xs font-bold uppercase tracking-wider block mb-1">
+                Cảnh Báo Rời Bỏ (Churn Proxy)
+              </span>
+              <div className="text-2xl font-black text-rose-400 font-mono">
+                {customersData?.churnProxy?.churnRiskCount || 0} khách (
+                {customersData?.churnProxy?.churnRate || 0}%)
+              </div>
+              <p className="text-[11px] text-slate-400 mt-2 flex items-center justify-between">
+                <span>{customersData?.churnProxy?.overdueCareCustomers || 0} quá hạn CS</span>
+                <span className="text-rose-400 group-hover:translate-x-0.5 transition">Xử lý →</span>
+              </p>
+            </Link>
+          </div>
+
+          {/* Phễu giữ chân CSKH (Ngày 1 -> Ngày 3 -> Ngày 7 -> Ngày 14 -> Ngày 21) & Cảnh báo Churn */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                  <span>📉</span> Phễu Giữ Chân CSKH (Ngày 1 → Ngày 21)
+                </h4>
+                <Link
+                  href="/work-tracking"
+                  className="text-xs text-cyan-400 hover:underline font-semibold"
+                >
+                  Mở Bảng Công Việc →
+                </Link>
+              </div>
+              <div className="space-y-3">
+                {(customersData?.careFunnel || []).map((step, i) => (
+                  <div key={step.stage} className="space-y-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-200 font-semibold">
+                        {i + 1}. {step.label}
+                      </span>
+                      <span className="font-mono text-slate-300">
+                        {step.completedTasks}/{step.totalTasks} hoàn thành ({step.completionRate}%)
+                        {step.overdueTasks > 0 && (
+                          <span className="text-rose-400 ml-1.5">• {step.overdueTasks} quá hạn</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden flex">
+                      <div
+                        className="bg-emerald-500 h-3 transition-all"
+                        style={{ width: `${step.completionRate}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                  <span>🚨</span> Cảnh Báo Khách Có Nguy Cơ Rời Bỏ (Churn Proxy)
+                </h4>
+                <Link
+                  href="/work-tracking?filterDate=OVERDUE"
+                  className="text-xs text-rose-400 hover:underline font-semibold"
+                >
+                  Xem tất cả quá hạn →
+                </Link>
+              </div>
+              <div className="text-xs text-slate-400 mb-3 flex flex-wrap gap-4">
+                <span>
+                  Quá 45 ngày chưa tái mua:{" "}
+                  <strong className="text-amber-300">
+                    {customersData?.churnProxy?.inactiveOver45Days || 0}
+                  </strong>
+                </span>
+                <span>
+                  Đang quá hạn lịch CSKH:{" "}
+                  <strong className="text-rose-400">
+                    {customersData?.churnProxy?.overdueCareCustomers || 0}
+                  </strong>
+                </span>
+              </div>
+              {(customersData?.churnProxy?.topAtRiskCustomers || []).length === 0 ? (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-xs text-slate-400 text-center">
+                  Không ghi nhận khách hàng nào có dấu hiệu rời bỏ.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {(customersData?.churnProxy?.topAtRiskCustomers || []).map((c) => (
+                    <Link
+                      key={c.customerId || c.phone}
+                      href={`/customers?search=${encodeURIComponent(c.phone || c.fullName)}`}
+                      className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 hover:border-rose-500/50 transition text-xs"
+                    >
+                      <div>
+                        <div className="font-semibold text-white">{c.fullName}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">{c.phone}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-rose-400 font-semibold">{c.reason}</div>
+                        <div className="text-[10px] text-slate-500">{c.ordersCount} đơn đã mua</div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

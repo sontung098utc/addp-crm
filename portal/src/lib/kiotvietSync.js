@@ -28,12 +28,16 @@ if (!globalThis.__KIOTVIET_SYNC_CACHE__) {
     token: null,
     expiresAt: 0,
     customerPhoneMap: new Map(),
+    customerCodePhoneMap: new Map(),
     isSyncing: false,
     lastSyncTime: 0,
   };
 }
 
 const syncCache = globalThis.__KIOTVIET_SYNC_CACHE__;
+if (!syncCache.customerCodePhoneMap) {
+  syncCache.customerCodePhoneMap = new Map();
+}
 
 export async function getKiotVietSyncToken(forceRefresh = false) {
   const now = Date.now();
@@ -129,6 +133,44 @@ export async function resolveKiotVietCustomerPhone(customerId, token, retailer) 
   } catch {}
 
   syncCache.customerPhoneMap.set(strId, "");
+  return "";
+}
+
+/**
+ * Fallback tra cứu số điện thoại khách hàng từ KiotViet theo customerCode (có cache trong phiên sync)
+ */
+export async function resolveKiotVietCustomerPhoneByCode(customerCode, token, retailer) {
+  const codeKey = String(customerCode || "").trim();
+  if (!codeKey) return "";
+  if (!syncCache.customerCodePhoneMap) {
+    syncCache.customerCodePhoneMap = new Map();
+  }
+  if (syncCache.customerCodePhoneMap.has(codeKey)) {
+    return syncCache.customerCodePhoneMap.get(codeKey);
+  }
+
+  try {
+    const res = await fetch(
+      `${KIOTVIET_API_BASE}/customers?code=${encodeURIComponent(codeKey)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Retailer: retailer,
+          "User-Agent": "ADDP-CRM/1.0",
+        },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+    const data = await res.json().catch(() => ({}));
+    const custObj = Array.isArray(data?.data) ? data.data[0] : data;
+    const phone = normalizePhone(custObj?.contactNumber || custObj?.mobilePhone || "");
+    if (phone) {
+      syncCache.customerCodePhoneMap.set(codeKey, phone);
+      return phone;
+    }
+  } catch {}
+
+  syncCache.customerCodePhoneMap.set(codeKey, "");
   return "";
 }
 
@@ -400,6 +442,7 @@ export async function syncAllKiotVietOrders({
   }
 
   syncCache.isSyncing = true;
+  syncCache.customerCodePhoneMap?.clear();
   const startTime = Date.now();
 
   try {
@@ -453,6 +496,9 @@ export async function syncAllKiotVietOrders({
         if (!phone && inv.customerId && pageCount <= 5) {
           phone = await resolveKiotVietCustomerPhone(inv.customerId, token, retailer);
         }
+        if (!phone && inv.customerCode) {
+          phone = await resolveKiotVietCustomerPhoneByCode(inv.customerCode, token, retailer);
+        }
         const mapped = mapKiotVietItemToCrmOrder(inv, "INVOICE", phone);
         mappedOrders.push(mapped);
         syncedInvoicesCount++;
@@ -498,6 +544,9 @@ export async function syncAllKiotVietOrders({
           "";
         if (!phone && ord.customerId && pageCount <= 5) {
           phone = await resolveKiotVietCustomerPhone(ord.customerId, token, retailer);
+        }
+        if (!phone && ord.customerCode) {
+          phone = await resolveKiotVietCustomerPhoneByCode(ord.customerCode, token, retailer);
         }
         const mapped = mapKiotVietItemToCrmOrder(ord, "ORDER", phone);
         mappedOrders.push(mapped);

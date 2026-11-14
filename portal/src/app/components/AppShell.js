@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import GlobalAddOrderModal from "./GlobalAddOrderModal";
 import { canAccessModule } from "@/lib/authConstants";
 import { ShieldAlert, ArrowLeft } from "lucide-react";
 
@@ -33,6 +34,7 @@ export default function AppShell({ children }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [showGlobalOrderModal, setShowGlobalOrderModal] = useState(false);
 
   useEffect(() => {
     if (isLoginPage) {
@@ -92,7 +94,20 @@ export default function AppShell({ children }) {
         currentUser={currentUser}
       />
       <div suppressHydrationWarning className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        <Header currentUser={currentUser} />
+        <div className="flex items-center shrink-0">
+          <div className="flex-1 min-w-0">
+            <Header currentUser={currentUser} />
+          </div>
+          <div className="h-15 backdrop-blur-xl bg-white/80 dark:bg-[#0e131f]/90 border-b border-slate-200/70 dark:border-slate-800/80 pr-4 flex items-center shrink-0 z-30 sticky top-0">
+            <button
+              type="button"
+              onClick={() => setShowGlobalOrderModal(true)}
+              className="h-8.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shadow-sm shadow-emerald-600/25"
+            >
+              <span>🛒 Lên đơn nhanh</span>
+            </button>
+          </div>
+        </div>
         <main
           suppressHydrationWarning
           className={`flex-1 min-h-0 ${
@@ -129,6 +144,15 @@ export default function AppShell({ children }) {
           )}
         </main>
       </div>
+      <GlobalAddOrderModal
+        isOpen={showGlobalOrderModal}
+        onClose={() => setShowGlobalOrderModal(false)}
+        onSuccess={() => {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("addp:order-created"));
+          }
+        }}
+      />
     </div>
   );
 }
