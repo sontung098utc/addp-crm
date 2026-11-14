@@ -101,3 +101,27 @@
 | `[x]` | **WBS-48** | Tuần 5 - Thứ 6 | Dev 1 + AI | **8h** | **1.0 ngày** | Xây dựng Báo cáo Phân tích Khách hàng: Tỷ lệ mua lại (Retention lần 2, 3, VIP), doanh thu theo Nguồn khách hàng, thống kê theo nhóm Bệnh lý | `C:\AH-Trabi\quan-ly-kho\khach_hang_view.php` + `QuanlyKH` |
 | `[x]` | **WBS-49** | Tuần 5 - Thứ 7 | Dev 1 + AI | **8h** | **1.0 ngày** | Viết và chạy Script Di chuyển toàn bộ dữ liệu lịch sử (Data Migration) từ DB `QuanlyKH`, `addp_khohang` (`quan-ly-kho`), `AdsTiktok` sang Database hợp nhất trên `crm.addp.vn` | `C:\AH-Trabi\quan-ly-kho\migrate_to_mysql.php` + `QuanlyKH` |
 | `[x]` | **WBS-50** | Tuần 5 - Thứ 7 | Dev 2 + AI | **10h** | **1.25 ngày** | Kiểm thử toàn diện (UAT), tối ưu hiệu năng, thiết lập sao lưu Database tự động hàng ngày và bàn giao vận hành chính thức trên `https://crm.addp.vn` | `c:\addp-crm\docs\18-sao-luu-github.md` |
+
+---
+
+## PHỤ LỤC: THỐNG KÊ CHI PHÍ VẬN HÀNH TOÀN HỆ THỐNG & CÁC HẠNG MỤC NÂNG CẤP MỚI NHẤT
+*(Xem chi tiết tại tệp: `KE_HOACH_CHI_PHI_VA_NANG_CAP_HE_THONG.md`)*
+
+### 1. Tổng hợp Chi phí Vận hành Phần mềm
+- **Máy chủ & CSDL nội bộ (Server On-Premise, MySQL, Redis, Vector):** **0 VNĐ / tháng** (Tận dụng 100% hạ tầng DirectAdmin công ty).
+- **Phí kết nối 7 nền tảng (Zalo QR, Zalo OA, Fanpage, TikTok Shop, Shopee, KiotViet, Magento):** **0 VNĐ / tháng** (Dùng In-House Developer API).
+- **Chi phí Trí tuệ nhân tạo (OpenAI GPT-4o-mini & Gemini Flash):**
+  - Đơn giá thực tế kiểm chứng: **~13 VNĐ / 1 tin nhắn tư vấn AI**.
+  - Quy mô 50 tin/ngày: **~20.000 VNĐ / tháng**.
+  - Quy mô 200 tin/ngày: **~79.000 VNĐ / tháng**.
+  - Quy mô 500 tin/ngày: **~198.000 VNĐ / tháng**.
+  - Quy mô 1.000 tin/ngày: **~396.000 VNĐ / tháng**.
+  - *Tiết kiệm >95% so với thuê nhân sự trực ca đêm/cuối tuần.*
+
+### 2. Các Hạng mục Đã Nâng Cấp & Tối Ưu Mới Nhất
+- `NÂNG_CẤP_01`: **Chế độ Bot 2 tầng độc lập (Opt-in per customer):** Mặc định toàn bộ nick & mọi khách hàng là Nhân viên trực. Chỉ kích hoạt AI cho khách được người dùng bật thủ công.
+- `NÂNG_CẤP_02`: **Bộ tự học phong cách theo từng nick (`accountLearner.js`):** Tự quét `history.jsonl`, học xưng hô và trích xuất 80 cặp Q&A thực tế làm Few-shot.
+- `NÂNG_CẤP_03`: **Nối LLM thật + Vector RAG + Kịch bản Bác sĩ 3 bước:** Chấm dứt triệt để tình trạng lặp câu hỏi, tư vấn dinh dưỡng ăn đảo ngược & sữa hạt chuyên sâu.
+- `NÂNG_CẤP_04`: **Cơ chế xóa Bot vĩnh viễn (`deleted_bot_profiles.json`):** Ngăn chặn hệ thống tự động tái sinh bot đã xóa; bổ sung nút phục hồi Bot mặc định.
+- `NÂNG_CẤP_05`: **Watcher 24/7 & Cửa sổ phản hồi 30 phút:** Tự động trả lời ngầm không cần mở tab trình duyệt.
+
