@@ -226,6 +226,44 @@ export async function GET(request) {
       searchParams.get("name") ||
       searchParams.get("customerName") ||
       "";
+    const isShopee =
+      channelUpper === "SHOPEE" ||
+      threadStr.toLowerCase().startsWith("shopee_");
+
+    if (isShopee) {
+      const spMsgs = await getThreadMessages(
+        threadId,
+        "SHOPEE",
+        accountId || pageId,
+        customerNameHint
+      );
+      const formatted = spMsgs.map((m) => {
+        const { time, date } = formatMessageTime(m.timestamp);
+        return {
+          id: m.id,
+          text: m.text,
+          sender: m.sender || (m.isMe ? "STAFF" : "CUSTOMER"),
+          senderId: m.senderId,
+          senderName: m.senderName,
+          isMe: Boolean(m.isMe || m.sender === "STAFF"),
+          timestamp: m.timestamp,
+          time: m.time || time,
+          date: m.date || date,
+          type: m.type || "text",
+          mediaUrl: m.mediaUrl || null,
+          status: "sent",
+        };
+      });
+
+      return NextResponse.json({
+        ok: true,
+        source: "shopee",
+        threadId,
+        count: formatted.length,
+        messages: formatted,
+      });
+    }
+
     const isTikTok =
       channelUpper === "TIKTOK_SHOP" ||
       channelUpper === "TIKTOK" ||

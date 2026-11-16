@@ -6,6 +6,7 @@ import ZaloQrModal from "./ZaloQrModal";
 import FacebookConnectModal from "./FacebookConnectModal";
 import TikTokConnectModal from "./TikTokConnectModal";
 import ShopeeConnectModal from "./ShopeeConnectModal";
+import ChannelLogo from "../components/ChannelLogo";
 import {
   Globe,
   MessageCircle,
@@ -401,13 +402,13 @@ export default function ChannelsPage() {
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 flex flex-wrap items-center justify-between gap-4 shadow-xs">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 sm:p-6 flex flex-wrap items-center justify-between gap-4 shadow-xs">
         <div>
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="rounded-lg bg-cyan-500/15 border border-cyan-500/30 px-2.5 py-0.5 text-xs font-bold text-cyan-400 whitespace-nowrap">
               Giai Đoạn 2: WBS-11 → WBS-20
             </span>
-            <h1 className="text-lg font-bold text-white">
+            <h1 className="text-base sm:text-lg font-bold text-white">
               Trung Tâm Kết Nối Đa Kênh &amp; Quản Lý Đa Tài Khoản (ConnectionHub)
             </h1>
           </div>
@@ -416,11 +417,11 @@ export default function ChannelsPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setIsFbModalOpen(true)}
-            className="rounded-xl bg-[#007aff] hover:bg-[#0066d6] text-white text-xs font-semibold px-4 py-2 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="flex-1 sm:flex-none justify-center rounded-xl bg-[#007aff] hover:bg-[#0066d6] text-white text-xs font-semibold px-4 py-2.5 sm:py-2 min-h-[42px] sm:min-h-0 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <MessageSquare className="w-3.5 h-3.5 shrink-0" />
             <span>Kết Nối Fanpage 1-Click</span>
@@ -428,7 +429,7 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={handleOpenTikTokOAuth}
-            className="rounded-xl bg-slate-900 hover:bg-black border border-slate-700/80 text-white text-xs font-semibold px-4 py-2 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="flex-1 sm:flex-none justify-center rounded-xl bg-slate-900 hover:bg-black border border-slate-700/80 text-white text-xs font-semibold px-4 py-2.5 sm:py-2 min-h-[42px] sm:min-h-0 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <span>🎵</span>
             <span>Kết Nối TikTok Shop 1-Click</span>
@@ -436,7 +437,7 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={() => setIsShopeeModalOpen(true)}
-            className="rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold px-4 py-2 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="flex-1 sm:flex-none justify-center rounded-xl bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold px-4 py-2.5 sm:py-2 min-h-[42px] sm:min-h-0 shadow-xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
             <span>Kết Nối Shopee 1-Click</span>
@@ -444,7 +445,7 @@ export default function ChannelsPage() {
           <button
             type="button"
             onClick={() => setIsZaloQrOpen(true)}
-            className="rounded-xl bg-cyan-600/15 hover:bg-cyan-600/25 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 text-xs font-semibold px-4 py-2 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="flex-1 sm:flex-none justify-center rounded-xl bg-cyan-600/15 hover:bg-cyan-600/25 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 text-xs font-semibold px-4 py-2.5 sm:py-2 min-h-[42px] sm:min-h-0 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <QrCode className="w-3.5 h-3.5 shrink-0" />
             <span>Quét QR Zalo Cá Nhân</span>
@@ -453,14 +454,14 @@ export default function ChannelsPage() {
             type="button"
             data-open-add-channel="true"
             onClick={() => setIsAddModalOpen(true)}
-            className="rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-3.5 py-2 shadow-2xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            className="flex-1 sm:flex-none justify-center rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-3.5 py-2.5 sm:py-2 min-h-[42px] sm:min-h-0 shadow-2xs transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 shrink-0" />
             <span>Thêm Gian Hàng / Kênh</span>
           </button>
           <Link
             href="/settings"
-            className="rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3.5 py-2 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap"
+            className="flex-1 sm:flex-none justify-center rounded-xl bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold px-3.5 py-2.5 sm:py-2 min-h-[42px] sm:min-h-0 transition-all duration-150 inline-flex items-center gap-1.5 whitespace-nowrap"
           >
             <Settings className="w-3.5 h-3.5 shrink-0 text-[#007aff]" />
             <span>Phân Quyền Kênh</span>
@@ -523,7 +524,7 @@ export default function ChannelsPage() {
       </div>
 
       {/* Tabs Phân Loại Kênh — Apple Segmented Control */}
-      <div className="p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-800/60 border border-slate-300/40 dark:border-slate-700/50 flex flex-wrap items-center gap-1">
+      <div className="p-1.5 rounded-2xl bg-slate-200/60 dark:bg-slate-800/60 border border-slate-300/40 dark:border-slate-700/50 flex items-center gap-1 overflow-x-auto md:flex-wrap">
         {PLATFORM_TABS.map((t) => {
           const TabIcon = t.Icon;
           const count =
@@ -536,13 +537,17 @@ export default function ChannelsPage() {
               key={t.id}
               type="button"
               onClick={() => setActiveTab(t.id)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer ${
+              className={`inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap shrink-0 cursor-pointer ${
                 isActive
                   ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
-              <TabIcon className="w-3.5 h-3.5 shrink-0" />
+              {t.id === "ALL" ? (
+                <TabIcon className="w-3.5 h-3.5 shrink-0" />
+              ) : (
+                <ChannelLogo platform={t.id} size={15} />
+              )}
               <span>{t.label}</span>
               <span
                 className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold tabular-nums ${
@@ -612,10 +617,13 @@ export default function ChannelsPage() {
                     </span>
                   </div>
 
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">{ch.name}</h3>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 truncate">
-                      ID: {ch.externalId}
+                  <div className="flex items-start gap-2.5">
+                    <ChannelLogo platform={ch.platform} size={28} className="mt-0.5 rounded-lg" />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">{ch.name}</h3>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono mt-0.5 truncate">
+                        ID: {ch.externalId}
+                      </div>
                     </div>
                   </div>
 
@@ -661,7 +669,7 @@ export default function ChannelsPage() {
 
                     {/* Phân công nhân sự */}
                     <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
-                      <span className="text-slate-400">Nhân sự trực:</span>
+                      <span className="text-slate-400 shrink-0">Nhân sự trực:</span>
                       <select
                         value={ch.assignedStaff?.id || "ADMIN"}
                         onChange={(e) => {
@@ -669,7 +677,7 @@ export default function ChannelsPage() {
                             STAFF_LIST.find((s) => s.id === e.target.value) || STAFF_LIST[0];
                           handleChangeStaff(ch, staff);
                         }}
-                        className="bg-slate-900 border border-slate-700 text-slate-200 text-[10px] rounded-lg px-2 py-0.5 outline-hidden focus:border-blue-500 cursor-pointer"
+                        className="bg-slate-900 border border-slate-700 text-slate-200 text-base sm:text-[10px] rounded-lg px-2 py-1.5 sm:py-0.5 min-h-[38px] sm:min-h-0 max-w-[180px] sm:max-w-none outline-hidden focus:border-blue-500 cursor-pointer"
                       >
                         {STAFF_LIST.map((s) => (
                           <option key={s.id} value={s.id}>
@@ -878,11 +886,12 @@ export default function ChannelsPage() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
+          <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl max-h-[92dvh] flex flex-col overflow-hidden">
+            {/* Sticky Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 sm:px-6 py-4 shrink-0 bg-slate-900">
+              <div className="min-w-0">
                 <h3 className="text-base font-bold text-white">Thêm Gian Hàng / Kênh Mới (WBS-11 &amp; 18 &amp; 20)</h3>
                 <p className="text-xs text-slate-400">
                   Lưu trữ mã hóa Token an toàn bằng AES-256-GCM
@@ -893,19 +902,21 @@ export default function ChannelsPage() {
                 data-modal-close="add"
                 aria-label="Đóng"
                 onClick={() => setIsAddModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateChannel} className="space-y-3.5 text-xs">
+            <form onSubmit={handleCreateChannel} className="flex-1 flex flex-col min-h-0">
+              {/* Scrollable Body */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-3.5 text-xs">
               <div>
                 <label className="block text-slate-300 font-semibold mb-1">Chọn Nền Tảng</label>
                 <select
                   value={newForm.platform}
                   onChange={(e) => setNewForm({ ...newForm, platform: e.target.value })}
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white"
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-sm text-white"
                 >
                   {Object.entries(platforms).map(([k, p]) => (
                     <option key={k} value={k}>
@@ -924,7 +935,7 @@ export default function ChannelsPage() {
                   value={newForm.name}
                   onChange={(e) => setNewForm({ ...newForm, name: e.target.value })}
                   placeholder="VD: TikTok Shop Dược Phẩm ADDP, Shopee Glucare PLUS..."
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white"
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-sm text-white"
                 />
               </div>
 
@@ -937,7 +948,7 @@ export default function ChannelsPage() {
                   value={newForm.externalId}
                   onChange={(e) => setNewForm({ ...newForm, externalId: e.target.value })}
                   placeholder="VD: vn_shop_8899 hoặc shop_shopee_10293"
-                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2 text-white font-mono"
+                  className="w-full rounded-xl bg-slate-950 border border-slate-800 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-sm text-white font-mono"
                 />
               </div>
 
@@ -956,7 +967,7 @@ export default function ChannelsPage() {
                     <button
                       type="button"
                       onClick={handleOpenTikTokOAuth}
-                      className="w-full rounded-xl bg-slate-900 hover:bg-black border border-pink-500/40 text-white text-xs font-bold px-4 py-2.5 shadow-md transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full rounded-xl bg-slate-900 hover:bg-black border border-pink-500/40 text-white text-xs font-bold px-4 py-2.5 min-h-[44px] sm:min-h-0 shadow-md transition-all inline-flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <span>🎵</span>
                       <span>Ủy Quyền 1-Click Ngay (Mở TikTok Shop)</span>
@@ -968,7 +979,7 @@ export default function ChannelsPage() {
                     <ShoppingBag className="w-3.5 h-3.5" />
                     <span>Hoặc cấu hình thủ công (Tùy chọn nâng cao)</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="block text-slate-400 text-[11px] mb-1">App Key</label>
                       <input
@@ -979,7 +990,7 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, appKey: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                     <div>
@@ -993,7 +1004,7 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, appSecret: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                   </div>
@@ -1007,10 +1018,10 @@ export default function ChannelsPage() {
                           config: { ...newForm.config, refreshToken: e.target.value },
                         })
                       }
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                     />
                   </div>
-                  <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[11px] text-amber-200">
+                  <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[11px] text-amber-200 break-all">
                     Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/tiktok</code>
                   </div>
                 </div>
@@ -1022,7 +1033,7 @@ export default function ChannelsPage() {
                     <ShoppingCart className="w-3.5 h-3.5" />
                     <span>Cấu hình Shopee Open API v2 (WBS-18)</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="block text-slate-400 text-[11px] mb-1">Partner ID</label>
                       <input
@@ -1033,7 +1044,7 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, partnerId: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                     <div>
@@ -1047,7 +1058,7 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, partnerKey: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                   </div>
@@ -1061,10 +1072,10 @@ export default function ChannelsPage() {
                           config: { ...newForm.config, refreshToken: e.target.value },
                         })
                       }
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                     />
                   </div>
-                  <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-2 text-[11px] text-orange-200">
+                  <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-2 text-[11px] text-orange-200 break-all">
                     Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/shopee</code>
                   </div>
                 </div>
@@ -1086,10 +1097,10 @@ export default function ChannelsPage() {
                           config: { ...newForm.config, retailer: e.target.value },
                         })
                       }
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white text-xs"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white text-base sm:text-sm"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="block text-slate-400 text-[11px] mb-1">Client ID</label>
                       <input
@@ -1100,7 +1111,7 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, clientId: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                     <div>
@@ -1114,11 +1125,11 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, clientSecret: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                   </div>
-                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-2 text-[11px] text-blue-200">
+                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-2 text-[11px] text-blue-200 break-all">
                     Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/kiotviet</code>
                   </div>
                 </div>
@@ -1140,7 +1151,7 @@ export default function ChannelsPage() {
                           config: { ...newForm.config, domain: e.target.value },
                         })
                       }
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                     />
                   </div>
                   <div>
@@ -1154,10 +1165,10 @@ export default function ChannelsPage() {
                           config: { ...newForm.config, apiToken: e.target.value },
                         })
                       }
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                     />
                   </div>
-                  <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-2 text-[11px] text-orange-200">
+                  <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-2 text-[11px] text-orange-200 break-all">
                     Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/magento</code>
                   </div>
                 </div>
@@ -1180,7 +1191,7 @@ export default function ChannelsPage() {
                           config: { ...newForm.config, pageAccessToken: e.target.value },
                         })
                       }
-                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                      className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                     />
                   </div>
                   <p className="text-[11px] text-slate-400">
@@ -1195,7 +1206,7 @@ export default function ChannelsPage() {
                     <Radio className="w-3.5 h-3.5" />
                     <span>Cấu hình Zalo Official Account Open API v3 (WBS-15 &amp; 17)</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <label className="block text-slate-400 text-[11px] mb-1">OA ID</label>
                       <input
@@ -1206,7 +1217,7 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, oaId: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                     <div>
@@ -1219,27 +1230,29 @@ export default function ChannelsPage() {
                             config: { ...newForm.config, appId: e.target.value },
                           })
                         }
-                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-1.5 text-white font-mono text-xs"
+                        className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2.5 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-white font-mono text-base sm:text-sm"
                       />
                     </div>
                   </div>
-                  <div className="rounded-lg bg-sky-500/10 border border-sky-500/20 p-2 text-[11px] text-sky-200">
+                  <div className="rounded-lg bg-sky-500/10 border border-sky-500/20 p-2 text-[11px] text-sky-200 break-all">
                     Webhook URL: <code className="text-cyan-300 font-mono">https://crm.addp.vn/api/webhooks/zalo-oa</code>
                   </div>
                 </div>
               )}
+              </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              {/* Sticky Footer */}
+              <div className="flex justify-end gap-2 px-4 sm:px-6 py-3.5 border-t border-slate-800 shrink-0 bg-slate-900">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 px-4 py-2 font-semibold cursor-pointer"
+                  className="rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 font-semibold cursor-pointer"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 font-semibold cursor-pointer"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 font-semibold cursor-pointer"
                 >
                   Lưu Kênh Kết Nối
                 </button>
@@ -1307,16 +1320,17 @@ export default function ChannelsPage() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
         >
-          <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 text-xs space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <span className="p-2 rounded-xl bg-blue-500/15 text-blue-400">
+          <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl max-h-[92dvh] flex flex-col overflow-hidden">
+            {/* Sticky Header */}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 sm:px-6 py-4 shrink-0 bg-slate-900">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="p-2 rounded-xl bg-blue-500/15 text-blue-400 shrink-0">
                   <BookOpen className="w-4 h-4" />
                 </span>
-                <div>
-                  <h3 className="text-sm font-bold text-white">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-white truncate">
                     Hướng Dẫn Cấu Hình &amp; Lấy API Key — {PLATFORM_INFO[guidePlatform]?.label || guidePlatform}
                   </h3>
                   <p className="text-[11px] text-slate-400">
@@ -1327,11 +1341,15 @@ export default function ChannelsPage() {
               <button
                 type="button"
                 onClick={() => setGuidePlatform(null)}
-                className="p-1 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                aria-label="Đóng"
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition cursor-pointer shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Scrollable Body */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-xs space-y-4">
 
             {/* Nội dung hướng dẫn theo từng nền tảng */}
             {guidePlatform === "MAGENTO" && (
@@ -1523,11 +1541,14 @@ export default function ChannelsPage() {
               </div>
             )}
 
-            <div className="pt-3 border-t border-slate-800 flex justify-end">
+            </div>
+
+            {/* Sticky Footer */}
+            <div className="px-4 sm:px-6 py-3.5 border-t border-slate-800 flex justify-end shrink-0 bg-slate-900">
               <button
                 type="button"
                 onClick={() => setGuidePlatform(null)}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold cursor-pointer transition"
+                className="px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition"
               >
                 Đã Hiểu &amp; Đóng
               </button>

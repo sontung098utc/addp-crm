@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import ChannelLogo from "../components/ChannelLogo";
 import { ROLE_PERMISSIONS, getDefaultAllowedTabsForRole } from "@/lib/authConstants";
 
 const MODULE_LABELS = {
@@ -182,8 +183,9 @@ function ChannelAssignmentSection({ assignableChannels = [], assignedChannels = 
               className="rounded-lg border border-slate-800/80 bg-slate-900/40 p-2.5 space-y-2"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-300">
-                  {group.icon} {group.label}{" "}
+                <span className="text-[11px] font-semibold text-slate-300 inline-flex items-center gap-1.5">
+                  <ChannelLogo platform={group.key} size={15} />
+                  <span>{group.label}</span>
                   <span className="text-slate-500 font-normal">
                     ({groupSelected}/{items.length})
                   </span>
@@ -218,8 +220,9 @@ function ChannelAssignmentSection({ assignableChannels = [], assignedChannels = 
                           onChange={() => handleToggleItem(ch)}
                           className="rounded border-slate-700"
                         />
-                        <span className="truncate font-medium">
-                          {group.icon} {ch.label}
+                        <span className="truncate font-medium inline-flex items-center gap-1.5">
+                          <ChannelLogo platform={group.key} size={14} />
+                          <span className="truncate">{ch.label}</span>
                         </span>
                         <span className="text-[10px] text-slate-500 font-mono ml-auto">
                           {ch.shortId}

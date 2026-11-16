@@ -384,6 +384,51 @@ export function getConnectedTikTokShops() {
   });
 }
 
+/**
+ * Lấy danh sách toàn bộ các gian hàng Shopee đang kết nối (an toàn, không lộ token)
+ */
+export function getConnectedShopeeShops() {
+  const channels = listAllChannels();
+  const shopeeChannels = channels.filter((c) => {
+    const isShopee =
+      c.platform === "SHOPEE" ||
+      c.type === "shopee" ||
+      c.channel_type === "shopee";
+    const statusNorm = String(c.status || "").toUpperCase();
+    const isActive =
+      statusNorm !== "DISCONNECTED" &&
+      statusNorm !== "DELETED" &&
+      statusNorm !== "INACTIVE";
+    return isShopee && isActive;
+  });
+
+  const nameCounts = new Map();
+  for (const ch of shopeeChannels) {
+    const norm = String(ch.name || ch.shopName || "").trim().toLowerCase();
+    nameCounts.set(norm, (nameCounts.get(norm) || 0) + 1);
+  }
+
+  return shopeeChannels.map((ch, idx) => {
+    const shopId = String(
+      ch.shopId || ch.config?.shopId || ch.externalId || ch.id || ""
+    ).trim();
+    const shortId = shopId ? shopId.slice(-4) : String(idx + 1);
+    const rawName = String(ch.name || ch.shopName || `Shopee #${shortId}`).trim();
+    const isDuplicateName = (nameCounts.get(rawName.toLowerCase()) || 0) > 1;
+    const displayName = isDuplicateName && shortId ? `${rawName} (#${shortId})` : rawName;
+
+    return {
+      id: ch.id,
+      shopId: shopId || String(ch.id),
+      shortId,
+      name: rawName,
+      displayName,
+      status: ch.status || "CONNECTED",
+      colorIndex: idx,
+    };
+  });
+}
+
 export function cleanTikTokConversationId(rawId) {
   let target = rawId;
   if (target && typeof target === "object") {
@@ -1696,6 +1741,9 @@ export async function getOmnichannelConversations(forceRefresh = false) {
       } else if (normalizedChannel === "TIKTOK_SHOP") {
         icon = "🎵";
         channelLabel = m.channelName || existing?.accountName || "TikTok Shop";
+      } else if (normalizedChannel === "SHOPEE") {
+        icon = "🛒";
+        channelLabel = m.channelName || existing?.accountName || "Shopee";
       }
 
       convMap.set(key, {

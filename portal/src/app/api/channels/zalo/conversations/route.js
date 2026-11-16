@@ -13,6 +13,7 @@ import {
   getOmnichannelConversations,
   getConnectedFacebookPages,
   getConnectedTikTokShops,
+  getConnectedShopeeShops,
 } from "@/lib/unifiedMessageRouter.js";
 import { listAllChannels } from "@/lib/connectionHub.js";
 import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.js";
@@ -313,6 +314,7 @@ export async function GET(request) {
         connectedZaloAccounts: [],
         connectedPages: filterChannelsForStaff(liveStaff, getConnectedFacebookPages()),
         connectedTikTokShops: filterChannelsForStaff(liveStaff, getConnectedTikTokShops()),
+        connectedShopeeShops: filterChannelsForStaff(liveStaff, getConnectedShopeeShops()),
         currentUserRole: liveStaff?.role || "ADMIN",
         currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
         conversations: combinedWithTags,
@@ -592,6 +594,7 @@ export async function GET(request) {
     const combined = [...allActive, ...contactOnlyConversations];
     const connectedPages = filterChannelsForStaff(liveStaff, getConnectedFacebookPages());
     const connectedTikTokShops = filterChannelsForStaff(liveStaff, getConnectedTikTokShops());
+    const connectedShopeeShops = filterChannelsForStaff(liveStaff, getConnectedShopeeShops());
 
     // Gắn thẻ tag đã lưu vào từng hội thoại (hỗ trợ cả threadId và SĐT chuẩn từ migrate)
     const allThreadTags = getAllConversationTags();
@@ -611,6 +614,7 @@ export async function GET(request) {
       connectedZaloAccounts,
       connectedPages,
       connectedTikTokShops,
+      connectedShopeeShops,
       currentUserRole: liveStaff?.role || "ADMIN",
       currentStaffName: liveStaff?.fullName || liveStaff?.name || "",
       syncStatus: {

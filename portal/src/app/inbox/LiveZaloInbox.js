@@ -10,6 +10,7 @@ import DocumentPickerModal from "./DocumentPickerModal";
 import AudioRecorderBar from "./AudioRecorderBar";
 import QuickTagBar from "./QuickTagBar";
 import ChatToolbar from "./ChatToolbar";
+import ChannelLogo from "../components/ChannelLogo";
 import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 import {
   playNotificationSound,
@@ -146,6 +147,16 @@ function getChannelMeta(channel, pageId = "", connectedPages = []) {
         pillClass: "bg-pink-500/15 text-pink-600 dark:text-pink-300 border border-pink-500/30",
         dotColor: "bg-pink-500",
       };
+    case "SHOPEE":
+    case "shopee":
+      return {
+        code: "SP",
+        label: "Shopee",
+        avatarLetter: "S",
+        badgeBg: "bg-[#EE4D2D]",
+        pillClass: "bg-orange-500/15 text-orange-600 dark:text-orange-300 border border-orange-500/30",
+        dotColor: "bg-[#EE4D2D]",
+      };
     default:
       return {
         code: "ZALO",
@@ -256,6 +267,7 @@ export default function LiveZaloInbox() {
   const [connectedPages, setConnectedPages] = useState([]);
   const [connectedZaloAccounts, setConnectedZaloAccounts] = useState([]);
   const [connectedTikTokShops, setConnectedTikTokShops] = useState([]);
+  const [connectedShopeeShops, setConnectedShopeeShops] = useState([]);
   const [loadingConv, setLoadingConv] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeConv, setActiveConv] = useState(null);
@@ -271,6 +283,7 @@ export default function LiveZaloInbox() {
   const [selectedPageId, setSelectedPageId] = useState("ALL");
   const [selectedZaloAccountId, setSelectedZaloAccountId] = useState("ALL");
   const [selectedTikTokShopId, setSelectedTikTokShopId] = useState("ALL");
+  const [selectedShopeeShopId, setSelectedShopeeShopId] = useState("ALL");
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const [isSyncingTikTok, setIsSyncingTikTok] = useState(false);
@@ -731,6 +744,9 @@ export default function LiveZaloInbox() {
       }
       if (Array.isArray(dataConv.connectedTikTokShops)) {
         setConnectedTikTokShops(dataConv.connectedTikTokShops);
+      }
+      if (Array.isArray(dataConv.connectedShopeeShops)) {
+        setConnectedShopeeShops(dataConv.connectedShopeeShops);
       }
       if (dataConv.currentUserRole) {
         setCurrentUserRole(dataConv.currentUserRole);
@@ -2200,6 +2216,29 @@ export default function LiveZaloInbox() {
     return Array.from(map.values());
   }, [connectedTikTokShops, conversations]);
 
+  const effectiveShopeeShops = useMemo(() => {
+    const map = new Map();
+    for (const s of connectedShopeeShops || []) {
+      const key = String(s.shopId || s.id || "").trim();
+      if (key) map.set(key, s);
+    }
+    for (const c of conversations || []) {
+      if (c.channel === "SHOPEE") {
+        const key = String(c.shopId || c.accountId || "").trim();
+        if (key && !map.has(key)) {
+          map.set(key, {
+            id: `shopee_${key}`,
+            shopId: key,
+            shortId: key.slice(-4),
+            name: c.accountName || `Shopee #${key.slice(-4)}`,
+            displayName: c.accountName || `Shopee #${key.slice(-4)}`,
+          });
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [connectedShopeeShops, conversations]);
+
   // Xử lý khi đổi lựa chọn trong Dropdown Gom Kênh ở Cột 1
   const handleAccountDropdownChange = (val) => {
     setSelectedAccountFilter(val);
@@ -2208,42 +2247,63 @@ export default function LiveZaloInbox() {
       setSelectedZaloAccountId("ALL");
       setSelectedPageId("ALL");
       setSelectedTikTokShopId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val === "ZALO_ALL") {
       setChannelFilter("ZALO_PERSONAL");
       setSelectedZaloAccountId("ALL");
       setSelectedPageId("ALL");
       setSelectedTikTokShopId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val === "FB_ALL") {
       setChannelFilter("FACEBOOK");
       setSelectedPageId("ALL");
       setSelectedZaloAccountId("ALL");
       setSelectedTikTokShopId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val.startsWith("ZALO_ACCOUNT:")) {
       const accId = val.replace("ZALO_ACCOUNT:", "");
       setChannelFilter("ZALO_PERSONAL");
       setSelectedZaloAccountId(accId);
       setSelectedPageId("ALL");
       setSelectedTikTokShopId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val.startsWith("PAGE:")) {
       const pId = val.replace("PAGE:", "");
       setChannelFilter("FACEBOOK");
       setSelectedPageId(pId);
       setSelectedZaloAccountId("ALL");
       setSelectedTikTokShopId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val === "ZALO_OA") {
       setChannelFilter("ZALO_OA");
       setSelectedPageId("ALL");
       setSelectedZaloAccountId("ALL");
       setSelectedTikTokShopId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val === "TIKTOK_ALL") {
       setChannelFilter("TIKTOK_SHOP");
       setSelectedTikTokShopId("ALL");
       setSelectedPageId("ALL");
       setSelectedZaloAccountId("ALL");
+      setSelectedShopeeShopId("ALL");
     } else if (val.startsWith("TIKTOK_SHOP:")) {
       const shopId = val.replace("TIKTOK_SHOP:", "");
       setChannelFilter("TIKTOK_SHOP");
       setSelectedTikTokShopId(shopId);
+      setSelectedPageId("ALL");
+      setSelectedZaloAccountId("ALL");
+      setSelectedShopeeShopId("ALL");
+    } else if (val === "SHOPEE_ALL") {
+      setChannelFilter("SHOPEE");
+      setSelectedShopeeShopId("ALL");
+      setSelectedTikTokShopId("ALL");
+      setSelectedPageId("ALL");
+      setSelectedZaloAccountId("ALL");
+    } else if (val.startsWith("SHOPEE:")) {
+      const shopId = val.replace("SHOPEE:", "");
+      setChannelFilter("SHOPEE");
+      setSelectedShopeeShopId(shopId);
+      setSelectedTikTokShopId("ALL");
       setSelectedPageId("ALL");
       setSelectedZaloAccountId("ALL");
     }
@@ -2569,7 +2629,7 @@ export default function LiveZaloInbox() {
     if (selectedAccountFilter === "FB_ALL") {
       const fbCount = (conversations || []).filter((c) => c.channel === "FACEBOOK").length;
       return {
-        icon: "📘",
+        icon: <ChannelLogo platform="FACEBOOK" size={16} />,
         label: "Tất cả Fanpage",
         count: fbCount,
       };
@@ -2578,7 +2638,7 @@ export default function LiveZaloInbox() {
       const accId = selectedAccountFilter.replace("ZALO_ACCOUNT:", "");
       const matched = effectiveZaloAccounts.find((a) => String(a.accountId) === String(accId));
       return {
-        icon: "💬",
+        icon: <ChannelLogo platform="ZALO_PERSONAL" size={16} />,
         label: matched ? `Zalo: ${matched.name}` : "Zalo Cá Nhân",
         count: matched?.totalCount || 0,
       };
@@ -2590,7 +2650,7 @@ export default function LiveZaloInbox() {
         (c) => c.channel === "FACEBOOK" && String(c.pageId) === String(pId)
       ).length;
       return {
-        icon: "📘",
+        icon: <ChannelLogo platform="FACEBOOK" size={16} />,
         label: matched ? (matched.shortId ? `${matched.name} (#${matched.shortId})` : matched.name) : "Fanpage FB",
         count: fbCount,
       };
@@ -2598,7 +2658,7 @@ export default function LiveZaloInbox() {
     if (selectedAccountFilter === "ZALO_OA") {
       const oaCount = (conversations || []).filter((c) => c.channel === "ZALO_OA").length;
       return {
-        icon: "📱",
+        icon: <ChannelLogo platform="ZALO_OA" size={16} />,
         label: "Zalo OA Official",
         count: oaCount,
       };
@@ -2608,7 +2668,7 @@ export default function LiveZaloInbox() {
         (c) => c.channel === "TIKTOK_SHOP" || c.channel === "TIKTOK"
       ).length;
       return {
-        icon: "🎵",
+        icon: <ChannelLogo platform="TIKTOK_SHOP" size={16} />,
         label: "Tất cả TikTok Shop",
         count: ttCount,
       };
@@ -2624,9 +2684,33 @@ export default function LiveZaloInbox() {
           String(c.shopId || c.accountId || c.pageId || "") === String(shopId)
       ).length;
       return {
-        icon: "🎵",
+        icon: <ChannelLogo platform="TIKTOK_SHOP" size={16} />,
         label: matched ? matched.displayName || matched.name : "TikTok Shop",
         count: ttCount,
+      };
+    }
+    if (selectedAccountFilter === "SHOPEE_ALL") {
+      const spCount = (conversations || []).filter((c) => c.channel === "SHOPEE").length;
+      return {
+        icon: <ChannelLogo platform="SHOPEE" size={16} />,
+        label: "Tất cả Shopee",
+        count: spCount,
+      };
+    }
+    if (selectedAccountFilter.startsWith("SHOPEE:")) {
+      const shopId = selectedAccountFilter.replace("SHOPEE:", "");
+      const matched = effectiveShopeeShops.find(
+        (s) => String(s.shopId || s.id) === String(shopId)
+      );
+      const spCount = (conversations || []).filter(
+        (c) =>
+          c.channel === "SHOPEE" &&
+          String(c.shopId || c.accountId || c.pageId || "") === String(shopId)
+      ).length;
+      return {
+        icon: <ChannelLogo platform="SHOPEE" size={16} />,
+        label: matched ? matched.displayName || matched.name : "Shopee",
+        count: spCount,
       };
     }
     return {
@@ -2892,6 +2976,7 @@ export default function LiveZaloInbox() {
         ) {
           return false;
         }
+        if (channelFilter === "SHOPEE" && c.channel !== "SHOPEE") return false;
       }
 
       if (selectedZaloAccountId !== "ALL") {
@@ -2910,6 +2995,13 @@ export default function LiveZaloInbox() {
           (c.channel !== "TIKTOK_SHOP" && c.channel !== "TIKTOK") ||
           convShopId !== String(selectedTikTokShopId)
         ) {
+          return false;
+        }
+      }
+
+      if (selectedShopeeShopId !== "ALL") {
+        const convShopId = String(c.shopId || c.accountId || c.pageId || "");
+        if (c.channel !== "SHOPEE" || convShopId !== String(selectedShopeeShopId)) {
           return false;
         }
       }
@@ -3107,14 +3199,12 @@ export default function LiveZaloInbox() {
             </span>
           )}
 
-          {/* Badge nguồn góc dưới */}
+          {/* Logo kênh góc dưới */}
           <span
-            className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full ${
-              isSecondZalo ? "bg-teal-600" : convMeta.badgeBg
-            } border-2 border-white dark:border-slate-900 flex items-center justify-center text-[7px] text-white font-black badge-solid-white`}
+            className="absolute -bottom-0.5 -right-0.5 rounded-full border border-white dark:border-slate-900 bg-white dark:bg-slate-900 shadow-xs flex items-center justify-center overflow-hidden"
             title={sourceBadgeText}
           >
-            {convMeta.avatarLetter}
+            <ChannelLogo platform={conv.channel} size={15} />
           </span>
         </div>
 
@@ -3629,9 +3719,7 @@ export default function LiveZaloInbox() {
                             }`}
                           >
                             <span className="flex items-center gap-2 truncate">
-                              <span className="flex h-4 w-4 items-center justify-center rounded bg-slate-900 text-[10px] font-black text-white shrink-0 border border-pink-500/40">
-                                ♪
-                              </span>
+                              <ChannelLogo platform="TIKTOK_SHOP" size={16} />
                               <span className="truncate">Tất cả TikTok Shop</span>
                             </span>
                             <span className="flex items-center gap-1 shrink-0">
@@ -3687,6 +3775,114 @@ export default function LiveZaloInbox() {
                             >
                               <span className="flex items-center gap-2 truncate">
                                 <span className="h-2 w-2 rounded-full bg-pink-500 shrink-0" />
+                                <span className="truncate">{shop.displayName || shop.name}</span>
+                              </span>
+                              <span className="flex items-center gap-1 shrink-0">
+                                {shopUnread > 0 && (
+                                  <span className="text-[10px] tabular-nums font-bold px-1.5 py-0.2 rounded-full bg-rose-500 text-white badge-solid-white">
+                                    {shopUnread}
+                                  </span>
+                                )}
+                                <span
+                                  className={`text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded ${
+                                    isShopActive
+                                      ? "bg-white/25 text-white badge-solid-white"
+                                      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                  }`}
+                                >
+                                  {shopConvs.length}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Nhóm 5: Shopee */}
+                    <div className="pt-2 mt-1 border-t border-slate-200 dark:border-slate-800">
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#EE4D2D] flex items-center justify-between">
+                        <span>Shopee</span>
+                        <span>{effectiveShopeeShops.length} gian hàng</span>
+                      </div>
+                      {(() => {
+                        const spAllConvs = (conversations || []).filter(
+                          (c) => c.channel === "SHOPEE"
+                        );
+                        const spUnread = spAllConvs.reduce(
+                          (sum, c) => sum + Number(c.unreadCount || c.unread || 0),
+                          0
+                        );
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAccountDropdownChange("SHOPEE_ALL");
+                              setChannelPopoverOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors ${
+                              selectedAccountFilter === "SHOPEE_ALL"
+                                ? "bg-blue-600 text-white font-bold border border-blue-500 shadow-sm badge-solid-white"
+                                : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2 truncate">
+                              <ChannelLogo platform="SHOPEE" size={16} />
+                              <span className="truncate">Tất cả Shopee</span>
+                            </span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              {spUnread > 0 && (
+                                <span className="text-[10px] tabular-nums font-bold px-1.5 py-0.2 rounded-full bg-rose-500 text-white badge-solid-white">
+                                  {spUnread}
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] tabular-nums font-semibold px-1.5 py-0.2 rounded ${
+                                  selectedAccountFilter === "SHOPEE_ALL"
+                                    ? "bg-white/25 text-white badge-solid-white"
+                                    : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                                }`}
+                              >
+                                {spAllConvs.length}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })()}
+
+                      {effectiveShopeeShops.length === 0 ? (
+                        <div className="pl-6 pr-2.5 py-1.5 text-[11px] text-slate-500 italic">
+                          Chưa có gian hàng Shopee đang kết nối
+                        </div>
+                      ) : (
+                        effectiveShopeeShops.map((shop) => {
+                          const shopKey = String(shop.shopId || shop.id || "");
+                          const shopConvs = (conversations || []).filter(
+                            (c) =>
+                              c.channel === "SHOPEE" &&
+                              String(c.shopId || c.accountId || c.pageId || "") === shopKey
+                          );
+                          const shopUnread = shopConvs.reduce(
+                            (sum, c) => sum + Number(c.unreadCount || c.unread || 0),
+                            0
+                          );
+                          const isShopActive = selectedAccountFilter === `SHOPEE:${shopKey}`;
+                          return (
+                            <button
+                              key={shop.id || shopKey}
+                              type="button"
+                              onClick={() => {
+                                handleAccountDropdownChange(`SHOPEE:${shopKey}`);
+                                setChannelPopoverOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between pl-6 pr-2.5 py-1.5 rounded-lg text-left cursor-pointer transition-colors text-[11px] ${
+                                isShopActive
+                                  ? "bg-blue-600 text-white font-bold badge-solid-white"
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
+                            >
+                              <span className="flex items-center gap-2 truncate">
+                                <span className="h-2 w-2 rounded-full bg-[#EE4D2D] shrink-0" />
                                 <span className="truncate">{shop.displayName || shop.name}</span>
                               </span>
                               <span className="flex items-center gap-1 shrink-0">
@@ -3962,7 +4158,21 @@ export default function LiveZaloInbox() {
                 <p>Đang đồng bộ hội thoại thực tế...</p>
               </div>
             ) : displayedActiveChats.length === 0 && contactOnlyList.length === 0 ? (
-              channelFilter === "TIKTOK_SHOP" ? (
+              channelFilter === "SHOPEE" ? (
+                <div className="p-6 text-center space-y-3 flex flex-col items-center justify-center">
+                  <ChannelLogo platform="SHOPEE" size={44} />
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-[260px]">
+                    Gian hàng Shopee đã kết nối thành công ({effectiveShopeeShops.length} gian hàng). Hiện chưa có hội thoại tin nhắn Shopee mới đồng bộ về hộp thư.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleAccountDropdownChange("ALL")}
+                    className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition"
+                  >
+                    Quay lại Tất cả kênh
+                  </button>
+                </div>
+              ) : channelFilter === "TIKTOK_SHOP" ? (
                 <div className="p-6 text-center space-y-3 flex flex-col items-center justify-center">
                   <div className="h-11 w-11 rounded-2xl bg-slate-900 border border-pink-500/40 flex items-center justify-center text-lg font-black text-white shadow-sm">
                     ♪
