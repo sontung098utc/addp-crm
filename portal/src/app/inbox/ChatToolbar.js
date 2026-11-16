@@ -28,6 +28,7 @@ import EmojiPickerPopover from "./EmojiPickerPopover";
 export default function ChatToolbar({
   onOpenQuickReplies,
   onOpenProductPicker,
+  onOpenDocumentPicker,
   onOpenKiotVietOrder,
   onToggleVoiceRecorder,
   isRecordingVoice,
@@ -101,16 +102,17 @@ export default function ChatToolbar({
       )}
 
       {/* Dãy nút bấm chức năng chuẩn Vpage */}
-      <div className="flex items-center justify-between px-2 gap-1 flex-wrap">
-        <div className="flex items-center gap-1 flex-wrap">
+      <div className="flex items-center justify-between px-1.5 sm:px-2 gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto no-scrollbar sm:overflow-visible sm:flex-wrap min-w-0">
           {/* 1. Trả lời nhanh */}
           <button
             type="button"
             onClick={onOpenQuickReplies}
-            className="px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700"
+            aria-label="Mẫu trả lời nhanh"
+            className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700 shrink-0"
             title="Mẫu trả lời nhanh (Phím tắt: / hoặc Ctrl+Q)"
           >
-            <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <Zap className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
             <span className="hidden sm:inline">Trả lời nhanh</span>
           </button>
 
@@ -118,10 +120,11 @@ export default function ChatToolbar({
           <button
             type="button"
             onClick={() => imageInputRef.current?.click()}
-            className="px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700"
+            aria-label="Gửi hình ảnh"
+            className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700 shrink-0"
             title="Gửi hình ảnh (.jpg, .png, .webp)"
           >
-            <ImageIcon className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <ImageIcon className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-blue-400 shrink-0" />
             <span className="hidden sm:inline">Gửi ảnh</span>
           </button>
           <input
@@ -137,10 +140,11 @@ export default function ChatToolbar({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="px-2 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer border border-transparent hover:border-slate-700"
+            aria-label="Gửi file tài liệu"
+            className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer border border-transparent hover:border-slate-700 shrink-0"
             title="Gửi tài liệu đính kèm (PDF, Word, Excel...)"
           >
-            <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <Paperclip className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-slate-400 shrink-0" />
             <span className="hidden md:inline">Gửi file</span>
           </button>
           <input
@@ -151,19 +155,20 @@ export default function ChatToolbar({
           />
 
           {/* 3. Gửi icon / Emoji */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               ref={emojiTriggerRef}
               type="button"
               onClick={() => setIsEmojiOpen(!isEmojiOpen)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border ${
+              aria-label="Chọn biểu tượng cảm xúc"
+              className={`min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer border ${
                 isEmojiOpen
                   ? "bg-slate-800 text-amber-400 border-amber-500/40"
                   : "text-slate-300 hover:text-white hover:bg-slate-800 border-transparent hover:border-slate-700"
               }`}
               title="Chọn biểu tượng cảm xúc (Emoji & Icon y tế)"
             >
-              <Smile className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <Smile className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
               <span className="hidden sm:inline">Icon</span>
             </button>
 
@@ -182,25 +187,41 @@ export default function ChatToolbar({
           <button
             type="button"
             onClick={onOpenProductPicker}
-            className="px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700"
+            aria-label="Gửi sản phẩm"
+            className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700 shrink-0"
             title="Danh mục sản phẩm Dược phẩm ADDP & KiotViet"
           >
-            <Package className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <Package className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
             <span className="hidden sm:inline">Sản phẩm</span>
           </button>
+
+          {/* 4b. Gửi tài liệu / giấy tờ sản phẩm */}
+          {onOpenDocumentPicker && (
+            <button
+              type="button"
+              onClick={onOpenDocumentPicker}
+              aria-label="Gửi tài liệu giấy tờ"
+              className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2.5 py-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-transparent hover:border-slate-700 shrink-0"
+              title="Chọn nhanh tài liệu, giấy tờ sản phẩm do Admin lưu trữ để gửi cho khách"
+            >
+              <FileText className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-sky-400 shrink-0" />
+              <span className="hidden sm:inline">Tài liệu</span>
+            </button>
+          )}
 
           {/* 5. Gửi ghi âm */}
           <button
             type="button"
             onClick={onToggleVoiceRecorder}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer border ${
+            aria-label="Gửi ghi âm giọng nói"
+            className={`min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer border shrink-0 ${
               isRecordingVoice
                 ? "bg-rose-950/60 text-rose-400 border-rose-500/50"
                 : "text-slate-300 hover:text-white hover:bg-slate-800 border-transparent hover:border-slate-700"
             }`}
             title="Ghi âm giọng nói gửi cho khách (Voice message)"
           >
-            <Mic className={`w-3.5 h-3.5 text-rose-400 shrink-0 ${isRecordingVoice ? "animate-pulse" : ""}`} />
+            <Mic className={`w-4 h-4 sm:w-3.5 sm:h-3.5 text-rose-400 shrink-0 ${isRecordingVoice ? "animate-pulse" : ""}`} />
             <span className="hidden sm:inline">Ghi âm</span>
           </button>
         </div>
@@ -209,11 +230,12 @@ export default function ChatToolbar({
         <button
           type="button"
           onClick={onOpenKiotVietOrder}
-          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs badge-solid-white shrink-0 ml-auto"
+          className="min-h-[44px] sm:min-h-0 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs badge-solid-white shrink-0 ml-auto whitespace-nowrap"
           title="Tạo đơn hàng trực tiếp lên KiotViet cho khách hàng này"
         >
-          <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
-          <span>Tạo đơn KiotViet</span>
+          <ShoppingCart className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
+          <span className="sm:hidden">Tạo đơn</span>
+          <span className="hidden sm:inline">Tạo đơn KiotViet</span>
         </button>
       </div>
     </div>

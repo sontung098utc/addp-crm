@@ -6,6 +6,7 @@ import QuickOrderModal from "../components/QuickOrderModal";
 import BulkMessageModal from "../components/BulkMessageModal";
 import QuickRepliesModal from "./QuickRepliesModal";
 import ProductPickerModal from "./ProductPickerModal";
+import DocumentPickerModal from "./DocumentPickerModal";
 import AudioRecorderBar from "./AudioRecorderBar";
 import QuickTagBar from "./QuickTagBar";
 import ChatToolbar from "./ChatToolbar";
@@ -52,6 +53,7 @@ import {
   FileText,
   Volume2,
   Pencil,
+  ArrowLeft,
 } from "lucide-react";
 
 /**
@@ -309,6 +311,14 @@ export default function LiveZaloInbox() {
 
   // Hiển thị panel thông tin khách hàng (Cột 3)
   const [showSidePanel, setShowSidePanel] = useState(true);
+  // Điều hướng 1-pane trên mobile (< 768px): 'list' | 'chat'
+  const [mobilePane, setMobilePane] = useState("list");
+  // Thu gọn panel Cột 3 mặc định trên màn hình nhỏ (< 1280px) để không che khung chat
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1280) {
+      setShowSidePanel(false);
+    }
+  }, []);
   // Mở rộng danh bạ chưa có tin nhắn
   const [showContactsSection, setShowContactsSection] = useState(false);
 
@@ -341,6 +351,7 @@ export default function LiveZaloInbox() {
   // Vpage Enhanced Chat States (Trả lời nhanh, Sản phẩm, Ghi âm, File đính kèm)
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+  const [isDocumentPickerOpen, setIsDocumentPickerOpen] = useState(false);
   const [isAudioRecordingOpen, setIsAudioRecordingOpen] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState([]);
 
@@ -1681,11 +1692,11 @@ export default function LiveZaloInbox() {
   };
 
   // Gửi tin nhắn 2 chiều (Hỗ trợ text, ảnh, file đính kèm, hoặc gửi trực tiếp)
-  const handleSendMessage = async (e, customText = null) => {
+  const handleSendMessage = async (e, customText = null, customAttachment = null) => {
     if (e && e.preventDefault) e.preventDefault();
     if (!activeConv || sending) return;
 
-    const primaryAtt = attachedFiles.length > 0 ? attachedFiles[0] : null;
+    const primaryAtt = customAttachment || (attachedFiles.length > 0 ? attachedFiles[0] : null);
     const messageText = typeof customText === "string" ? customText.trim() : inputMessage.trim();
 
     if (!messageText && !primaryAtt) return;
@@ -1870,6 +1881,30 @@ export default function LiveZaloInbox() {
 
   const handleSendProductDirect = (snippet) => {
     handleSendMessage(null, snippet);
+  };
+
+  const buildDocumentAttachment = (doc) => ({
+    id: `doc_${doc.id}_${Date.now()}`,
+    name: doc.fileName || doc.title || "Tai_lieu",
+    size: doc.size || 0,
+    isImage: Boolean(doc.isImage),
+    previewUrl: doc.isImage ? doc.url : null,
+    uploading: false,
+    url: doc.url,
+    filePath: doc.filePath || "",
+  });
+
+  const handleAttachDocument = (doc) => {
+    const att = buildDocumentAttachment(doc);
+    setAttachedFiles((prev) => [...prev, att]);
+    if (!inputMessage.trim() && doc.title) {
+      setInputMessage(`Dạ em gửi mình ${doc.title} để mình xem chi tiết nhé ạ.`);
+    }
+  };
+
+  const handleSendDocumentDirect = (doc) => {
+    const att = buildDocumentAttachment(doc);
+    handleSendMessage(null, `Dạ em gửi mình ${doc.title || doc.fileName} để mình xem chi tiết ạ.`, att);
   };
 
   const handleFileSelected = async (files, isImage = true) => {
@@ -2981,6 +3016,7 @@ export default function LiveZaloInbox() {
           setIsAccountLevelHuman(!isAi);
           setAiMode(isAi ? "AUTO_REPLY" : "HUMAN_ONLY");
           setActiveConv(conv);
+          setMobilePane("chat");
 
           // Đánh dấu đã đọc ngay lập tức trên UI (xóa badge đỏ)
           setConversations((prev) =>
@@ -3150,7 +3186,7 @@ export default function LiveZaloInbox() {
   };
 
   return (
-    <div className="flex flex-col h-full rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
+    <div className="flex flex-col h-full rounded-none md:rounded-2xl border-0 md:border border-slate-800 bg-slate-950 overflow-hidden shadow-xl">
       {/* Toast thông báo nhanh */}
       {toast && (
         <div
@@ -3190,7 +3226,11 @@ export default function LiveZaloInbox() {
         {/* ========================================================================= */}
         {/* CỘT 1: DANH SÁCH HỘI THOẠI (CONVERSATIONS LIST)                           */}
         {/* ========================================================================= */}
-        <div className="w-[255px] xl:w-[275px] 2xl:w-[310px] flex-shrink-0 border-r border-slate-800 bg-slate-900/90 flex flex-col min-h-0">
+        <div
+          className={`${
+            mobilePane === "list" ? "flex" : "hidden"
+          } md:flex w-full md:w-[255px] xl:w-[275px] 2xl:w-[310px] flex-shrink-0 md:border-r border-slate-800 bg-slate-900/90 flex-col min-h-0`}
+        >
           {/* Header gọn gàng & Tìm kiếm */}
           <div className="p-3 border-b border-slate-800 space-y-2.5 shrink-0">
             {/* Hàng 1: Tiêu đề Hộp Thư Đa Kênh + Cụm nút công cụ */}
@@ -3665,28 +3705,28 @@ export default function LiveZaloInbox() {
                 placeholder="Tìm tên khách, SĐT, nội dung..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-8 pr-7 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-9 md:pl-8 pr-8 py-2.5 md:py-1.5 text-base md:text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400 pointer-events-none" />
+              <Search className="w-4 h-4 md:w-3.5 md:h-3.5 absolute left-3 md:left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
                   aria-label="Xóa tìm kiếm"
-                  className="absolute right-2 top-2 text-slate-400 hover:text-white cursor-pointer"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-white cursor-pointer"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4 md:w-3.5 md:h-3.5" />
                 </button>
               )}
             </div>
 
             {/* Thanh Pill-Filter Thực Chiến Trượt Ngang */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] font-semibold no-scrollbar scroll-smooth">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs md:text-[11px] font-semibold no-scrollbar scroll-smooth max-w-full">
               {/* [Tất cả] */}
               <button
                 type="button"
                 onClick={() => setActiveTab("all")}
-                className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1.5 border shadow-2xs ${
+                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1.5 border shadow-2xs ${
                   activeTab === "all"
                     ? "bg-blue-600 text-white border-blue-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700"
@@ -3706,7 +3746,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("has_phone")}
-                className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "has_phone"
                     ? "bg-emerald-600 text-white border-emerald-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-emerald-400 border-slate-800 hover:border-emerald-600/40"
@@ -3729,7 +3769,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("unanswered")}
-                className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "unanswered"
                     ? "bg-amber-600 text-white border-amber-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-amber-400 border-slate-800 hover:border-amber-600/40"
@@ -3752,7 +3792,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("over_sla")}
-                className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "over_sla"
                     ? "bg-rose-600 text-white border-rose-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-rose-400 border-slate-800 hover:border-rose-600/40"
@@ -3775,7 +3815,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("bot_on")}
-                className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "bot_on"
                     ? "bg-purple-600 text-white border-purple-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-purple-400 border-slate-800 hover:border-purple-600/40"
@@ -3798,7 +3838,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("unread")}
-                className={`px-2.5 py-1 rounded-xl whitespace-nowrap transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "unread"
                     ? "bg-sky-600 text-white border-sky-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700"
@@ -3817,11 +3857,11 @@ export default function LiveZaloInbox() {
               </button>
 
               {/* [🏷️ Lọc theo Thẻ Tag] */}
-              <div className="relative inline-flex items-center">
+              <div className="relative inline-flex items-center shrink-0">
                 <select
                   value={selectedTagFilter}
                   onChange={(e) => setSelectedTagFilter(e.target.value)}
-                  className={`px-2 py-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer focus:outline-none ${
+                  className={`min-h-[38px] md:min-h-0 px-2.5 md:px-2 py-1.5 md:py-1 rounded-xl text-xs md:text-[11px] font-semibold border transition-all cursor-pointer focus:outline-none ${
                     selectedTagFilter !== "ALL"
                       ? "bg-amber-600 text-white border-amber-500 font-bold shadow-2xs"
                       : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200"
@@ -3962,14 +4002,30 @@ export default function LiveZaloInbox() {
         {/* ========================================================================= */}
         {/* CỘT 2: KHUNG CHAT 2 CHIỀU (MESSAGE STREAM & COMPOSER)                     */}
         {/* ========================================================================= */}
-        <div className="flex-1 flex flex-col bg-white dark:bg-slate-950 min-w-0 lg:min-w-[380px] min-h-0">
+        <div
+          className={`${
+            mobilePane === "chat" ? "flex" : "hidden"
+          } md:flex flex-1 flex-col bg-white dark:bg-slate-950 min-w-0 lg:min-w-[380px] min-h-0`}
+        >
           {activeConv ? (
             <>
               {/* Header khung chat 2 dòng gọn gàng: Dòng 1 Tên + SĐT + Nút tác nghiệp; Dòng 2 Kênh + Dải thẻ gọn */}
-              <div className="px-3 xl:px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex flex-col gap-1.5 flex-shrink-0">
-                <div className="flex flex-wrap items-center justify-between gap-x-2.5 gap-y-1.5">
-                  {/* Cụm Trái: Avatar + Tên khách đầy đủ + Badge SĐT */}
-                  <div className="flex-1 min-w-[180px] flex items-center gap-2">
+              <div className="px-2.5 sm:px-3 xl:px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex flex-col gap-1.5 flex-shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
+                  {/* Cụm Trái: Nút Quay lại (mobile) + Avatar + Tên khách đầy đủ + Badge SĐT */}
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5 sm:gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobilePane("list");
+                        setShowSidePanel(false);
+                      }}
+                      aria-label="Quay lại danh sách hội thoại"
+                      className="md:hidden inline-flex items-center gap-1 px-2 min-h-[44px] -ml-1 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs shrink-0 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-4 h-4 shrink-0" />
+                      <span className="hidden xs:inline">Quay lại</span>
+                    </button>
                     <div className="relative flex-shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -4065,7 +4121,7 @@ export default function LiveZaloInbox() {
                             type="button"
                             onClick={() => setIsOrderModalOpen(true)}
                             title="Tạo đơn hàng nhanh cho khách"
-                            className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap"
+                            className="min-h-[40px] md:min-h-0 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap"
                           >
                             <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
                             <span>Lên Đơn</span>
@@ -4079,14 +4135,15 @@ export default function LiveZaloInbox() {
                       type="button"
                       onClick={() => setShowSidePanel(!showSidePanel)}
                       title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                      className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0 ${
+                      aria-label={showSidePanel ? "Ẩn hồ sơ 360" : "Mở hồ sơ 360"}
+                      className={`min-h-[40px] md:min-h-0 px-2.5 md:px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0 ${
                         showSidePanel
                           ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
                           : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
                       }`}
                     >
                       <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span className="hidden md:inline">Hồ Sơ 360</span>
+                      <span className="hidden sm:inline">Hồ Sơ 360</span>
                     </button>
                   </div>
                 </div>
@@ -4702,7 +4759,7 @@ export default function LiveZaloInbox() {
               </div>
 
               {/* Message Composer (Ô nhập tin nhắn & Gửi chuẩn Vpage) */}
-              <div className="border-t border-slate-800 bg-slate-900/90 p-2.5 space-y-1.5 flex-shrink-0">
+              <div className="border-t border-slate-800 bg-slate-900/90 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] space-y-1.5 flex-shrink-0">
                 {/* 1. Thanh gắn thẻ nhanh chuẩn Vpage (Cấp 1 | Cấp 2 | Cấp 3 | Đã chốt | Bám đuổi...) */}
                 <QuickTagBar
                   currentTags={activeConv.tags || []}
@@ -4734,7 +4791,7 @@ export default function LiveZaloInbox() {
                       onKeyDown={handleKeyDown}
                       onPaste={handlePaste}
                       placeholder={`Nhập tin nhắn gửi tới ${activeConv.name}... (Nhấn Ctrl+Q hoặc / để mở Trả lời nhanh)`}
-                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none leading-relaxed"
+                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-base md:text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none leading-relaxed"
                     />
                   </div>
 
@@ -4750,7 +4807,7 @@ export default function LiveZaloInbox() {
                         onClick={handleAiCompose}
                         disabled={aiComposing || sending}
                         title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
-                        className="h-9 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
+                        className="h-11 md:h-9 px-3.5 md:px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
                       >
                         {aiComposing ? (
                           <>
@@ -4769,7 +4826,7 @@ export default function LiveZaloInbox() {
                       <button
                         type="submit"
                         disabled={sending || (!inputMessage.trim() && attachedFiles.length === 0)}
-                        className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
+                        className="h-11 md:h-9 px-5 md:px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
                       >
                         {sending ? (
                           <RefreshCw className="w-4 h-4 animate-spin" />
@@ -4788,6 +4845,7 @@ export default function LiveZaloInbox() {
                 <ChatToolbar
                   onOpenQuickReplies={() => setIsQuickRepliesOpen(true)}
                   onOpenProductPicker={() => setIsProductPickerOpen(true)}
+                  onOpenDocumentPicker={() => setIsDocumentPickerOpen(true)}
                   onOpenKiotVietOrder={() => setIsOrderModalOpen(true)}
                   onToggleVoiceRecorder={() => setIsAudioRecordingOpen(!isAudioRecordingOpen)}
                   isRecordingVoice={isAudioRecordingOpen}
@@ -4813,10 +4871,10 @@ export default function LiveZaloInbox() {
             {/* Backdrop cho màn hình nhỏ (< 1280px) khi mở drawer Hồ sơ 360 */}
             <div
               onClick={() => setShowSidePanel(false)}
-              className="xl:hidden fixed inset-0 z-20 bg-black/40 backdrop-blur-[1px]"
+              className="xl:hidden fixed inset-0 z-40 bg-black/45 backdrop-blur-[1px]"
               aria-hidden="true"
             />
-            <div className="absolute xl:static inset-y-0 right-0 z-30 w-[290px] max-w-[85vw] xl:w-[270px] 2xl:w-[320px] flex-shrink-0 border-l border-slate-800 bg-slate-900/95 xl:bg-slate-900/90 p-3.5 xl:p-4 flex flex-col overflow-y-auto space-y-4 min-h-0 shadow-2xl xl:shadow-none">
+            <div className="fixed xl:static inset-y-0 right-0 z-50 xl:z-auto w-full sm:w-[320px] max-w-[92vw] sm:max-w-[85vw] xl:w-[270px] 2xl:w-[320px] flex-shrink-0 border-l border-slate-800 bg-slate-900/95 xl:bg-slate-900/90 p-3.5 xl:p-4 pb-[max(1rem,env(safe-area-inset-bottom))] xl:pb-4 flex flex-col overflow-y-auto space-y-4 min-h-0 shadow-2xl xl:shadow-none">
               {/* Nút đóng drawer trên màn hình nhỏ (< 1280px) */}
               <div className="flex xl:hidden items-center justify-between border-b border-slate-800 pb-2 -mt-1">
                 <span className="text-xs font-bold text-slate-300">Hồ Sơ 360 &amp; AI Tóm Tắt</span>
@@ -4824,7 +4882,7 @@ export default function LiveZaloInbox() {
                   type="button"
                   onClick={() => setShowSidePanel(false)}
                   aria-label="Đóng Hồ sơ 360"
-                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+                  className="w-11 h-11 sm:w-8 sm:h-8 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -5252,7 +5310,7 @@ export default function LiveZaloInbox() {
               <textarea
                 rows={3}
                 placeholder="Nhập ghi chú tư vấn thực tế dành cho khách hàng này..."
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2 text-xs text-slate-300 placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none"
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-2 text-base md:text-xs text-slate-300 placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none"
               />
             </div>
           </div>
@@ -5299,6 +5357,14 @@ export default function LiveZaloInbox() {
         onClose={() => setIsProductPickerOpen(false)}
         onSelectProduct={handleSelectProduct}
         onSendProductDirect={handleSendProductDirect}
+      />
+
+      {/* Modal Chọn Nhanh Tài Liệu & Giấy Tờ Sản Phẩm (DocumentPickerModal) */}
+      <DocumentPickerModal
+        isOpen={isDocumentPickerOpen}
+        onClose={() => setIsDocumentPickerOpen(false)}
+        onAttachDocument={handleAttachDocument}
+        onSendDocumentDirect={handleSendDocumentDirect}
       />
 
       {/* Modal Gửi tin nhắn hàng loạt (BulkMessageModal) */}

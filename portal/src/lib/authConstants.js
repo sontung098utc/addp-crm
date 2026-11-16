@@ -43,12 +43,12 @@ export const ROLE_METADATA = {
  * Ma trận phân quyền truy cập Module theo Điều 5 - AGENTS.md
  */
 export const ROLE_PERMISSIONS = {
-  ADMIN: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings", "guide"],
-  SALE_LEADER: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "guide"],
-  SALE: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "guide"],
-  CSKH: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "guide"],
-  KHO: ["dashboard", "orders", "inventory", "reports", "guide"],
-  KE_TOAN: ["dashboard", "orders", "inventory", "reports", "guide"],
+  ADMIN: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings", "documents", "guide"],
+  SALE_LEADER: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "documents", "guide"],
+  SALE: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "documents", "guide"],
+  CSKH: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "documents", "guide"],
+  KHO: ["dashboard", "orders", "inventory", "reports", "documents", "guide"],
+  KE_TOAN: ["dashboard", "orders", "inventory", "reports", "documents", "guide"],
 };
 
 export const MODULE_TO_ROUTE = {
@@ -63,6 +63,7 @@ export const MODULE_TO_ROUTE = {
   channels: "/channels",
   reports: "/reports",
   settings: "/settings",
+  documents: "/documents",
   guide: "/guide",
 };
 
@@ -72,7 +73,7 @@ export function getDefaultAllowedTabsForRole(role = "SALE") {
 }
 
 export function canAccessModule(roleOrUser, moduleKey) {
-  if (moduleKey === "guide") return true;
+  if (moduleKey === "guide" || moduleKey === "documents") return true;
 
   if (roleOrUser && typeof roleOrUser === "object") {
     if (roleOrUser.role === "ADMIN") return true;

@@ -5,9 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import MobileBottomNav from "./MobileBottomNav";
 import GlobalAddOrderModal from "./GlobalAddOrderModal";
 import { canAccessModule } from "@/lib/authConstants";
-import { ShieldAlert, ArrowLeft } from "lucide-react";
+import { ShieldAlert, ArrowLeft, ShoppingCart } from "lucide-react";
 
 function resolveModuleKeyFromPathname(pathname) {
   if (!pathname || pathname === "/") return "dashboard";
@@ -22,6 +23,7 @@ function resolveModuleKeyFromPathname(pathname) {
   if (pathname.startsWith("/reports")) return "reports";
   if (pathname.startsWith("/settings/tags")) return "tags";
   if (pathname.startsWith("/settings")) return "settings";
+  if (pathname.startsWith("/documents")) return "documents";
   if (pathname.startsWith("/guide")) return "guide";
   return "dashboard";
 }
@@ -32,6 +34,7 @@ export default function AppShell({ children }) {
   const isLoginPage = pathname === "/login";
   const isInboxPage = pathname?.startsWith("/inbox");
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [showGlobalOrderModal, setShowGlobalOrderModal] = useState(false);
@@ -87,31 +90,41 @@ export default function AppShell({ children }) {
   const hasPermission = canAccessModule(currentUser, activeModuleKey);
 
   return (
-    <div suppressHydrationWarning className="h-screen overflow-hidden flex bg-[#f5f5f7] dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 antialiased">
+    <div suppressHydrationWarning className="h-dvh overflow-hidden flex bg-[#f5f5f7] dark:bg-[#0b0f19] text-slate-900 dark:text-slate-100 antialiased">
       <Sidebar
         isCollapsed={isCollapsed}
         setIsCollapsed={setIsCollapsed}
         currentUser={currentUser}
+        isMobileOpen={isMobileMenuOpen}
+        setIsMobileOpen={setIsMobileMenuOpen}
       />
-      <div suppressHydrationWarning className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div suppressHydrationWarning className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
         <div className="flex items-center shrink-0">
           <div className="flex-1 min-w-0">
-            <Header currentUser={currentUser} />
+            <Header
+              currentUser={currentUser}
+              onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+            />
           </div>
-          <div className="h-15 backdrop-blur-xl bg-white/80 dark:bg-[#0e131f]/90 border-b border-slate-200/70 dark:border-slate-800/80 pr-4 flex items-center shrink-0 z-30 sticky top-0">
+          <div className="h-15 pt-safe backdrop-blur-xl bg-white/80 dark:bg-[#0e131f]/90 border-b border-slate-200/70 dark:border-slate-800/80 pr-2.5 sm:pr-4 flex items-center shrink-0 z-30 sticky top-0">
             <button
               type="button"
               onClick={() => setShowGlobalOrderModal(true)}
-              className="h-8.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shadow-sm shadow-emerald-600/25"
+              aria-label="Lên đơn nhanh"
+              className="h-11 md:h-8.5 px-2.5 sm:px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors whitespace-nowrap shadow-sm shadow-emerald-600/25"
             >
-              <span>🛒 Lên đơn nhanh</span>
+              <ShoppingCart className="w-4 h-4 sm:hidden shrink-0" />
+              <span className="sm:hidden">Lên đơn</span>
+              <span className="hidden sm:inline">🛒 Lên đơn nhanh</span>
             </button>
           </div>
         </div>
         <main
           suppressHydrationWarning
           className={`flex-1 min-h-0 ${
-            isInboxPage ? "overflow-hidden p-2.5 sm:p-3" : "overflow-y-auto p-4 sm:p-6"
+            isInboxPage
+              ? "overflow-hidden p-0 sm:p-3 pb-[calc(3.75rem+env(safe-area-inset-bottom,0px))] md:pb-3"
+              : "overflow-y-auto p-3.5 sm:p-6 pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:pb-6"
           }`}
         >
           {hasPermission ? (
@@ -144,6 +157,11 @@ export default function AppShell({ children }) {
           )}
         </main>
       </div>
+      <MobileBottomNav
+        currentUser={currentUser}
+        onOpenMenu={() => setIsMobileMenuOpen(true)}
+        isMenuOpen={isMobileMenuOpen}
+      />
       <GlobalAddOrderModal
         isOpen={showGlobalOrderModal}
         onClose={() => setShowGlobalOrderModal(false)}
