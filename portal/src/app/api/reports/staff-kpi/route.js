@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import fs from "fs";
+import path from "path";
 import { getAllCustomers } from "@/lib/customerIdentityResolver";
 import { getStoredOrders } from "@/lib/ordersStore";
 import { listAllStaff } from "@/lib/auth";
 import { getAllCareTasks } from "@/lib/careAutomation";
+import { normalizePhone } from "@/lib/phone";
+import { listAllChannels } from "@/lib/connectionHub";
+import { isChannelAllowedForStaff } from "@/lib/rbac";
+import { getAllActiveZaloHomes } from "@/lib/zaloRunner";
 
 export const dynamic = "force-dynamic";
 
@@ -114,6 +120,128 @@ function getKpiRating(score) {
   return "Cần cải thiện";
 }
 
+function buildStaffEvaluation({
+  rating,
+  messagedCustomersCount,
+  careCompleted,
+  periodCareTarget,
+  careTargetPct,
+  overdueCustomersCount,
+  totalOrders,
+  revenue,
+  targetRevenue,
+  repeatPurchaseRate,
+}) {
+  const strengths = [];
+  const improvements = [];
+
+  if (messagedCustomersCount >= 20) {
+    strengths.push(`tương tác chat tích cực (${messagedCustomersCount} khách)`);
+  } else if (messagedCustomersCount === 0) {
+    improvements.push("chưa ghi nhận khách nhắn tin qua kênh được gán");
+  }
+
+  if (careTargetPct >= 80) {
+    strengths.push(`chăm sóc đạt ${careTargetPct}% chỉ tiêu`);
+  } else if (periodCareTarget > 0) {
+    improvements.push(`CSKH mới đạt ${careTargetPct}% (${careCompleted}/${periodCareTarget})`);
+  }
+
+  if (overdueCustomersCount > 10) {
+    improvements.push(`còn ${overdueCustomersCount} khách quá hạn cần xử lý`);
+  } else if (overdueCustomersCount === 0 && careCompleted > 0) {
+    strengths.push("không để tồn quá hạn");
+  }
+
+  if (targetRevenue > 0) {
+    const revPct = Math.round((revenue / targetRevenue) * 100);
+    if (revPct >= 85) strengths.push(`doanh số đạt ${revPct}% chỉ tiêu`);
+    else improvements.push(`doanh số mới đạt ${revPct}% chỉ tiêu (${totalOrders} đơn)`);
+  } else if (totalOrders > 0) {
+    strengths.push(`chốt ${totalOrders} đơn`);
+  }
+
+  if (repeatPurchaseRate >= 40) {
+    strengths.push(`tỷ lệ tái mua tốt (${repeatPurchaseRate}%)`);
+  }
+
+  if (rating === "Xuất sắc") {
+    return `Xuất sắc: ${strengths.join(", ") || "hoàn thành vượt mức các chỉ tiêu"}.${improvements.length ? ` Lưu ý: ${improvements.join("; ")}.` : ""}`;
+  }
+  if (rating === "Đạt") {
+    return `Đạt yêu cầu: ${strengths.join(", ") || "duy trì tiến độ ổn định"}.${improvements.length ? ` Cần tối ưu thêm: ${improvements.join("; ")}.` : ""}`;
+  }
+  return `Cần cải thiện: ${improvements.join("; ") || "cần đẩy mạnh tương tác và chốt đơn"}.${strengths.length ? ` Điểm sáng: ${strengths.join(", ")}.` : ""}`;
+}
+
+/**
+ * Đọc thống kê nhắn tin theo từng channelId (Zalo ownId/accountId & các kênh omnichannel)
+ */
+function buildChannelMessagingStats(startDate, endDate) {
+  const statsByChannel = new Map(); // channelKey -> { threads: Set, sentCount: number }
+  const addStat = (key, threadId, isMe) => {
+    if (!key || !threadId) return;
+    const k = String(key).trim();
+    if (!statsByChannel.has(k)) {
+      statsByChannel.set(k, { threads: new Set(), sentCount: 0 });
+    }
+    const entry = statsByChannel.get(k);
+    entry.threads.add(String(threadId));
+    if (isMe) entry.sentCount += 1;
+  };
+
+  // 1. Quét lịch sử Zalo Cá Nhân theo từng homeDir đang hoạt động
+  try {
+    const homes = typeof getAllActiveZaloHomes === "function" ? getAllActiveZaloHomes() : [];
+    for (const h of homes) {
+      const histPath = h?.homeDir ? path.join(h.homeDir, ".zalo-agent-cli", "history.jsonl") : "";
+      if (!histPath || !fs.existsSync(histPath)) continue;
+      const content = fs.readFileSync(histPath, "utf8");
+      const lines = content.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line);
+          const tid = String(msg.threadId || msg.toId || msg.fromId || "").trim();
+          if (!tid || msg.threadType === "group" || tid.startsWith("g_")) continue;
+          const dateStr = toVNDateStr(msg.timestamp || msg.ts);
+          if (!isDateInRange(dateStr, startDate, endDate)) continue;
+          const isMe = Boolean(msg.isSelf || msg.isMe);
+          if (h.ownId) addStat(h.ownId, tid, isMe);
+          if (h.accountId) addStat(h.accountId, tid, isMe);
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // 2. Quét omnichannel_messages.json (Fanpage FB, Zalo OA, TikTok Shop, Shopee)
+  try {
+    const dataDir =
+      process.env.DATA_DIR ||
+      (fs.existsSync(path.join(process.cwd(), "portal", "package.json")) ? "portal/.data" : ".data");
+    const msgFile = path.isAbsolute(dataDir)
+      ? path.join(dataDir, "omnichannel_messages.json")
+      : path.join(process.cwd(), dataDir, "omnichannel_messages.json");
+    if (fs.existsSync(msgFile)) {
+      const raw = fs.readFileSync(msgFile, "utf8").replace(/^\uFEFF/, "");
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const m of arr) {
+          if (!m || m.channel === "ZALO_PERSONAL") continue;
+          const tid = String(m.threadId || "").trim();
+          const chId = String(m.channelId || m.pageId || m.shopId || "").trim();
+          if (!tid || !chId) continue;
+          const dateStr = toVNDateStr(m.timestamp || m.createdAt);
+          if (!isDateInRange(dateStr, startDate, endDate)) continue;
+          addStat(chId, tid, Boolean(m.isMe || m.sender === "STAFF"));
+        }
+      }
+    }
+  } catch {}
+
+  return statsByChannel;
+}
+
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -124,6 +252,8 @@ export async function GET(request) {
     const allCustomers = getAllCustomers();
     const allCareTasks = getAllCareTasks();
     const allStaff = typeof listAllStaff === "function" ? listAllStaff() : [];
+    const allChannels = typeof listAllChannels === "function" ? listAllChannels() : [];
+    const channelMsgStats = buildChannelMessagingStats(startDate, endDate);
 
     const staffList = allStaff.filter(
       (u) => u && u.isActive !== false && (u.role === "SALE" || u.role === "CSKH" || u.role === "SALE_LEADER")
@@ -132,6 +262,9 @@ export async function GET(request) {
     const staffRankings = staffList.map((staff) => {
       const staffIdStr = String(staff.id);
       const staffCodeStr = String(staff.code || staff.username || "").toUpperCase();
+      const staffNames = [staff.name, staff.fullName]
+        .map((n) => String(n || "").trim().toLowerCase())
+        .filter(Boolean);
 
       const matchesStaff = (record) => {
         if (!record) return false;
@@ -143,6 +276,52 @@ export async function GET(request) {
         }
         return false;
       };
+
+      const assignedCustomers = allCustomers.filter(matchesStaff);
+      const staffCustomerPhones = new Set(
+        assignedCustomers.map((c) => normalizePhone(c.phone || "")).filter(Boolean)
+      );
+
+      const matchesOrderForStaff = (order) => {
+        if (!order) return false;
+        if (matchesStaff(order)) return true;
+        const soldBy = String(order.soldByName || order.staffName || "").trim().toLowerCase();
+        if (soldBy && staffNames.some((n) => soldBy === n || soldBy.includes(n))) {
+          return true;
+        }
+        if ((order.staffId === undefined || order.staffId === null) && order.phone) {
+          const norm = normalizePhone(order.phone);
+          if (norm && staffCustomerPhones.has(norm)) return true;
+        }
+        return false;
+      };
+
+      // 0. Thống kê Khách hàng Nhắn tin qua các kênh nhân viên phụ trách
+      const msgThreadSet = new Set();
+      let messagesSentCount = 0;
+      for (const ch of allChannels) {
+        if (!isChannelAllowedForStaff(staff, ch)) continue;
+        const keys = [ch.id, ch.externalId, ch.ownId, ch.pageId, ch.shopId, ch.config?.ownId, ch.config?.pageId, ch.config?.shopId]
+          .map((k) => String(k || "").trim())
+          .filter(Boolean);
+        for (const k of keys) {
+          const st = channelMsgStats.get(k);
+          if (st) {
+            for (const tid of st.threads) msgThreadSet.add(tid);
+            messagesSentCount += st.sentCount;
+          }
+        }
+      }
+      // Bổ sung khách phụ trách có tương tác chat trong kỳ
+      for (const c of assignedCustomers) {
+        if (c.zaloUserId || c.fbPsid || c.source === "ZALO_PERSONAL" || c.source === "FACEBOOK") {
+          const interDate = toVNDateStr(c.lastInteractionDate || c.updatedAt);
+          if (isDateInRange(interDate, startDate, endDate)) {
+            msgThreadSet.add(String(c.zaloUserId || c.fbPsid || c.phone || c.id));
+          }
+        }
+      }
+      const messagedCustomersCount = msgThreadSet.size;
 
       // 1. Chỉ tiêu cá nhân từ cấu hình nhân sự (auth.js / staff.json)
       const monthlyRevenueTarget = Math.max(0, Number(staff.kpiRevenue ?? staff.revenueTarget ?? 0));
@@ -157,7 +336,7 @@ export async function GET(request) {
       const periodCareTarget = dailyCareTarget * periodDays;
 
       // 2. Mảng SALE: Đơn hàng & Doanh thu trong kỳ
-      const allStaffOrders = allOrders.filter(matchesStaff);
+      const allStaffOrders = allOrders.filter(matchesOrderForStaff);
       const validOrdersInPeriod = allStaffOrders.filter((o) => {
         const status = String(o.status || "").toUpperCase();
         if (CANCELLED_STATUSES.has(status)) return false;
@@ -165,19 +344,29 @@ export async function GET(request) {
         return isDateInRange(orderDate, startDate, endDate);
       });
 
-      const revenue = validOrdersInPeriod.reduce(
+      let revenue = validOrdersInPeriod.reduce(
         (sum, o) => sum + (Number(o.finalAmount ?? o.totalAmount) || 0),
         0
       );
+      let totalOrdersCount = validOrdersInPeriod.length;
+      if (period === "all" && totalOrdersCount === 0 && assignedCustomers.length > 0) {
+        totalOrdersCount = assignedCustomers.reduce(
+          (sum, c) => sum + (Number(c.totalOrders ?? c.ordersCount) || 0),
+          0
+        );
+        revenue = assignedCustomers.reduce(
+          (sum, c) => sum + (Number(c.totalSpent) || 0),
+          0
+        );
+      }
       const successfulOrders = validOrdersInPeriod.filter(
         (o) =>
           DELIVERED_STATUSES.has(String(o.status || "").toUpperCase()) ||
           DELIVERED_STATUSES.has(String(o.deliveryStatus || "").toUpperCase())
       ).length;
 
-      const assignedCustomers = allCustomers.filter(matchesStaff);
       const orderPhonesInPeriod = new Set(
-        validOrdersInPeriod.map((o) => String(o.phone || "").trim()).filter(Boolean)
+        validOrdersInPeriod.map((o) => normalizePhone(o.phone || "")).filter(Boolean)
       );
 
       const closedCustomersCount = assignedCustomers.filter(
@@ -254,7 +443,7 @@ export async function GET(request) {
         targetRevenue > 0
           ? Math.min(100, Math.round((revenue / targetRevenue) * 100))
           : targetOrders > 0
-          ? Math.min(100, Math.round((validOrdersInPeriod.length / targetOrders) * 100))
+          ? Math.min(100, Math.round((totalOrdersCount / targetOrders) * 100))
           : closingRate;
 
       const saleSubScore = Math.min(
@@ -272,6 +461,18 @@ export async function GET(request) {
       const careWeight = 1 - saleWeight;
       const kpiScore = Math.round(Math.max(0, Math.min(100, saleSubScore * saleWeight + careSubScore * careWeight)));
       const rating = getKpiRating(kpiScore);
+      const evaluationText = buildStaffEvaluation({
+        rating,
+        messagedCustomersCount,
+        careCompleted,
+        periodCareTarget,
+        careTargetPct,
+        overdueCustomersCount,
+        totalOrders: totalOrdersCount,
+        revenue,
+        targetRevenue,
+        repeatPurchaseRate,
+      });
 
       return {
         staffId: staff.id,
@@ -289,8 +490,11 @@ export async function GET(request) {
         dailyCareTarget,
         periodCareTarget,
         dailyMsgTarget,
+        // Kết quả Nhắn tin
+        messagedCustomersCount,
+        messagesSentCount,
         // Kết quả Sale
-        totalOrders: validOrdersInPeriod.length,
+        totalOrders: totalOrdersCount,
         successfulOrders,
         revenue,
         assignedCustomersCount: assignedCustomers.length,
@@ -303,10 +507,11 @@ export async function GET(request) {
         overdueCareCount: overdueCustomersCount,
         positiveResponseRate,
         feedbackSampleCount: feedbackTotal,
-        // Tổng hợp KPI
+        // Tổng hợp KPI & Đánh giá
         kpiScore,
         kpiCompletionPct: kpiScore,
         rating,
+        evaluationText,
       };
     });
 
@@ -317,6 +522,7 @@ export async function GET(request) {
 
     const totalRevenue = staffRankings.reduce((sum, s) => sum + s.revenue, 0);
     const totalOrders = staffRankings.reduce((sum, s) => sum + s.totalOrders, 0);
+    const totalMessagedCustomers = staffRankings.reduce((sum, s) => sum + s.messagedCustomersCount, 0);
     const totalCareCompleted = staffRankings.reduce((sum, s) => sum + s.careCompleted, 0);
     const totalOverdueCare = staffRankings.reduce((sum, s) => sum + s.overdueCareCount, 0);
     const avgClosingRate =
@@ -357,6 +563,7 @@ export async function GET(request) {
         teamSummary: {
           totalRevenue,
           totalOrders,
+          totalMessagedCustomers,
           totalCareCompleted,
           totalOverdueCare,
           avgClosingRate,

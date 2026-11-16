@@ -309,12 +309,12 @@ export default function ReportsClient({
       {/* Tiêu đề & Bộ lọc điều khiển */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <span className="text-2xl">📈</span>
-            <h1 className="text-xl font-bold text-white tracking-wide">
+            <h1 className="text-lg sm:text-xl font-bold text-white tracking-wide">
               Báo Cáo Doanh Số, Lãi/Lỗ Thực Tế & Đối Soát BI
             </h1>
-            <span className="rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold px-2 py-0.5 border border-emerald-500/30">
+            <span className="rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-semibold px-2 py-0.5 border border-emerald-500/30 whitespace-nowrap">
               WBS-43 → WBS-48
             </span>
           </div>
@@ -324,17 +324,17 @@ export default function ReportsClient({
         </div>
 
         {/* Nút tác vụ nhanh */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3 py-2 transition border border-slate-700"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 transition border border-slate-700 whitespace-nowrap cursor-pointer"
           >
             <span>🖨️</span>
             <span>In Báo Cáo</span>
           </button>
           <button
             onClick={handleExportTaxCsv}
-            className="flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2 transition shadow shadow-emerald-600/20"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 transition shadow shadow-emerald-600/20 whitespace-nowrap cursor-pointer"
           >
             <span>📊</span>
             <span>Xuất Bảng Kê Thuế (Excel/CSV)</span>
@@ -343,14 +343,14 @@ export default function ReportsClient({
       </div>
 
       {/* Thanh Công Cụ Bộ Lọc (Presets Thời Gian & Kênh Bán Hàng) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800">
-        <div className="flex items-center gap-1.5 overflow-x-auto">
-          <span className="text-xs text-slate-400 font-medium mr-1">Kỳ:</span>
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-3 bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 max-w-full">
+          <span className="text-xs text-slate-400 font-medium mr-1 shrink-0">Kỳ:</span>
           {PRESETS.map((p) => (
             <button
               key={p.key}
               onClick={() => setPreset(p.key)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              className={`rounded-xl px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 text-xs font-semibold transition whitespace-nowrap shrink-0 cursor-pointer ${
                 preset === p.key
                   ? "bg-blue-600 text-white shadow"
                   : "bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800"
@@ -361,12 +361,12 @@ export default function ReportsClient({
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400 font-medium">Kênh:</span>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <span className="text-xs text-slate-400 font-medium shrink-0">Kênh:</span>
           <select
             value={channel}
             onChange={(e) => setChannel(e.target.value)}
-            className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
+            className="flex-1 sm:flex-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 sm:py-1.5 min-h-[42px] sm:min-h-0 text-base sm:text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
           >
             {CHANNELS.map((c) => (
               <option key={c.key} value={c.key}>
@@ -449,7 +449,7 @@ export default function ReportsClient({
       <div className="flex border-b border-slate-800 gap-1 overflow-x-auto">
         <button
           onClick={() => setActiveTab("channels")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "channels"
               ? "border-blue-500 text-blue-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -461,7 +461,7 @@ export default function ReportsClient({
 
         <button
           onClick={() => setActiveTab("orders")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "orders"
               ? "border-emerald-500 text-emerald-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -476,7 +476,7 @@ export default function ReportsClient({
 
         <button
           onClick={() => setActiveTab("loss")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "loss"
               ? "border-rose-500 text-rose-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -488,7 +488,7 @@ export default function ReportsClient({
 
         <button
           onClick={() => setActiveTab("ads")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "ads"
               ? "border-amber-500 text-amber-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -500,7 +500,7 @@ export default function ReportsClient({
 
         <button
           onClick={() => setActiveTab("tax")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "tax"
               ? "border-cyan-500 text-cyan-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -512,7 +512,7 @@ export default function ReportsClient({
 
         <button
           onClick={() => setActiveTab("kpi")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "kpi"
               ? "border-indigo-500 text-indigo-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -524,7 +524,7 @@ export default function ReportsClient({
 
         <button
           onClick={() => setActiveTab("customers")}
-          className={`flex items-center gap-1.5 pb-3 px-3.5 text-xs font-semibold transition border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-1.5 pb-3 pt-1 px-3.5 min-h-[44px] sm:min-h-0 text-xs font-semibold transition border-b-2 whitespace-nowrap shrink-0 cursor-pointer ${
             activeTab === "customers"
               ? "border-teal-500 text-teal-400"
               : "border-transparent text-slate-400 hover:text-white"
@@ -540,7 +540,74 @@ export default function ReportsClient({
       {/* ========================================================================= */}
       {activeTab === "channels" && (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
+          {/* Mobile (< 768px): Stacked Cards */}
+          <div className="md:hidden space-y-3">
+            {channelStats.map((row) => {
+              const icon = row.icon || (row.channelKey === "WEBSITE_MAGENTO" ? "🌐" : row.channelKey === "TIKTOK_SHOP" ? "🎵" : row.channelKey === "SHOPEE" ? "🛍️" : row.channelKey === "KIOTVIET" ? "🏪" : row.channelKey === "ZALO_PERSONAL" ? "💬" : "📘");
+              const label = row.label || row.name || row.channelKey;
+              const totalOrders = row.totalOrders ?? row.orders ?? 0;
+              const successOrders = row.successfulOrders ?? row.successOrders ?? 0;
+              const realizedRev = row.realizedRevenue ?? row.realized ?? 0;
+              const fees = (row.platformFees || 0) + (row.codFees || 0) + (row.fees || 0);
+              return (
+                <div
+                  key={row.channelKey}
+                  className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3 shadow-md"
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                    <div className="flex items-center gap-2 font-bold text-sm text-white min-w-0">
+                      <span className="shrink-0">{icon}</span>
+                      <span className="truncate">{label}</span>
+                    </div>
+                    <span
+                      className={`rounded px-2 py-0.5 text-[11px] font-mono font-semibold shrink-0 ${
+                        row.netMarginPct >= 20
+                          ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                          : row.netMarginPct >= 0
+                          ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                          : "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      }`}
+                    >
+                      Biên {row.netMarginPct}%
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 text-xs">
+                    <div className="rounded-xl bg-slate-950/60 p-2.5 border border-slate-800/60">
+                      <div className="text-[10px] text-slate-400">Thực Nhận</div>
+                      <div className="font-mono font-bold text-cyan-300 mt-0.5">{formatMoney(realizedRev)}</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-950/60 p-2.5 border border-slate-800/60">
+                      <div className="text-[10px] text-slate-400">Lợi Nhuận Ròng</div>
+                      <div className={`font-mono font-bold mt-0.5 ${row.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {row.netProfit >= 0 ? "+" : ""}
+                        {formatMoney(row.netProfit)}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Đơn (Thành công / Tổng)</span>
+                      <span className="font-mono font-semibold text-emerald-400">{successOrders}</span>
+                      <span className="text-slate-500 font-mono"> / {totalOrders}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Doanh Thu (GMV)</span>
+                      <span className="font-mono font-medium text-white">{formatMoney(row.gmv)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Giá Vốn (COGS)</span>
+                      <span className="font-mono text-slate-300">{formatMoney(row.cogs)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Phí Sàn &amp; Thu Hộ</span>
+                      <span className="font-mono text-rose-400">{formatMoney(fees)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop (>= 768px): Table */}
+          <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
@@ -617,20 +684,69 @@ export default function ReportsClient({
       {/* ========================================================================= */}
       {activeTab === "orders" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Tìm kiếm theo mã đơn, tên khách hoặc kênh..."
-              className="w-80 rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+              className="w-full sm:w-80 rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
             <span className="text-xs text-slate-400">
               Hiển thị <span className="font-bold text-white">{filteredOrders.length}</span> đơn hàng
             </span>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
+          {/* Mobile (< 768px): Stacked Cards */}
+          <div className="md:hidden space-y-3">
+            {filteredOrders.map((o) => {
+              const totalFee = (o.platformFee || 0) + (o.affiliateFee || 0) + (o.codFee || 0) + (o.shippingLoss || 0);
+              return (
+                <div
+                  key={o.orderCode}
+                  className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-2.5 shadow-md text-xs"
+                >
+                  <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-2">
+                    <div className="min-w-0">
+                      <div className="font-bold font-mono text-blue-400 truncate">{o.orderCode}</div>
+                      <div className="text-[11px] text-slate-400">{o.channel}</div>
+                    </div>
+                    <span className="rounded-full bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300 font-medium shrink-0">
+                      {o.deliveryStatus || o.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-white truncate">{o.customerName}</span>
+                    <span className="text-[11px] text-slate-400 font-mono shrink-0">{o.phone}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Tổng Tiền (GMV)</span>
+                      <span className="font-mono font-bold text-white">{formatMoney(o.gmv)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Lãi/Lỗ Thực Tế</span>
+                      <span className={`font-mono font-bold ${o.netProfit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {o.netProfit >= 0 ? "+" : ""}
+                        {formatMoney(o.netProfit)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Giá Vốn (COGS)</span>
+                      <span className="font-mono text-slate-300">{formatMoney(o.totalCogs)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Phí Sàn &amp; Ship</span>
+                      <span className="font-mono text-rose-400">{formatMoney(totalFee)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop (>= 768px): Table */}
+          <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
@@ -783,7 +899,7 @@ export default function ReportsClient({
             <h4 className="font-bold text-sm text-white mb-4 flex items-center gap-2">
               <span>⏰</span> Biểu Đồ Phân Bố Đơn Hàng & GMV Theo 24 Khung Giờ (0h $\rightarrow$ 23h)
             </h4>
-            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-2 text-center">
+            <div className="grid grid-cols-4 sm:grid-cols-8 md:grid-cols-12 gap-2 text-center">
               {(adsData?.hourlyDistribution || []).map((h) => {
                 const isPeak = h.hour === adsData?.peakHour;
                 return (
@@ -851,15 +967,53 @@ export default function ReportsClient({
               </div>
               <button
                 onClick={handleExportTaxCsv}
-                className="mt-2 w-full py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition"
+                className="mt-2 w-full py-2.5 sm:py-1.5 min-h-[42px] sm:min-h-0 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition cursor-pointer"
               >
                 Tải Bảng Kê CSV
               </button>
             </div>
           </div>
 
-          {/* Bảng kê chi tiết đơn xuất hóa đơn */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
+          {/* Mobile (< 768px): Stacked Cards */}
+          <div className="md:hidden space-y-3">
+            {(taxData?.orders || []).map((r) => (
+              <div
+                key={r.orderCode}
+                className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-2.5 shadow-md text-xs"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                  <span className="font-bold font-mono text-cyan-400">{r.orderCode}</span>
+                  <span className="text-[11px] text-slate-400">{(r.completedDate || "").slice(0, 10)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="font-semibold text-white">{r.customerName}</div>
+                    <div className="text-[11px] text-slate-400 font-mono">{r.phone}</div>
+                  </div>
+                  <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-300 shrink-0">
+                    {r.channel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/60">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Tổng TT</span>
+                    <span className="font-mono font-bold text-white">{(r.totalAmount || 0).toLocaleString("vi-VN")} đ</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Tính Thuế</span>
+                    <span className="font-mono text-slate-300">{(r.taxableBase || 0).toLocaleString("vi-VN")} đ</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">VAT 8%</span>
+                    <span className="font-mono font-bold text-emerald-400">{(r.vatAmount || 0).toLocaleString("vi-VN")} đ</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop (>= 768px): Bảng kê chi tiết đơn xuất hóa đơn */}
+          <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/60 overflow-hidden shadow-xl">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
@@ -915,7 +1069,7 @@ export default function ReportsClient({
                   key={p.key}
                   type="button"
                   onClick={() => setKpiPeriod(p.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg text-xs font-semibold transition cursor-pointer ${
                     kpiPeriod === p.key
                       ? "bg-indigo-600 text-white shadow"
                       : "bg-slate-800 text-slate-300 hover:bg-slate-700"
@@ -934,7 +1088,7 @@ export default function ReportsClient({
               type="button"
               onClick={handleExportKpiCsv}
               disabled={!kpiData?.staffRankings?.length}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs transition flex items-center gap-1.5 self-start sm:self-auto"
+              className="w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
             >
               <span>📥</span> Xuất CSV Đánh Giá KPI
             </button>
@@ -955,10 +1109,10 @@ export default function ReportsClient({
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-5 shadow-xl">
               <span className="text-slate-400 text-xs font-bold uppercase tracking-wider block mb-1">
-                Khách Đã Chăm Trong Kỳ
+                Khách Nhắn Tin &amp; Chăm Sóc
               </span>
               <div className="text-2xl font-black text-teal-400 font-mono">
-                {kpiData?.teamSummary?.totalCareCompleted || 0} lượt
+                {kpiData?.teamSummary?.totalMessagedCustomers || 0} chat • {kpiData?.teamSummary?.totalCareCompleted || 0} CS
               </div>
               <p className="text-[11px] text-slate-400 mt-2">
                 Quá hạn tồn đọng:{" "}
@@ -1005,23 +1159,122 @@ export default function ReportsClient({
                 Chỉ tiêu cá nhân đọc từ Cấu hình Nhân sự (auth / staffStore)
               </span>
             </div>
-            <div className="overflow-x-auto">
+
+            {/* Mobile (< 768px): Stacked Cards */}
+            <div className="md:hidden divide-y divide-slate-800/80">
+              {(kpiData?.staffRankings || []).length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  Chưa có nhân viên Sale / CSKH nào trong hệ thống.
+                </div>
+              ) : (
+                (kpiData?.staffRankings || []).map((s, idx) => {
+                  const ratingClass =
+                    s.rating === "Xuất sắc"
+                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                      : s.rating === "Đạt"
+                      ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
+                      : "bg-amber-500/20 text-amber-300 border-amber-500/40";
+                  return (
+                    <div key={s.staffId} className="p-4 space-y-3 text-xs">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                              idx === 0
+                                ? "bg-amber-500 text-slate-950"
+                                : idx === 1
+                                ? "bg-slate-300 text-slate-950"
+                                : idx === 2
+                                ? "bg-amber-700 text-white"
+                                : "bg-slate-800 text-slate-400"
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="font-bold text-white truncate">{s.name}</div>
+                            <div className="text-[10px] text-slate-400 font-mono truncate">
+                              @{s.username || s.code} • {s.role}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <span className="font-mono text-xs font-black text-white">{s.kpiScore || 0}đ</span>
+                          <span className={`rounded px-2 py-0.5 text-[10px] font-bold border ${ratingClass}`}>
+                            {s.rating}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5 pt-1">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Doanh Thu / Chỉ Tiêu</span>
+                          <span className="font-mono font-bold text-emerald-400">{(s.revenue || 0).toLocaleString("vi-VN")} đ</span>
+                          <span className="block text-[10px] text-slate-500 font-mono">
+                            CT: {s.targetRevenue > 0 ? `${s.targetRevenue.toLocaleString("vi-VN")} đ` : "Chưa đặt"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Đơn / Chốt / Tái Mua</span>
+                          <span className="font-mono font-semibold text-white">
+                            {s.totalOrders}{s.targetOrders > 0 ? ` / ${s.targetOrders}` : ""} đơn
+                          </span>
+                          <span className="block text-[10px] text-cyan-400 font-mono">
+                            Chốt {s.closingRate}% • Tái {s.repeatPurchaseRate}%
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Khách Nhắn Tin</span>
+                          <span className="font-mono font-bold text-sky-300">{s.messagedCustomersCount || 0} khách</span>
+                          <span className="block text-[10px] text-slate-400 font-mono">
+                            {s.messagesSentCount || 0} tin đã gửi
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">CSKH Trong Kỳ</span>
+                          <span className="font-mono font-bold text-teal-300">{s.careCompleted} / {s.periodCareTarget} KH</span>
+                          <span className="block text-[10px] text-slate-400 font-mono">
+                            Đạt {s.careTargetPct}% ({s.dailyCareTarget}/ngày)
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Quá Hạn / Phản Hồi (+)</span>
+                          <span className={`font-mono ${s.overdueCareCount > 0 ? "text-rose-400 font-bold" : "text-slate-300"}`}>
+                            {s.overdueCareCount} quá hạn
+                          </span>
+                          <span className="block text-[10px] text-emerald-400 font-mono">
+                            PH (+): {s.feedbackSampleCount > 0 ? `${s.positiveResponseRate}%` : "Chưa có"}
+                          </span>
+                        </div>
+                      </div>
+                      {s.evaluationText && (
+                        <div className="rounded-lg bg-slate-950/70 border border-slate-800/80 p-2.5 text-[11px] text-slate-300 leading-relaxed">
+                          <span className="font-bold text-amber-300">Đánh giá: </span>
+                          {s.evaluationText}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop (>= 768px): Table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
                   <tr>
                     <th className="p-3.5">Hạng / Nhân Viên</th>
-                    <th className="p-3.5">Vai Trò</th>
-                    <th className="p-3.5 text-right">Doanh Thu / Chỉ Tiêu</th>
-                    <th className="p-3.5 text-right">Đơn / Chốt / Tái Mua</th>
-                    <th className="p-3.5 text-right">CSKH Trong Kỳ</th>
-                    <th className="p-3.5 text-right">Quá Hạn / Phản Hồi (+)</th>
-                    <th className="p-3.5 text-right">Điểm KPI & Xếp Loại</th>
+                    <th className="p-3.5 text-right">Khách Nhắn Tin</th>
+                    <th className="p-3.5 text-right">Chăm Sóc (CSKH)</th>
+                    <th className="p-3.5 text-right">Đơn Hàng</th>
+                    <th className="p-3.5 text-right">Doanh Số / Chỉ Tiêu</th>
+                    <th className="p-3.5 text-right">Điểm KPI &amp; Đánh Giá</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
                   {(kpiData?.staffRankings || []).length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-6 text-center text-slate-400">
+                      <td colSpan={6} className="p-6 text-center text-slate-400">
                         Chưa có nhân viên Sale / CSKH nào trong hệ thống.
                       </td>
                     </tr>
@@ -1034,7 +1287,7 @@ export default function ReportsClient({
                           ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
                           : "bg-amber-500/20 text-amber-300 border-amber-500/40";
                       return (
-                        <tr key={s.staffId} className="hover:bg-slate-800/40 transition">
+                        <tr key={s.staffId} className="hover:bg-slate-800/40 transition align-top">
                           <td className="p-3.5 font-bold text-white flex items-center gap-3">
                             <span
                               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-black ${
@@ -1050,26 +1303,34 @@ export default function ReportsClient({
                               {idx + 1}
                             </span>
                             <div>
-                              <div>{s.name}</div>
+                              <div className="flex items-center gap-1.5">
+                                <span>{s.name}</span>
+                                <span className="rounded bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 text-[9px] font-semibold border border-indigo-500/30">
+                                  {s.role}
+                                </span>
+                              </div>
                               <div className="text-[10px] text-slate-500 font-mono">
                                 @{s.username || s.code}
                               </div>
                             </div>
                           </td>
-                          <td className="p-3.5">
-                            <span className="rounded bg-indigo-500/20 text-indigo-300 px-2 py-0.5 text-[10px] font-semibold border border-indigo-500/30">
-                              {s.role}
-                            </span>
-                          </td>
                           <td className="p-3.5 text-right font-mono">
-                            <div className="font-bold text-emerald-400">
-                              {(s.revenue || 0).toLocaleString("vi-VN")} đ
+                            <div className="text-sky-300 font-bold">
+                              {s.messagedCustomersCount || 0} khách
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              Chỉ tiêu:{" "}
-                              {s.targetRevenue > 0
-                                ? `${s.targetRevenue.toLocaleString("vi-VN")} đ`
-                                : "Chưa đặt"}
+                              {s.messagesSentCount || 0} tin đã gửi
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-right font-mono">
+                            <div className="text-teal-300 font-bold">
+                              {s.careCompleted} / {s.periodCareTarget} khách
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              Đạt {s.careTargetPct}% •{" "}
+                              <span className={s.overdueCareCount > 0 ? "text-rose-400 font-bold" : "text-slate-400"}>
+                                {s.overdueCareCount} quá hạn
+                              </span>
                             </div>
                           </td>
                           <td className="p-3.5 text-right font-mono">
@@ -1082,23 +1343,17 @@ export default function ReportsClient({
                             </div>
                           </td>
                           <td className="p-3.5 text-right font-mono">
-                            <div className="text-teal-300 font-bold">
-                              {s.careCompleted} / {s.periodCareTarget} khách
+                            <div className="font-bold text-emerald-400">
+                              {(s.revenue || 0).toLocaleString("vi-VN")} đ
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              Đạt {s.careTargetPct}% ({s.dailyCareTarget}/ngày)
+                              Chỉ tiêu:{" "}
+                              {s.targetRevenue > 0
+                                ? `${s.targetRevenue.toLocaleString("vi-VN")} đ`
+                                : "Chưa đặt"}
                             </div>
                           </td>
-                          <td className="p-3.5 text-right font-mono">
-                            <div className={s.overdueCareCount > 0 ? "text-rose-400 font-bold" : "text-slate-300"}>
-                              {s.overdueCareCount} quá hạn
-                            </div>
-                            <div className="text-[10px] text-emerald-400">
-                              Phản hồi (+):{" "}
-                              {s.feedbackSampleCount > 0 ? `${s.positiveResponseRate}%` : "Chưa có"}
-                            </div>
-                          </td>
-                          <td className="p-3.5 text-right">
+                          <td className="p-3.5 text-right max-w-[260px]">
                             <div className="flex flex-col items-end gap-1">
                               <div className="flex items-center gap-2">
                                 <div className="w-16 bg-slate-800 rounded-full h-2 overflow-hidden">
@@ -1110,12 +1365,17 @@ export default function ReportsClient({
                                 <span className="font-mono text-xs font-black text-white">
                                   {s.kpiScore || 0}đ
                                 </span>
+                                <span
+                                  className={`rounded px-2 py-0.5 text-[10px] font-bold border ${ratingClass}`}
+                                >
+                                  {s.rating}
+                                </span>
                               </div>
-                              <span
-                                className={`rounded px-2 py-0.5 text-[10px] font-bold border ${ratingClass}`}
-                              >
-                                {s.rating}
-                              </span>
+                              {s.evaluationText && (
+                                <p className="text-[10px] text-slate-400 text-right leading-snug">
+                                  {s.evaluationText}
+                                </p>
+                              )}
                             </div>
                           </td>
                         </tr>

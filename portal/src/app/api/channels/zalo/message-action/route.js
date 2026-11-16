@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   guardApiRequest,
   isChannelScopeRestricted,
@@ -16,7 +17,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request) {
   try {
-    const guard = await guardApiRequest(request, { allowPublicDemo: false });
+    const cookieStore = await cookies();
+    const guard = guardApiRequest(cookieStore, request.headers, { allowPublicDemo: false });
     if (!guard.ok) return guard.response;
     const currentUser = guard.user;
 
@@ -76,7 +78,8 @@ export async function POST(request) {
       if (matched?.homeDir) targetHome = matched.homeDir;
     }
     if (!targetHome) {
-      targetHome = resolveZaloHomeForThread(threadId, "", accountId);
+      const resolved = resolveZaloHomeForThread(threadId, "", accountId);
+      targetHome = typeof resolved === "string" ? resolved : resolved?.homeDir || "";
     }
 
     if (!targetHome) {

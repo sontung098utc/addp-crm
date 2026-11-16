@@ -4939,7 +4939,8 @@ export default function LiveZaloInbox() {
                                     setEditingMsgText("");
                                   }
                                 }}
-                                className="w-full rounded-lg bg-white/95 text-slate-900 px-2.5 py-1.5 text-xs outline-none border border-blue-300 focus:ring-2 focus:ring-amber-300 resize-y"
+                                style={{ backgroundColor: "#ffffff", color: "#0f172a" }}
+                                className="w-full rounded-lg bg-white text-slate-900 px-2.5 py-1.5 text-xs outline-none border border-blue-300 focus:ring-2 focus:ring-amber-300 resize-y"
                               />
                               <div className="flex items-center justify-end gap-1.5">
                                 <button
