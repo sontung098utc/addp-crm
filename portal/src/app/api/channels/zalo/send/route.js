@@ -122,17 +122,18 @@ export async function POST(request) {
       recipientPhone = normalizePhone(recipient);
     }
 
-    // Nếu gửi qua Facebook, Zalo OA hoặc TikTok Shop
+    // Nếu gửi qua Facebook, Zalo OA, TikTok Shop hoặc Shopee
     if (
       channel === "FACEBOOK" ||
       channel === "ZALO_OA" ||
       channel === "TIKTOK_SHOP" ||
-      channel === "TIKTOK"
+      channel === "TIKTOK" ||
+      channel === "SHOPEE"
     ) {
-      const isTikTok = channel === "TIKTOK_SHOP" || channel === "TIKTOK";
+      const isMarketplace = channel === "TIKTOK_SHOP" || channel === "TIKTOK" || channel === "SHOPEE";
       const result = await sendUnifiedMessage({
         channel,
-        recipientId: isTikTok ? recipient || recipientId : recipientId || recipient,
+        recipientId: isMarketplace ? recipient || recipientId : recipientId || recipient,
         conversationId: recipient || recipientId,
         pageId,
         channelId: accountId || pageId,

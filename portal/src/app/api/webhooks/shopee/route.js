@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
 
 /**
  * ADDP Omnichannel AI CRM — Shopee Open API v2 Webhook Endpoint (WBS-18)
@@ -66,10 +67,35 @@ export async function POST(request) {
     // Code 3: Trạng thái đơn hàng thay đổi
     const orderSn = data.data?.ordersn || data.ordersn || "";
     const code = data.code;
+    const shopId = String(data.shop_id || data.data?.shop_id || "");
 
     if (orderSn) {
       logWebhook(`Processing Shopee order sync: ${orderSn} (Code: ${code})`);
-      // Đồng bộ đơn hàng nền
+    }
+
+    // Code 10 hoặc payload có conversation_id / content: Push tin nhắn Shopee Seller Chat
+    const chatData = data.data || data;
+    const convId = String(chatData?.conversation_id || "").trim();
+    if (convId && (Number(code) === 10 || chatData?.message_id || chatData?.content)) {
+      const msgText =
+        chatData?.content?.text ||
+        (typeof chatData?.content === "string" ? chatData.content : "") ||
+        chatData?.text ||
+        "[Tin nhắn Shopee]";
+      const fromId = String(chatData?.from_id || chatData?.sender_id || "buyer");
+      const isMe = Boolean(shopId && fromId === shopId);
+      await addUnifiedMessage({
+        channel: "SHOPEE",
+        channelId: shopId || "shopee",
+        channelName: shopId ? `Shopee #${shopId.slice(-4)}` : "Shopee",
+        threadId: convId,
+        senderId: fromId,
+        senderName: chatData?.from_user_name || chatData?.buyer_name || (isMe ? "Shop" : "Khách Shopee"),
+        text: msgText,
+        isMe,
+        metadata: { source: "shopee_webhook", code },
+      });
+      logWebhook(`Saved Shopee chat message for conversation ${convId}`);
     }
 
     return NextResponse.json({

@@ -287,6 +287,7 @@ export default function LiveZaloInbox() {
   const [channelPopoverOpen, setChannelPopoverOpen] = useState(false);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const [isSyncingTikTok, setIsSyncingTikTok] = useState(false);
+  const [isSyncingShopee, setIsSyncingShopee] = useState(false);
   const [zaloSyncStatus, setZaloSyncStatus] = useState(null);
   const [refreshMsgCount, setRefreshMsgCount] = useState(0);
   const channelPopoverRef = useRef(null);
@@ -2720,6 +2721,32 @@ export default function LiveZaloInbox() {
     };
   };
 
+  const handleSyncShopeeMessages = async () => {
+    try {
+      setIsSyncingShopee(true);
+      const res = await fetch("/api/channels/shopee/sync-messages", { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok) {
+        setToast({
+          type: "success",
+          text: data.message || `Đã đồng bộ ${data.totalSynced || 0} hội thoại Shopee.`,
+        });
+        await loadConversations(false, true);
+      } else {
+        setToast({
+          type: "error",
+          text: data?.error || "Không thể đồng bộ tin nhắn Shopee.",
+        });
+      }
+      setTimeout(() => setToast(null), 6000);
+    } catch (err) {
+      setToast({ type: "error", text: `Lỗi kết nối đồng bộ Shopee: ${err.message}` });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setIsSyncingShopee(false);
+    }
+  };
+
   // Đồng bộ toàn bộ lịch sử tin nhắn cũ từ Zalo Cá Nhân & Fanpage Facebook
   const handleSyncFullHistory = async () => {
     try {
@@ -4162,8 +4189,18 @@ export default function LiveZaloInbox() {
                 <div className="p-6 text-center space-y-3 flex flex-col items-center justify-center">
                   <ChannelLogo platform="SHOPEE" size={44} />
                   <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-[260px]">
-                    Gian hàng Shopee đã kết nối thành công ({effectiveShopeeShops.length} gian hàng). Hiện chưa có hội thoại tin nhắn Shopee mới đồng bộ về hộp thư.
+                    Gian hàng Shopee đã kết nối ({effectiveShopeeShops.length} gian hàng). Bấm{" "}
+                    <span className="font-bold text-[#EE4D2D]">[ Đồng Bộ Shopee ]</span> để kéo tin nhắn Seller Chat từ sàn về CRM.
                   </p>
+                  <button
+                    type="button"
+                    onClick={handleSyncShopeeMessages}
+                    disabled={isSyncingShopee}
+                    className="px-4 py-2 rounded-xl bg-[#EE4D2D] hover:bg-[#d83f20] text-white text-xs font-bold shadow-sm cursor-pointer inline-flex items-center gap-2 transition-all disabled:opacity-60 badge-solid-white"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingShopee ? "animate-spin" : ""}`} />
+                    <span>{isSyncingShopee ? "Đang kéo tin nhắn Shopee..." : "Đồng Bộ Shopee Ngay"}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleAccountDropdownChange("ALL")}

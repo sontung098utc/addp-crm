@@ -30,6 +30,12 @@ import {
   isUsableTikTokCipher,
   extractRealTikTokCipherFromChannel,
 } from "./tiktokConfig.js";
+import {
+  getActiveShopeeChannels,
+  fetchShopeeConversations,
+  fetchShopeeMessages,
+  sendShopeeMessage,
+} from "./shopeeConfig.js";
 import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 import { isSafePilotMode, isAutoSyncAllowed } from "./pilotConfig.js";
@@ -382,6 +388,124 @@ export function getConnectedTikTokShops() {
       colorIndex: idx,
     };
   });
+}
+
+let cachedShopeeConversations = null;
+let lastShopeeFetchTime = 0;
+let lastShopeeSyncErrors = [];
+const SHOPEE_CACHE_TTL_MS = 45 * 1000;
+
+export function getLastShopeeSyncErrors() {
+  return lastShopeeSyncErrors;
+}
+
+/**
+ * Kéo danh sách hội thoại Seller Chat trực tiếp từ Shopee Open API v2
+ */
+export async function fetchLiveShopeeConversations(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedShopeeConversations && now - lastShopeeFetchTime < SHOPEE_CACHE_TTL_MS) {
+    return cachedShopeeConversations;
+  }
+
+  const shopeeChannels = getActiveShopeeChannels();
+  if (shopeeChannels.length === 0) {
+    lastShopeeSyncErrors = [];
+    cachedShopeeConversations = [];
+    lastShopeeFetchTime = now;
+    return [];
+  }
+
+  const results = [];
+  const errors = [];
+
+  for (const ch of shopeeChannels) {
+    const shopId = String(ch.shopId || ch.config?.shopId || ch.externalId || ch.id || "").trim();
+    const shopName = String(ch.name || `Shopee #${shopId.slice(-4)}`).trim();
+    try {
+      const apiRes = await fetchShopeeConversations(ch, { pageSize: 25 });
+      if (!apiRes.ok) {
+        errors.push({
+          shopId,
+          shopName,
+          errorCode: apiRes.errorCode || "",
+          error: apiRes.error || "Không thể gọi API Seller Chat Shopee.",
+        });
+        continue;
+      }
+
+      const rawList =
+        apiRes.response?.conversations ||
+        apiRes.response?.conversation_list ||
+        apiRes.response?.list ||
+        [];
+
+      for (const item of rawList) {
+        const convId = String(item.conversation_id || "").trim();
+        if (!convId) continue;
+
+        const rawTs = Number(
+          item.last_message_timestamp ||
+            item.latest_message_create_time ||
+            item.update_time ||
+            Date.now()
+        );
+        const tsMs =
+          rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+
+        let lastMsgText = "[Tin nhắn Shopee]";
+        if (typeof item.latest_message_content === "string" && item.latest_message_content.trim()) {
+          lastMsgText = item.latest_message_content.trim();
+        } else if (item.latest_message_content?.text) {
+          lastMsgText = String(item.latest_message_content.text).trim();
+        } else if (item.last_message?.content?.text) {
+          lastMsgText = String(item.last_message.content.text).trim();
+        }
+
+        const buyerName = String(
+          item.to_name || item.buyer_name || item.user_name || `Khách Shopee #${item.to_id || convId.slice(-4)}`
+        ).trim();
+
+        results.push({
+          id: convId,
+          conversationId: convId,
+          externalThreadId: convId,
+          recipientId: String(item.to_id || ""),
+          toId: String(item.to_id || ""),
+          name: buyerName,
+          customerName: buyerName,
+          avatar: item.to_avatar || "",
+          phone: "",
+          type: "DIRECT",
+          channel: "SHOPEE",
+          channelIcon: "🛒",
+          channelLabel: shopName,
+          accountId: shopId,
+          accountName: shopName,
+          pageId: shopId,
+          shopId,
+          lastMessage: lastMsgText,
+          lastActive: formatTimeAgo(tsMs),
+          timestamp: tsMs,
+          unreadCount: Number(item.unread_count || 0),
+          unread: Number(item.unread_count || 0),
+          isContactOnly: false,
+          isSelf: item.latest_message_from_id && String(item.latest_message_from_id) === shopId,
+        });
+      }
+    } catch (err) {
+      errors.push({
+        shopId,
+        shopName,
+        error: err.message,
+      });
+    }
+  }
+
+  lastShopeeSyncErrors = errors;
+  cachedShopeeConversations = results;
+  lastShopeeFetchTime = Date.now();
+  return results;
 }
 
 /**
@@ -1549,6 +1673,76 @@ export async function getThreadMessages(
     }
   }
 
+  // Nếu là hội thoại Shopee -> Kéo tin nhắn chi tiết từ Shopee Seller Chat API + gộp lịch sử cục bộ
+  if (
+    normChannel === "SHOPEE" ||
+    tid.toLowerCase().startsWith("shopee_") ||
+    storedMessages.some((m) => m.channel === "SHOPEE" && String(m.threadId) === tid)
+  ) {
+    const spMerged = new Map();
+    for (const m of storedMessages) {
+      if (m.channel === "SHOPEE" && String(m.threadId) === tid) {
+        spMerged.set(String(m.id), m);
+      }
+    }
+    const shopChannels = getActiveShopeeChannels();
+    const targetShop =
+      (pageIdHint &&
+        shopChannels.find(
+          (c) =>
+            String(c.shopId || c.config?.shopId || c.externalId || c.id) === String(pageIdHint)
+        )) ||
+      shopChannels[0];
+
+    if (targetShop) {
+      try {
+        const msgRes = await fetchShopeeMessages(targetShop, tid, { pageSize: 30 });
+        if (msgRes.ok) {
+          const rawMsgs = msgRes.response?.messages || msgRes.response?.list || [];
+          const shopIdStr = String(
+            targetShop.shopId || targetShop.config?.shopId || targetShop.externalId || ""
+          );
+          for (const m of rawMsgs) {
+            const mId = String(m.message_id || m.id || "");
+            if (!mId) continue;
+            const rawTs = Number(m.created_timestamp || m.timestamp || Date.now());
+            const tsMs =
+              rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+            const fromId = String(m.from_id || "");
+            const isMe =
+              Boolean(shopIdStr && fromId === shopIdStr) ||
+              Number(m.from_shop_id || 0) === Number(shopIdStr);
+            const txt =
+              m.content?.text ||
+              m.content?.url ||
+              (typeof m.content === "string" ? m.content : "") ||
+              `[${m.message_type || "Tin nhắn Shopee"}]`;
+            spMerged.set(mId, {
+              id: mId,
+              channel: "SHOPEE",
+              channelId: shopIdStr,
+              channelName: targetShop.name || "Shopee",
+              threadId: tid,
+              senderId: fromId,
+              senderName: isMe ? targetShop.name || "Shop" : customerNameHint || "Khách Shopee",
+              text: txt,
+              type: m.message_type === "image" ? "image" : "text",
+              mediaUrl: m.content?.url || null,
+              isMe,
+              timestamp: tsMs,
+              status: "sent",
+            });
+          }
+        }
+      } catch (err) {
+        console.error("[SHOPEE_GET_MESSAGES_ERR]", err.message);
+      }
+    }
+    const list = Array.from(spMerged.values());
+    list.sort((a, b) => a.timestamp - b.timestamp);
+    return list;
+  }
+
   // Nếu là hội thoại TikTok Shop -> Kéo tin nhắn chi tiết trực tiếp từ TikTok CS API + gộp lịch sử cục bộ
   const normChannel = String(channel || "").toUpperCase();
   const isTikTok =
@@ -1691,14 +1885,16 @@ export async function getOmnichannelConversations(forceRefresh = false) {
 
   const convMap = new Map();
 
-  // 1. Lấy hội thoại thật từ các Fanpage Facebook & TikTok Shop qua API
+  // 1. Lấy hội thoại thật từ các Fanpage Facebook, TikTok Shop & Shopee qua API
   // Nếu bật cờ tắt đồng bộ (QA_DISABLE_AUTO_SYNC hoặc PILOT_SAFE_MODE): bỏ qua gọi API ngoài
   let liveFb = [];
   let liveTikTok = [];
+  let liveShopee = [];
   if (isAutoSyncAllowed()) {
-    [liveFb, liveTikTok] = await Promise.all([
+    [liveFb, liveTikTok, liveShopee] = await Promise.all([
       fetchLiveFacebookConversations(forceRefresh),
       fetchLiveTikTokConversations(forceRefresh).catch(() => []),
+      fetchLiveShopeeConversations(forceRefresh).catch(() => []),
     ]);
   }
   for (const fbConv of liveFb) {
@@ -1706,6 +1902,9 @@ export async function getOmnichannelConversations(forceRefresh = false) {
   }
   for (const ttConv of liveTikTok) {
     convMap.set(`TIKTOK_SHOP_${ttConv.id}`, ttConv);
+  }
+  for (const spConv of liveShopee) {
+    convMap.set(`SHOPEE_${spConv.id}`, spConv);
   }
 
   // 2. Bổ sung các tin nhắn realtime nhận qua Webhook
@@ -2054,6 +2253,56 @@ export async function sendUnifiedMessage({
       channelId,
       pageId,
     });
+  }
+
+  if (channel === "SHOPEE") {
+    const shopChannels = getActiveShopeeChannels();
+    const targetShop =
+      (channelId || pageId
+        ? shopChannels.find(
+            (c) =>
+              String(c.shopId || c.config?.shopId || c.externalId || c.id) ===
+              String(channelId || pageId)
+          )
+        : null) || shopChannels[0];
+
+    if (!targetShop) {
+      return { ok: false, status: "failed", error: "Chưa kết nối gian hàng Shopee hợp lệ." };
+    }
+
+    const toId = thread?.toId || recipientId || "";
+    const spRes = await sendShopeeMessage(targetShop, {
+      toId,
+      text,
+    });
+    if (!spRes.ok) {
+      return {
+        ok: false,
+        status: "failed",
+        error: spRes.error || "Shopee từ chối gửi tin nhắn (kiểm tra quyền Seller Chat API).",
+      };
+    }
+
+    const msgId = spRes.response?.message_id || `sp_${Date.now()}`;
+    await addUnifiedMessage({
+      channel: "SHOPEE",
+      channelId: String(targetShop.shopId || targetShop.externalId || ""),
+      channelName: targetShop.name || "Shopee",
+      threadId: String(conversationId || recipientId || ""),
+      senderId: String(targetShop.shopId || "shop"),
+      senderName: staffName || targetShop.name || "Shopee",
+      text: String(text),
+      isMe: true,
+      metadata: { skipAiBot: true },
+    });
+
+    return {
+      ok: true,
+      status: "sent",
+      provider: "SHOPEE_SELLER_CHAT_V2",
+      messageId: String(msgId),
+      message: "Đã gửi tin nhắn qua Shopee!",
+    };
   }
 
   // 4. Kênh Zalo Cá Nhân (Giữ ở trạng thái thử nghiệm - Không bật broadcast/hàng loạt)
