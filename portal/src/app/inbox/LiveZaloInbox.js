@@ -686,16 +686,33 @@ export default function LiveZaloInbox() {
     };
   }, []);
 
-  // Tự động cuộn xuống đáy khi đổi hội thoại hoặc có tin nhắn mới (chỉ khi đang ở gần đáy)
+  // Tự động cuộn xuống đáy khi đổi hội thoại, nạp xong tin nhắn hoặc có tin mới (chỉ khi đang ở gần đáy)
   useEffect(() => {
-    if (messages.length !== prevMsgCountRef.current) {
-      prevMsgCountRef.current = messages.length;
-      if (forceScrollNextRef.current || isNearBottomRef.current) {
-        forceScrollNextRef.current = false;
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }
+    if (loadingMessages) return;
+    if (messages.length === 0) {
+      prevMsgCountRef.current = 0;
+      return;
     }
-  }, [messages]);
+
+    const countChanged = messages.length !== prevMsgCountRef.current;
+    prevMsgCountRef.current = messages.length;
+
+    if (forceScrollNextRef.current) {
+      forceScrollNextRef.current = false;
+      isNearBottomRef.current = true;
+      requestAnimationFrame(() => {
+        if (msgStreamRef.current) {
+          msgStreamRef.current.scrollTop = msgStreamRef.current.scrollHeight;
+        } else {
+          messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+        }
+      });
+    } else if (countChanged && isNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, [messages, loadingMessages, activeConv?.id]);
 
   // 1. Tải danh sách cuộc hội thoại thực tế (chống chồng lặp request)
   const loadConversations = async (showLoading = true, forceRefresh = false) => {
@@ -788,7 +805,19 @@ export default function LiveZaloInbox() {
                   c.channel === prev.channel &&
                   String(c.accountId || "") === String(prev.accountId || "")
               );
-              if (matched) return matched;
+              if (matched) {
+                if (
+                  matched.lastMessage === prev.lastMessage &&
+                  matched.unreadCount === prev.unreadCount &&
+                  matched.phone === prev.phone &&
+                  matched.type === prev.type &&
+                  matched.zaloHome === prev.zaloHome &&
+                  matched.pageId === prev.pageId
+                ) {
+                  return prev;
+                }
+                return matched;
+              }
               if (prev.isDirectCareTemp || prev.isTemp) {
                 const prevPhone = normalizePhone(prev.phone || prev.id);
                 if (prevPhone) {
@@ -1010,15 +1039,34 @@ export default function LiveZaloInbox() {
               }
             }
 
-            messageCacheRef.current.set(convCacheKey, incoming);
             setMessages((prev) => {
-              if (
-                silent &&
-                (prev || []).length === incoming.length &&
-                prev[prev.length - 1]?.id === incoming[incoming.length - 1]?.id
-              ) {
-                return prev;
+              const existing = prev || [];
+              if (silent && existing.length > 0) {
+                const byId = new Map(existing.map((m) => [String(m.id), m]));
+                let changed = false;
+                for (const m of incoming) {
+                  const key = String(m.id);
+                  const old = byId.get(key);
+                  if (!old) {
+                    byId.set(key, m);
+                    changed = true;
+                  } else if (
+                    old.isRecalled !== m.isRecalled ||
+                    old.edited !== m.edited ||
+                    old.text !== m.text
+                  ) {
+                    byId.set(key, { ...old, ...m });
+                    changed = true;
+                  }
+                }
+                if (!changed) return existing;
+                const merged = Array.from(byId.values()).sort(
+                  (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
+                );
+                messageCacheRef.current.set(convCacheKey, merged);
+                return merged;
               }
+              messageCacheRef.current.set(convCacheKey, incoming);
               return incoming;
             });
           }

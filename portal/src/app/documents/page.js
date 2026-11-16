@@ -57,6 +57,7 @@ export default function DocumentsPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingDoc, setEditingDoc] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [formState, setFormState] = useState({
     title: "",
     category: "PRODUCT_PAPER",
@@ -98,6 +99,7 @@ export default function DocumentsPage() {
 
   const openCreateModal = () => {
     setEditingDoc(null);
+    setUploadProgress(0);
     setFormState({
       title: "",
       category: "PRODUCT_PAPER",
@@ -110,6 +112,7 @@ export default function DocumentsPage() {
 
   const openEditModal = (doc) => {
     setEditingDoc(doc);
+    setUploadProgress(0);
     setFormState({
       title: doc.title || "",
       category: doc.category || "PRODUCT_PAPER",
@@ -120,12 +123,37 @@ export default function DocumentsPage() {
     setShowUploadModal(true);
   };
 
+  const uploadWithProgress = (formData) =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/documents");
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable && ev.total > 0) {
+          const pct = Math.min(99, Math.round((ev.loaded / ev.total) * 100));
+          setUploadProgress(pct);
+        }
+      };
+      xhr.onload = () => {
+        setUploadProgress(100);
+        try {
+          const data = JSON.parse(xhr.responseText || "{}");
+          resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
+        } catch {
+          reject(new Error(`Phản hồi không hợp lệ (HTTP ${xhr.status})`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Mất kết nối mạng khi tải file lên."));
+      xhr.ontimeout = () => reject(new Error("Hết thời gian chờ tải file lên."));
+      xhr.send(formData);
+    });
+
   const handleSubmitModal = async (e) => {
     e.preventDefault();
     if (submitting) return;
 
     try {
       setSubmitting(true);
+      setUploadProgress(0);
       if (editingDoc) {
         const res = await fetch(`/api/documents/${editingDoc.id}`, {
           method: "PUT",
@@ -142,6 +170,10 @@ export default function DocumentsPage() {
           showNotice("error", data.error || "Không thể cập nhật tài liệu.");
           return;
         }
+        setDocuments((prev) =>
+          prev.map((d) => (d.id === editingDoc.id ? data.document : d))
+        );
+        setShowUploadModal(false);
         showNotice("success", "Đã cập nhật thông tin tài liệu.");
       } else {
         if (!formState.file) {
@@ -155,24 +187,21 @@ export default function DocumentsPage() {
         fd.append("productTag", formState.productTag);
         fd.append("description", formState.description);
 
-        const res = await fetch("/api/documents", {
-          method: "POST",
-          body: fd,
-        });
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
+        const { ok, data } = await uploadWithProgress(fd);
+        if (!ok || !data.ok) {
           showNotice("error", data.error || "Không thể đăng tải tài liệu.");
           return;
         }
+        // Cập nhật UI ngay lập tức không cần chờ fetch lại toàn bộ danh sách
+        setDocuments((prev) => [data.document, ...prev]);
+        setShowUploadModal(false);
         showNotice("success", `Đã đăng tải "${data.document.title}" thành công!`);
       }
-
-      setShowUploadModal(false);
-      await fetchDocuments();
     } catch (err) {
       showNotice("error", `Lỗi thao tác: ${err.message}`);
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   };
 
@@ -185,8 +214,8 @@ export default function DocumentsPage() {
         showNotice("error", data.error || "Không thể xóa tài liệu.");
         return;
       }
+      setDocuments((prev) => prev.filter((d) => d.id !== doc.id));
       showNotice("success", `Đã xóa tài liệu "${doc.title}".`);
-      await fetchDocuments();
     } catch (err) {
       showNotice("error", `Lỗi xóa: ${err.message}`);
     }
@@ -519,11 +548,27 @@ export default function DocumentsPage() {
                 />
               </div>
 
+              {submitting && !editingDoc && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] text-blue-300 font-semibold">
+                    <span>{uploadProgress < 100 ? "Đang tải file lên máy chủ..." : "Đang hoàn tất lưu trữ..."}</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-150"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold cursor-pointer"
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold cursor-pointer disabled:opacity-50"
                 >
                   Hủy
                 </button>
@@ -532,7 +577,15 @@ export default function DocumentsPage() {
                   disabled={submitting}
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer disabled:opacity-50"
                 >
-                  {submitting ? "Đang lưu..." : editingDoc ? "Lưu thay đổi" : "Đăng tải ngay"}
+                  {submitting
+                    ? editingDoc
+                      ? "Đang lưu..."
+                      : uploadProgress > 0 && uploadProgress < 100
+                      ? `Đang tải (${uploadProgress}%)...`
+                      : "Đang hoàn tất..."
+                    : editingDoc
+                    ? "Lưu thay đổi"
+                    : "Đăng tải ngay"}
                 </button>
               </div>
             </form>

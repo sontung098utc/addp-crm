@@ -92,12 +92,10 @@ export async function POST(request) {
     const savedFileName = `doc_${baseName}_${uniqueSuffix}${cleanExt}`;
 
     const uploadDir = getUploadBaseDir();
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
+    await fs.promises.mkdir(uploadDir, { recursive: true });
 
     const finalFilePath = path.join(uploadDir, savedFileName);
-    fs.writeFileSync(finalFilePath, buffer);
+    await fs.promises.writeFile(finalFilePath, buffer);
 
     const isImage =
       file.type?.startsWith("image/") ||
