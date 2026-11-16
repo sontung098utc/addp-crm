@@ -2270,7 +2270,21 @@ export async function sendUnifiedMessage({
       return { ok: false, status: "failed", error: "Chưa kết nối gian hàng Shopee hợp lệ." };
     }
 
-    const toId = thread?.toId || recipientId || "";
+    const convIdStr = String(conversationId || "").trim();
+    let cachedMatch = (cachedShopeeConversations || []).find(
+      (c) => String(c.id) === convIdStr
+    );
+    let toId =
+      cachedMatch?.toId ||
+      thread?.toId ||
+      (recipientId && String(recipientId) !== convIdStr ? String(recipientId) : "");
+
+    if (!toId && convIdStr) {
+      const freshList = await fetchLiveShopeeConversations(true).catch(() => []);
+      cachedMatch = freshList.find((c) => String(c.id) === convIdStr);
+      toId = cachedMatch?.toId || recipientId || "";
+    }
+
     const spRes = await sendShopeeMessage(targetShop, {
       toId,
       text,

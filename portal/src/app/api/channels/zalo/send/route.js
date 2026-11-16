@@ -130,10 +130,10 @@ export async function POST(request) {
       channel === "TIKTOK" ||
       channel === "SHOPEE"
     ) {
-      const isMarketplace = channel === "TIKTOK_SHOP" || channel === "TIKTOK" || channel === "SHOPEE";
+      const isTikTok = channel === "TIKTOK_SHOP" || channel === "TIKTOK";
       const result = await sendUnifiedMessage({
         channel,
-        recipientId: isMarketplace ? recipient || recipientId : recipientId || recipient,
+        recipientId: isTikTok ? recipient || recipientId : recipientId || recipient,
         conversationId: recipient || recipientId,
         pageId,
         channelId: accountId || pageId,
