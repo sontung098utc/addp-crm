@@ -62,7 +62,11 @@ export async function POST(request) {
     }
 
     const mode = body?.mode || "incremental"; // "incremental" | "full"
-    const maxPages = Number(body?.maxPages || (mode === "full" ? 50 : 15));
+    const fromDate = body?.fromDate ? String(body.fromDate).slice(0, 10) : null;
+    const lastModifiedFrom = body?.lastModifiedFrom || null;
+    const maxPages = Number(
+      body?.maxPages || (fromDate || mode === "full" ? 100 : 15)
+    );
     const registerWebhooksFlag = Boolean(body?.registerWebhooks);
 
     if (registerWebhooksFlag) {
@@ -78,6 +82,8 @@ export async function POST(request) {
 
     const result = await syncAllKiotVietOrders({
       mode,
+      fromDate,
+      lastModifiedFrom,
       maxPages,
       pageSize: 100,
     });

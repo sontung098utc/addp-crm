@@ -394,7 +394,16 @@ async function updateCustomer360ForOrder(order, allOrders = null) {
       currentTags.add("Đã Mua");
       currentTags.add("KiotViet");
 
+      const currentProducts = new Set(
+        Array.isArray(cust.purchasedProducts) ? cust.purchasedProducts.filter(Boolean) : []
+      );
+      if (order.productName && String(order.productName).trim()) {
+        currentProducts.add(String(order.productName).trim());
+      }
+
       for (const it of order.items || []) {
+        const prodName = String(it.name || it.productName || "").trim();
+        if (prodName) currentProducts.add(prodName);
         const skuUpper = String(it.sku || it.name || "").toUpperCase();
         if (skuUpper.includes("GLUCARE") || skuUpper.includes("GLU")) {
           currentTags.add("Đã Mua Glucare Plus");
@@ -414,6 +423,7 @@ async function updateCustomer360ForOrder(order, allOrders = null) {
         totalSpent: summary.totalSpent,
         deliveryRate: summary.deliveryRate,
         lastOrderDate: (order.createdAt || new Date().toISOString()).slice(0, 10),
+        purchasedProducts: Array.from(currentProducts),
         tags: Array.from(currentTags),
       });
     }
@@ -428,8 +438,11 @@ async function updateCustomer360ForOrder(order, allOrders = null) {
 export async function syncAllKiotVietOrders({
   mode = "all",
   lastModifiedFrom = null,
-  maxPages = 30, // Tối đa 30 trang x 100 = 3000 đơn mỗi lần chạy để đảm bảo tốc độ
+  fromDate = null,
+  maxPages = 100, // Tối đa 100 trang x 100 = 10.000 đơn/hóa đơn mỗi lần chạy
 } = {}) {
+  const effectiveLastModifiedFrom =
+    lastModifiedFrom || (fromDate ? `${String(fromDate).slice(0, 10)}T00:00:00` : null);
   if (isSafePilotMode() || !isAutoSyncAllowed()) {
     return {
       ok: false,
@@ -469,8 +482,8 @@ export async function syncAllKiotVietOrders({
     while (hasMore && pageCount < maxPages) {
       pageCount++;
       let url = `${KIOTVIET_API_BASE}/invoices?pageSize=${pageSize}&currentItem=${currentItem}&orderBy=createdDate&orderDirection=Desc&includeInvoiceDelivery=true`;
-      if (lastModifiedFrom) {
-        url += `&lastModifiedFrom=${encodeURIComponent(lastModifiedFrom)}`;
+      if (effectiveLastModifiedFrom) {
+        url += `&lastModifiedFrom=${encodeURIComponent(effectiveLastModifiedFrom)}`;
       }
 
       const res = await fetch(url, {
@@ -493,7 +506,7 @@ export async function syncAllKiotVietOrders({
           inv.invoiceDelivery?.contactNumber ||
           inv.customer?.contactNumber ||
           "";
-        if (!phone && inv.customerId && pageCount <= 5) {
+        if (!phone && inv.customerId) {
           phone = await resolveKiotVietCustomerPhone(inv.customerId, token, retailer);
         }
         if (!phone && inv.customerCode) {
@@ -518,8 +531,8 @@ export async function syncAllKiotVietOrders({
     while (hasMore && pageCount < maxPages) {
       pageCount++;
       let url = `${KIOTVIET_API_BASE}/orders?pageSize=${pageSize}&currentItem=${currentItem}&orderBy=createdDate&orderDirection=Desc&includeOrderDelivery=true`;
-      if (lastModifiedFrom) {
-        url += `&lastModifiedFrom=${encodeURIComponent(lastModifiedFrom)}`;
+      if (effectiveLastModifiedFrom) {
+        url += `&lastModifiedFrom=${encodeURIComponent(effectiveLastModifiedFrom)}`;
       }
 
       const res = await fetch(url, {
@@ -542,7 +555,7 @@ export async function syncAllKiotVietOrders({
           ord.orderDelivery?.contactNumber ||
           ord.customer?.contactNumber ||
           "";
-        if (!phone && ord.customerId && pageCount <= 5) {
+        if (!phone && ord.customerId) {
           phone = await resolveKiotVietCustomerPhone(ord.customerId, token, retailer);
         }
         if (!phone && ord.customerCode) {
@@ -565,10 +578,30 @@ export async function syncAllKiotVietOrders({
     // 4. Tự động sinh Lịch Chăm Sóc (Ngày 1, 3, 7, 14, 21) cho đơn Hoàn thành / Đã giao
     const careTasksCreated = triggerCareScheduleForDeliveredOrders(mappedOrders);
 
-    // 5. Cập nhật hồ sơ khách hàng 360 cho các đơn mới (chạy nền)
-    setTimeout(() => {
-      for (const o of mappedOrders) {
-        updateCustomer360ForOrder(o, allStored);
+    // 5. Cập nhật hồ sơ khách hàng 360 cho từng SĐT duy nhất (gộp sản phẩm & tổng hợp đơn)
+    const latestOrderByPhone = new Map();
+    const productsByPhone = new Map();
+    for (const o of mappedOrders) {
+      const p = normalizePhone(o.phone);
+      if (!p) continue;
+      if (!productsByPhone.has(p)) productsByPhone.set(p, new Set());
+      const pSet = productsByPhone.get(p);
+      for (const it of o.items || []) {
+        const nm = String(it.name || it.productName || "").trim();
+        if (nm) pSet.add(nm);
+      }
+      const prev = latestOrderByPhone.get(p);
+      if (!prev || String(o.createdAt || "") >= String(prev.createdAt || "")) {
+        latestOrderByPhone.set(p, o);
+      }
+    }
+    setTimeout(async () => {
+      for (const [p, o] of latestOrderByPhone.entries()) {
+        const mergedItems = Array.from(productsByPhone.get(p) || []).map((name) => ({ name }));
+        await updateCustomer360ForOrder(
+          { ...o, items: mergedItems.length > 0 ? mergedItems : o.items },
+          allStored
+        );
       }
     }, 100);
 

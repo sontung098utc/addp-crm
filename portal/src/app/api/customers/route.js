@@ -8,6 +8,7 @@ import {
 import { getTags, getAllConversationTags } from "../../../lib/tagStore.js";
 import { getSessionStaff, listAllStaff } from "../../../lib/auth.js";
 import { filterRecordsByRbac, guardApiRequest } from "../../../lib/rbac.js";
+import { getStoredOrders } from "../../../lib/ordersStore.js";
 
 function normalizeCustomerPlatform(customer = {}) {
   const raw = String(
@@ -142,12 +143,39 @@ export async function GET(request) {
     // Hợp nhất thẻ tag từ conversation_tags.json theo SĐT chuẩn & chuẩn hóa trường Nguồn/Nền tảng
     const convTagsMap = getAllConversationTags();
     const tagPalette = getTags();
+    // Gộp sản phẩm đã mua từ toàn bộ đơn hàng thực tế (KiotViet, Shopee, TikTok, Website) theo SĐT
+    const orderProductsByPhone = new Map();
+    try {
+      const storedOrders = getStoredOrders();
+      for (const ord of storedOrders) {
+        if (!ord || String(ord.status || "").toUpperCase() === "CANCELLED") continue;
+        const p = normalizePhone(ord.phone || "");
+        if (!p) continue;
+        if (!orderProductsByPhone.has(p)) orderProductsByPhone.set(p, new Set());
+        const set = orderProductsByPhone.get(p);
+        if (ord.productName && String(ord.productName).trim()) {
+          set.add(String(ord.productName).trim());
+        }
+        for (const it of ord.items || []) {
+          const nm = String(it.name || it.productName || "").trim();
+          if (nm) set.add(nm);
+        }
+      }
+    } catch {}
+
     customers = customers.map((c) => {
       const cleanPhone = normalizePhone(c.phone);
       const phoneTags = cleanPhone && Array.isArray(convTagsMap[cleanPhone]) ? convTagsMap[cleanPhone] : [];
       const mergedTags = Array.from(new Set([...(Array.isArray(c.tags) ? c.tags : []), ...phoneTags].filter(Boolean)));
       const normalizedPlatform = normalizeCustomerPlatform(c);
       const isLegacy = isLegacySystemCustomer(c);
+      const orderProds = cleanPhone ? orderProductsByPhone.get(cleanPhone) : null;
+      const mergedProducts = Array.from(
+        new Set([
+          ...(Array.isArray(c.purchasedProducts) ? c.purchasedProducts.filter(Boolean) : []),
+          ...(orderProds ? Array.from(orderProds) : []),
+        ])
+      );
       return {
         ...c,
         phone: cleanPhone || c.phone || "",
@@ -155,7 +183,7 @@ export async function GET(request) {
         normalizedPlatform,
         isLegacySource: isLegacy,
         assignedStaff: c.assignedStaff || c.staffName || "Chưa gán",
-        purchasedProducts: Array.isArray(c.purchasedProducts) ? c.purchasedProducts : [],
+        purchasedProducts: mergedProducts,
         tags: mergedTags,
       };
     });
