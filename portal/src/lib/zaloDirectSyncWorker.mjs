@@ -449,7 +449,7 @@ async function main() {
           alias: aliasName,
           displayName: f.displayName || "",
           zaloName: f.zaloName || "",
-          gender: f.gender ?? null,
+          gender: f.gender ?? f.sex ?? null,
           avatar: f.avatar || "",
           phoneNumber: f.phoneNumber || "",
           lastActionTime,

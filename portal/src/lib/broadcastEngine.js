@@ -135,7 +135,30 @@ export function resolveGenderSalutation(customer = {}) {
   }
 
   const words = lower.split(/\s+/);
-  if (words.includes("thị") || words.includes("thi")) return "Chị";
+  const lastWord = words[words.length - 1] || "";
+
+  const femaleMiddleOrGiven = new Set([
+    "thị", "thi", "ngọc", "ngoc", "bích", "bich", "thu", "xuân", "xuan",
+    "hương", "huong", "trang", "lan", "ánh", "anh", "thủy", "thuy", "tiên", "tien",
+    "hoa", "hằng", "hang", "phương", "phuong", "thảo", "thao", "nhi", "vy",
+    "quỳnh", "quynh", "dung", "hiền", "hien", "nhung", "tuyền", "tuyen",
+    "tuyết", "tuyet", "mai", "cúc", "cuc", "trúc", "truc", "đào", "dao",
+    "yến", "yen", "oanh", "loan", "diệp", "diep", "hạnh", "hanh", "kiều", "kieu",
+    "diễm", "diem", "trinh", "thư", "thu", "uyên", "uyen", "ngân", "ngan",
+    "vân", "van", "lệ", "le", "nữ", "nu", "nga", "ngà", "huệ", "hue", "liên", "lien",
+  ]);
+  const maleMiddleOrGiven = new Set([
+    "văn", "van", "hữu", "huu", "đức", "duc", "mạnh", "manh", "quang", "duy",
+    "hùng", "hung", "tuấn", "tuan", "dũng", "dung", "cường", "cuong", "thắng", "thang",
+    "thành", "thanh", "long", "quân", "quan", "kiên", "kien", "trung", "hiếu", "hieu",
+    "sơn", "son", "tùng", "tung", "hoàng", "hoang", "nam", "việt", "viet",
+    "khang", "khôi", "khoi", "đạt", "dat", "phát", "phat", "thịnh", "thinh",
+    "toàn", "toan", "vũ", "vu", "vinh", "nghĩa", "nghia", "trọng", "trong", "huy", "khánh", "khanh",
+  ]);
+
+  if (words.includes("thị") || words.includes("thi") || femaleMiddleOrGiven.has(lastWord)) {
+    return "Chị";
+  }
   if (
     words.includes("văn") ||
     words.includes("van") ||
@@ -146,12 +169,54 @@ export function resolveGenderSalutation(customer = {}) {
     words.includes("mạnh") ||
     words.includes("manh") ||
     words.includes("quang") ||
-    words.includes("duy")
+    words.includes("duy") ||
+    maleMiddleOrGiven.has(lastWord)
   ) {
     return "Anh";
   }
 
   return "Anh/Chị";
+}
+
+function enrichRecipientFromZaloMetaCache(recipient) {
+  if (!recipient || (recipient.gender !== null && recipient.gender !== undefined)) {
+    return recipient;
+  }
+  try {
+    const uid = String(recipient.zaloUid || recipient.id || "").trim();
+    if (!uid) return recipient;
+    const homes = recipient.zaloHome
+      ? [recipient.zaloHome]
+      : getAllActiveZaloHomes().map((h) => h.homeDir);
+    if (!globalThis.__ADDP_ZALO_META_GENDER_CACHE__) {
+      globalThis.__ADDP_ZALO_META_GENDER_CACHE__ = new Map();
+    }
+    for (const hDir of homes) {
+      if (!hDir) continue;
+      let cached = globalThis.__ADDP_ZALO_META_GENDER_CACHE__.get(hDir);
+      if (!cached || Date.now() - cached.ts > 60000) {
+        const metaPath = path.join(hDir, ".zalo-agent-cli", "crm-meta-cache.json");
+        const map = new Map();
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+          for (const f of meta?.friends || []) {
+            if (f?.userId) map.set(String(f.userId), f);
+          }
+        }
+        cached = { ts: Date.now(), map };
+        globalThis.__ADDP_ZALO_META_GENDER_CACHE__.set(hDir, cached);
+      }
+      const friend = cached.map.get(uid);
+      if (friend && friend.gender !== null && friend.gender !== undefined) {
+        return {
+          ...recipient,
+          gender: friend.gender,
+          fullName: friend.alias || recipient.fullName,
+        };
+      }
+    }
+  } catch {}
+  return recipient;
 }
 
 /**
@@ -571,7 +636,8 @@ export async function runCampaignQueue(campaignId) {
 
       // Thực thi gửi đồng thời các tin trong batch (mỗi nick / mỗi kết nối API chạy song song)
       await Promise.all(
-        nextBatch.map(async (nextRecipient) => {
+        nextBatch.map(async (rawRecipient) => {
+          const nextRecipient = enrichRecipientFromZaloMetaCache(rawRecipient);
           const renderedText = spinAndPersonalizeText(campaign.templateText, nextRecipient);
           let dispatchRes;
           try {
