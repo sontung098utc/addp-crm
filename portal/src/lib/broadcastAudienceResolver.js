@@ -171,6 +171,7 @@ export function getRealZaloFriends(targetAccount = "ALL") {
               id: uid,
               fullName: preferredName,
               name: preferredName,
+              gender: f.gender ?? crmCust?.gender ?? null,
               phone: cleanPhone || crmCust?.phone || f.phoneNumber || "",
               maskedPhone:
                 maskPhoneMiddle(cleanPhone || crmCust?.phone || f.phoneNumber || "") ||
@@ -649,6 +650,7 @@ export function resolveBroadcastAudience({
   const previewList = filtered.slice(0, 500).map((c) => ({
     id: String(c.id),
     fullName: c.fullName || c.name || "Khách Hàng",
+    gender: c.gender ?? null,
     phone: c.phone || "",
     maskedPhone:
       c.maskedPhone ||

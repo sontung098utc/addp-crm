@@ -35,10 +35,23 @@ function renderSpinPreviewClient(template = "", sample = {}) {
   const firstName = parts[parts.length - 1] || "Tuấn";
   const phone = sample.phone || sample.maskedPhone || "0912345678";
   const assignedStaff = sample.assignedStaff || "Dược sĩ Thảo";
+  const g = sample.gender;
+  const genderLabel =
+    g === 0 || String(g).toLowerCase() === "male" || String(g).toLowerCase() === "nam"
+      ? "Anh"
+      : g === 1 || String(g).toLowerCase() === "female" || String(g).toLowerCase() === "nữ"
+      ? "Chị"
+      : /^(chị|cô|bà)/i.test(fullName)
+      ? fullName.split(/\s+/)[0]
+      : /^(anh|chú|bác|ông)/i.test(fullName)
+      ? fullName.split(/\s+/)[0]
+      : "Anh/Chị";
 
   text = text
     .replace(/\{fullName\}/gi, fullName)
     .replace(/\{firstName\}/gi, firstName)
+    .replace(/\{gender\}/gi, genderLabel)
+    .replace(/\{xungHo\}/gi, genderLabel)
     .replace(/\{phone\}/gi, phone)
     .replace(/\{assignedStaff\}/gi, assignedStaff)
     .replace(/\{productName\}/gi, "Sữa hạt Glucare Plus");
@@ -1309,7 +1322,7 @@ export default function BroadcastPage() {
                 type="button"
                 disabled={spinningAi}
                 onClick={handleAiGenerateSpin}
-                className="rounded-xl border border-purple-500/40 bg-purple-600/20 hover:bg-purple-600/30 px-3 py-1.5 text-xs font-bold text-purple-200 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                className="rounded-xl border border-purple-300 dark:border-purple-500/40 bg-purple-50 dark:bg-purple-600/20 hover:bg-purple-100 dark:hover:bg-purple-600/30 px-3 py-1.5 text-xs font-bold text-purple-800 dark:text-purple-200 transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
               >
                 <span>✨</span>
                 <span>{spinningAi ? "AI Đang sinh Spin Text..." : "AI Tự Động Sinh Biến Thể Spin"}</span>
@@ -1318,10 +1331,11 @@ export default function BroadcastPage() {
 
             {/* Các biến chèn nhanh */}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="text-[11px] text-slate-400 mr-1">Chèn biến nhanh:</span>
+              <span className="text-[11px] text-slate-600 dark:text-slate-400 mr-1">Chèn biến nhanh:</span>
               {[
                 { label: "{fullName}", desc: "Họ và tên khách" },
                 { label: "{firstName}", desc: "Tên gọi" },
+                { label: "{gender}", desc: "Xưng hô theo giới tính (Anh / Chị / Anh/Chị)" },
                 { label: "{phone}", desc: "SĐT" },
                 { label: "{assignedStaff}", desc: "Dược sĩ phụ trách" },
                 { label: "{productName}", desc: "Tên sản phẩm" },
@@ -1330,7 +1344,7 @@ export default function BroadcastPage() {
                   key={b.label}
                   type="button"
                   onClick={() => insertTokenToTemplate(b.label)}
-                  className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-0.5 text-[11px] font-mono text-blue-400 hover:border-blue-500 hover:text-white cursor-pointer"
+                  className="rounded-lg border border-blue-200 dark:border-slate-800 bg-blue-50 dark:bg-slate-950 px-2 py-0.5 text-[11px] font-mono font-semibold text-blue-700 dark:text-blue-400 hover:border-blue-500 hover:bg-blue-600 hover:text-white cursor-pointer transition-colors"
                   title={b.desc}
                 >
                   {b.label}

@@ -106,6 +106,55 @@ function extractFirstName(fullName = "") {
 }
 
 /**
+ * Suy luận xưng hô theo giới tính (Anh / Chị / Chú / Cô / Anh/Chị)
+ * - Ưu tiên tiền tố nhân viên đã đặt trên nick Zalo (VD: "Chị Ánh", "Chú Hùng")
+ * - Tiếp theo kiểm tra trường gender (0/'male'/'nam' -> Anh, 1/'female'/'nữ' -> Chị)
+ * - Tiếp theo nhận diện tên đệm phổ biến tiếng Việt
+ */
+export function resolveGenderSalutation(customer = {}) {
+  const fullName = String(customer.fullName || customer.name || "").trim();
+  const lower = fullName.toLowerCase();
+
+  if (/^(chú|chu)\s+/i.test(lower)) return "Chú";
+  if (/^(cô|co)\s+/i.test(lower)) return "Cô";
+  if (/^(bác|bac)\s+/i.test(lower)) return "Bác";
+  if (/^(ông|ong)\s+/i.test(lower)) return "Ông";
+  if (/^(bà|ba)\s+/i.test(lower)) return "Bà";
+  if (/^(anh|a\.?)\s+/i.test(lower)) return "Anh";
+  if (/^(chị|chi|c\.?)\s+/i.test(lower)) return "Chị";
+
+  const g = customer.gender;
+  if (g !== null && g !== undefined && g !== "") {
+    const gStr = String(g).trim().toLowerCase();
+    if (gStr === "0" || gStr === "male" || gStr === "nam" || gStr === "m") {
+      return "Anh";
+    }
+    if (gStr === "1" || gStr === "female" || gStr === "nữ" || gStr === "nu" || gStr === "f") {
+      return "Chị";
+    }
+  }
+
+  const words = lower.split(/\s+/);
+  if (words.includes("thị") || words.includes("thi")) return "Chị";
+  if (
+    words.includes("văn") ||
+    words.includes("van") ||
+    words.includes("hữu") ||
+    words.includes("huu") ||
+    words.includes("đức") ||
+    words.includes("duc") ||
+    words.includes("mạnh") ||
+    words.includes("manh") ||
+    words.includes("quang") ||
+    words.includes("duy")
+  ) {
+    return "Anh";
+  }
+
+  return "Anh/Chị";
+}
+
+/**
  * Module 2.2: Thuật toán AI Spin Text & Cá nhân hóa
  * - Xử lý cú pháp spin text dạng `{chào anh|em chào chị|chào mình|dạ em chào}` hoặc `{chào anh/em chào chị}`
  * - Thay thế biến động: `{fullName}`, `{firstName}`, `{phone}`, `{assignedStaff}`, `{productName}`
@@ -117,6 +166,7 @@ export function spinAndPersonalizeText(template = "", customer = {}) {
 
   const fullName = customer.fullName || customer.name || "Anh/Chị";
   const firstName = extractFirstName(fullName);
+  const genderSalutation = resolveGenderSalutation(customer);
   const phone = customer.phone || "";
   const assignedStaff =
     customer.assignedStaff || customer.staffName || "Dược sĩ Thảo";
@@ -127,6 +177,8 @@ export function spinAndPersonalizeText(template = "", customer = {}) {
     .replace(/\{fullName\}/gi, fullName)
     .replace(/\{name\}/gi, fullName)
     .replace(/\{firstName\}/gi, firstName)
+    .replace(/\{gender\}/gi, genderSalutation)
+    .replace(/\{xungHo\}/gi, genderSalutation)
     .replace(/\{phone\}/gi, phone)
     .replace(/\{assignedStaff\}/gi, assignedStaff)
     .replace(/\{productName\}/gi, productName);
@@ -717,6 +769,7 @@ export function createBroadcastCampaign(input = {}) {
   const mappedRecipients = recipientsList.map((cust) => ({
     id: cust.id,
     fullName: cust.fullName || cust.name || "Khách hàng",
+    gender: cust.gender ?? null,
     phone: cust.phone || "",
     maskedPhone: cust.maskedPhone || maskPhoneMiddle(cust.phone),
     tags: Array.isArray(cust.tags) ? cust.tags : [],

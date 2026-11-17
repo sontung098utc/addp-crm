@@ -147,6 +147,7 @@ export default function BulkMessageModal({
           facebookId: c.facebookId || c.psid || (c.channel === "FACEBOOK" ? c.id : null),
           zaloOaUserId: c.zaloOaUserId || c.oaUserId || null,
           channel: c.channel || selectedChannel,
+          gender: c.gender ?? null,
           pathology: c.pathology || "",
           assignedStaff: c.assignedStaff || c.staffName || "",
           productName:
@@ -233,20 +234,22 @@ export default function BulkMessageModal({
     .replace(/\{name\}/gi, "Nguyễn Văn A")
     .replace(/\{fullName\}/gi, "Nguyễn Văn A")
     .replace(/\{firstName\}/gi, "A")
+    .replace(/\{gender\}/gi, "Anh/Chị")
+    .replace(/\{xungHo\}/gi, "Anh/Chị")
     .replace(/\{phone\}/gi, "0912***678")
     .replace(/\{assignedStaff\}/gi, "Dược sĩ ADDP");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-      <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4">
+      <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
         {/* Header Modal */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
-          <div className="flex items-center gap-3">
+        <div className="shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
               <Send className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="font-bold text-base text-slate-900 dark:text-white">
+            <div className="min-w-0">
+              <h3 className="font-bold text-base text-slate-900 dark:text-white truncate">
                 Gửi Tin Nhắn Hàng Loạt (Broadcast)
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -257,14 +260,14 @@ export default function BulkMessageModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-xs text-slate-700 dark:text-slate-300">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0 space-y-4 sm:space-y-5 text-xs text-slate-700 dark:text-slate-300">
           {errorMsg && (
             <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 rounded-xl flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -288,7 +291,7 @@ export default function BulkMessageModal({
               <select
                 value={selectedChannel}
                 onChange={(e) => setSelectedChannel(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 text-base sm:text-xs min-h-[44px] sm:min-h-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="ZALO_PERSONAL">💬 Zalo Cá Nhân (QR)</option>
                 <option value="FACEBOOK">🌐 Facebook Messenger</option>
@@ -304,7 +307,7 @@ export default function BulkMessageModal({
               <select
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 text-base sm:text-xs min-h-[44px] sm:min-h-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="ALL">Tất cả tài khoản active</option>
                 {zaloAccounts.map((acc) => (
@@ -326,7 +329,7 @@ export default function BulkMessageModal({
               <select
                 value={selectedTag}
                 onChange={(e) => setSelectedTag(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                className="w-full px-3 py-2 text-base sm:text-xs min-h-[44px] sm:min-h-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="ALL">Toàn bộ tệp khách hàng / bạn bè</option>
                 {availableTags.map((t) => (
@@ -349,7 +352,7 @@ export default function BulkMessageModal({
                   max="120"
                   value={delaySeconds}
                   onChange={(e) => setDelaySeconds(e.target.value)}
-                  className="w-24 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 tabular-nums font-bold"
+                  className="w-24 px-3 py-2 text-base sm:text-xs min-h-[44px] sm:min-h-0 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 tabular-nums font-bold"
                 />
                 <span className="text-slate-500 dark:text-slate-400">giây / tin nhắn</span>
               </div>
@@ -387,12 +390,12 @@ export default function BulkMessageModal({
                     </span>
                   )}
                 </div>
-                <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-700 dark:text-slate-300 select-none">
+                <label className="inline-flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300 select-none min-h-[36px] sm:min-h-0">
                   <input
                     type="checkbox"
                     checked={onlyValidContact}
                     onChange={(e) => setOnlyValidContact(e.target.checked)}
-                    className="rounded border-slate-400 text-blue-600 focus:ring-blue-500"
+                    className="h-5 w-5 sm:h-4 sm:w-4 rounded border-slate-400 text-blue-600 focus:ring-blue-500"
                   />
                   <span>Chỉ gửi khách có SĐT/Zalo hợp lệ</span>
                 </label>
@@ -402,30 +405,38 @@ export default function BulkMessageModal({
 
           {/* Soạn Tin Nhắn Mẫu */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
               <label className="font-semibold text-slate-800 dark:text-slate-200">
                 Nội Dung Tin Nhắn Mẫu
               </label>
-              <div className="flex items-center gap-1">
-                <span className="text-slate-400 text-[11px] mr-1">Chèn biến:</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-slate-400 text-[11px] mr-0.5">Chèn biến:</span>
                 <button
                   type="button"
                   onClick={() => insertVariable("{name}")}
-                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 font-mono text-[11px] transition-colors"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 min-h-[36px] sm:min-h-0 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 font-mono text-[11px] transition-colors"
                 >
                   {"{name}"}
                 </button>
                 <button
                   type="button"
+                  onClick={() => insertVariable("{gender}")}
+                  title="Xưng hô theo giới tính (Anh / Chị / Anh/Chị)"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 min-h-[36px] sm:min-h-0 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-cyan-700 dark:text-cyan-400 font-mono text-[11px] transition-colors"
+                >
+                  {"{gender}"}
+                </button>
+                <button
+                  type="button"
                   onClick={() => insertVariable("{phone}")}
-                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400 font-mono text-[11px] transition-colors"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 min-h-[36px] sm:min-h-0 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-emerald-600 dark:text-emerald-400 font-mono text-[11px] transition-colors"
                 >
                   {"{phone}"}
                 </button>
                 <button
                   type="button"
                   onClick={() => insertVariable("{assignedStaff}")}
-                  className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400 font-mono text-[11px] transition-colors"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 min-h-[36px] sm:min-h-0 rounded-md bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-purple-600 dark:text-purple-400 font-mono text-[11px] transition-colors"
                 >
                   {"{assignedStaff}"}
                 </button>
@@ -437,7 +448,7 @@ export default function BulkMessageModal({
               value={messageTemplate}
               onChange={(e) => setMessageTemplate(e.target.value)}
               placeholder="Nhập nội dung tin nhắn gửi khách..."
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 leading-relaxed font-sans text-xs resize-none"
+              className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 leading-relaxed font-sans text-base sm:text-xs resize-none"
             />
           </div>
 
@@ -453,12 +464,12 @@ export default function BulkMessageModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+        <div className="shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
           <button
             type="button"
             onClick={onClose}
             disabled={sending}
-            className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold transition-colors text-xs"
+            className="px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold transition-colors text-xs flex items-center justify-center"
           >
             Đóng
           </button>
@@ -467,7 +478,7 @@ export default function BulkMessageModal({
             type="button"
             onClick={handleStartBroadcast}
             disabled={sending || audienceCount === 0}
-            className={`px-5 py-2.5 rounded-xl text-white font-bold text-xs inline-flex items-center gap-2 shadow-sm transition-all ${
+            className={`px-5 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl text-white font-bold text-xs inline-flex items-center justify-center gap-2 shadow-sm transition-all ${
               sending || audienceCount === 0
                 ? "bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60"
                 : "bg-blue-600 hover:bg-blue-500 active:scale-95"
