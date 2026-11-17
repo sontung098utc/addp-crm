@@ -1887,14 +1887,20 @@ export async function getOmnichannelConversations(forceRefresh = false) {
 
   // 1. Lấy hội thoại thật từ các Fanpage Facebook, TikTok Shop & Shopee qua API
   // Nếu bật cờ tắt đồng bộ (QA_DISABLE_AUTO_SYNC hoặc PILOT_SAFE_MODE): bỏ qua gọi API ngoài
+  // Giới hạn tối đa 3.5s để không làm treo trang /inbox khi Graph API / sàn phản hồi chậm
   let liveFb = [];
   let liveTikTok = [];
   let liveShopee = [];
   if (isAutoSyncAllowed()) {
+    const withTimeout = (promise, ms = 3500) =>
+      Promise.race([
+        promise.catch(() => []),
+        new Promise((resolve) => setTimeout(() => resolve([]), ms)),
+      ]);
     [liveFb, liveTikTok, liveShopee] = await Promise.all([
-      fetchLiveFacebookConversations(forceRefresh),
-      fetchLiveTikTokConversations(forceRefresh).catch(() => []),
-      fetchLiveShopeeConversations(forceRefresh).catch(() => []),
+      withTimeout(fetchLiveFacebookConversations(forceRefresh), 3500),
+      withTimeout(fetchLiveTikTokConversations(forceRefresh), 3500),
+      withTimeout(fetchLiveShopeeConversations(forceRefresh), 3500),
     ]);
   }
   for (const fbConv of liveFb) {
