@@ -135,58 +135,85 @@ export async function GET(request) {
       );
     }
 
-    let customers = getAllCustomers();
+    let rawCustomers = getAllCustomers();
+
+    // Cache danh sách khách hàng đã hợp nhất thẻ & sản phẩm mua từ đơn hàng (TTL 4s)
+    if (!globalThis.__ADDP_ENRICHED_CUSTOMERS_CACHE__) {
+      globalThis.__ADDP_ENRICHED_CUSTOMERS_CACHE__ = { ts: 0, count: 0, list: null };
+    }
+    const enrichCache = globalThis.__ADDP_ENRICHED_CUSTOMERS_CACHE__;
+    const nowMs = Date.now();
+    const tagPalette = getTags();
+
+    let allEnriched;
+    if (
+      Array.isArray(enrichCache.list) &&
+      enrichCache.count === rawCustomers.length &&
+      nowMs - enrichCache.ts < 4000
+    ) {
+      allEnriched = enrichCache.list;
+    } else {
+      const convTagsMap = getAllConversationTags();
+      const orderProductsByPhone = new Map();
+      try {
+        const storedOrders = getStoredOrders();
+        for (const ord of storedOrders) {
+          if (!ord || String(ord.status || "").toUpperCase() === "CANCELLED") continue;
+          const p = normalizePhone(ord.phone || "");
+          if (!p) continue;
+          if (!orderProductsByPhone.has(p)) orderProductsByPhone.set(p, new Set());
+          const set = orderProductsByPhone.get(p);
+          if (ord.productName && String(ord.productName).trim()) {
+            set.add(String(ord.productName).trim());
+          }
+          for (const it of ord.items || []) {
+            const nm = String(it.name || it.productName || "").trim();
+            if (nm) set.add(nm);
+          }
+        }
+      } catch {}
+
+      allEnriched = rawCustomers.map((c) => {
+        const cleanPhone = c.phone && c.phone.length === 10 && c.phone.startsWith("0") ? c.phone : normalizePhone(c.phone);
+        const phoneTags = cleanPhone && Array.isArray(convTagsMap[cleanPhone]) ? convTagsMap[cleanPhone] : [];
+        const mergedTags =
+          phoneTags.length > 0
+            ? Array.from(new Set([...(Array.isArray(c.tags) ? c.tags : []), ...phoneTags].filter(Boolean)))
+            : Array.isArray(c.tags)
+            ? c.tags
+            : [];
+        const normalizedPlatform = normalizeCustomerPlatform(c);
+        const isLegacy = isLegacySystemCustomer(c);
+        const orderProds = cleanPhone ? orderProductsByPhone.get(cleanPhone) : null;
+        const mergedProducts = orderProds
+          ? Array.from(
+              new Set([
+                ...(Array.isArray(c.purchasedProducts) ? c.purchasedProducts.filter(Boolean) : []),
+                ...Array.from(orderProds),
+              ])
+            )
+          : Array.isArray(c.purchasedProducts)
+          ? c.purchasedProducts
+          : [];
+        return {
+          ...c,
+          phone: cleanPhone || c.phone || "",
+          source: c.source || normalizedPlatform,
+          normalizedPlatform,
+          isLegacySource: isLegacy,
+          assignedStaff: c.assignedStaff || c.staffName || "Chưa gán",
+          purchasedProducts: mergedProducts,
+          tags: mergedTags,
+        };
+      });
+
+      enrichCache.list = allEnriched;
+      enrichCache.count = rawCustomers.length;
+      enrichCache.ts = nowMs;
+    }
 
     // 1. Phân quyền RBAC (Điều 5 AGENTS.md)
-    customers = filterRecordsByRbac(currentStaff, customers, "customers");
-
-    // Hợp nhất thẻ tag từ conversation_tags.json theo SĐT chuẩn & chuẩn hóa trường Nguồn/Nền tảng
-    const convTagsMap = getAllConversationTags();
-    const tagPalette = getTags();
-    // Gộp sản phẩm đã mua từ toàn bộ đơn hàng thực tế (KiotViet, Shopee, TikTok, Website) theo SĐT
-    const orderProductsByPhone = new Map();
-    try {
-      const storedOrders = getStoredOrders();
-      for (const ord of storedOrders) {
-        if (!ord || String(ord.status || "").toUpperCase() === "CANCELLED") continue;
-        const p = normalizePhone(ord.phone || "");
-        if (!p) continue;
-        if (!orderProductsByPhone.has(p)) orderProductsByPhone.set(p, new Set());
-        const set = orderProductsByPhone.get(p);
-        if (ord.productName && String(ord.productName).trim()) {
-          set.add(String(ord.productName).trim());
-        }
-        for (const it of ord.items || []) {
-          const nm = String(it.name || it.productName || "").trim();
-          if (nm) set.add(nm);
-        }
-      }
-    } catch {}
-
-    customers = customers.map((c) => {
-      const cleanPhone = normalizePhone(c.phone);
-      const phoneTags = cleanPhone && Array.isArray(convTagsMap[cleanPhone]) ? convTagsMap[cleanPhone] : [];
-      const mergedTags = Array.from(new Set([...(Array.isArray(c.tags) ? c.tags : []), ...phoneTags].filter(Boolean)));
-      const normalizedPlatform = normalizeCustomerPlatform(c);
-      const isLegacy = isLegacySystemCustomer(c);
-      const orderProds = cleanPhone ? orderProductsByPhone.get(cleanPhone) : null;
-      const mergedProducts = Array.from(
-        new Set([
-          ...(Array.isArray(c.purchasedProducts) ? c.purchasedProducts.filter(Boolean) : []),
-          ...(orderProds ? Array.from(orderProds) : []),
-        ])
-      );
-      return {
-        ...c,
-        phone: cleanPhone || c.phone || "",
-        source: c.source || normalizedPlatform,
-        normalizedPlatform,
-        isLegacySource: isLegacy,
-        assignedStaff: c.assignedStaff || c.staffName || "Chưa gán",
-        purchasedProducts: mergedProducts,
-        tags: mergedTags,
-      };
-    });
+    let customers = filterRecordsByRbac(currentStaff, allEnriched, "customers");
 
     // Tập hợp metadata phục vụ bộ lọc giao diện trước khi filter chi tiết
     const filterTagSet = new Set(tagPalette.map((t) => t.name).filter(Boolean));

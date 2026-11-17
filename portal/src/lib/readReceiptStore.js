@@ -12,7 +12,9 @@ const CANDIDATE_DIRS = [
   "C:\\addp-crm\\portal\\.data",
 ];
 
+let _cachedReceiptDirs = null;
 function getAllDataDirs() {
+  if (_cachedReceiptDirs) return _cachedReceiptDirs;
   const dirs = new Set();
   if (process.env.DATA_DIR) {
     const custom = path.isAbsolute(process.env.DATA_DIR)
@@ -27,10 +29,18 @@ function getAllDataDirs() {
       }
     } catch {}
   }
-  return Array.from(dirs);
+  _cachedReceiptDirs = Array.from(dirs);
+  return _cachedReceiptDirs;
 }
 
 export function getAllReadReceipts() {
+  const now = Date.now();
+  if (
+    globalThis.__addpReadReceiptsCache &&
+    now - (globalThis.__addpReadReceiptsCacheTs || 0) < 2500
+  ) {
+    return globalThis.__addpReadReceiptsCache;
+  }
   const merged = {};
   const dirs = getAllDataDirs();
   for (const d of dirs) {
@@ -45,11 +55,15 @@ export function getAllReadReceipts() {
       } catch {}
     }
   }
+  globalThis.__addpReadReceiptsCache = merged;
+  globalThis.__addpReadReceiptsCacheTs = now;
   return merged;
 }
 
 export function saveReadReceipts(map) {
   try {
+    globalThis.__addpReadReceiptsCache = map;
+    globalThis.__addpReadReceiptsCacheTs = Date.now();
     const content = JSON.stringify(map, null, 2);
     const dirs = getAllDataDirs();
     for (const d of dirs) {

@@ -79,6 +79,127 @@ function computePriorityForRow(cust, pendingTask) {
   };
 }
 
+if (!globalThis.__ADDP_CARE_UNIFIED_CACHE__) {
+  globalThis.__ADDP_CARE_UNIFIED_CACHE__ = {
+    ts: 0,
+    rows: null,
+  };
+}
+
+function buildUnifiedCareRows(allCustomers, dynamicTasksStore, allStaff) {
+  const now = Date.now();
+  const cache = globalThis.__ADDP_CARE_UNIFIED_CACHE__;
+  if (Array.isArray(cache.rows) && now - cache.ts < 4000) {
+    return cache.rows;
+  }
+
+  const staffById = new Map();
+  for (const s of allStaff) {
+    staffById.set(Number(s.id), s);
+  }
+
+  // Map pending tasks by customerId
+  const pendingByCustomer = new Map();
+  for (const t of dynamicTasksStore) {
+    if (t.isCompleted) continue;
+    const key = String(t.customerId || t.customerPhone || "");
+    if (!key) continue;
+    const existing = pendingByCustomer.get(key);
+    if (!existing || String(t.deadline) < String(existing.deadline)) {
+      pendingByCustomer.set(key, t);
+    }
+  }
+
+  // Build unified customer care rows (matching khachhang.addp.vn)
+  const custMap = new Map();
+  for (const c of allCustomers) {
+    const key = String(c.id || c.phone || "");
+    if (!key) continue;
+    const pendingTask =
+      pendingByCustomer.get(String(c.id)) ||
+      pendingByCustomer.get(String(c.phone || "")) ||
+      null;
+
+    const { priority, label, daysText } = computePriorityForRow(c, pendingTask);
+    const staffObj = staffById.get(Number(c.staffId));
+
+    custMap.set(key, {
+      id: c.id,
+      taskId: pendingTask?.id || null,
+      fullName: c.fullName || c.name || "Khách hàng",
+      phone: c.phone || "",
+      pathology: c.pathology || "",
+      initialGlucose: c.initialGlucose ?? null,
+      carePath: c.carePath || c.status || "",
+      level: c.level || "",
+      careStatus: c.careStatus || "",
+      responseStatus: c.lastFeedbackStatus || "",
+      lastNote: c.lastInteractionContent || "",
+      lastInteractionDate: c.lastInteractionDate || null,
+      nextCareDate: pendingTask?.deadline || "",
+      taskType: pendingTask?.taskType || "",
+      staffId: Number(c.staffId) || 1,
+      staffName: c.staffName || staffObj?.name || "Admin Quản Trị",
+      preferredZaloAccountId: c.preferredZaloAccountId || c.zaloAccountId || "",
+      vpageUrl: c.vpageUrl || "",
+      facebook: c.facebook || "",
+      zalo: c.zalo || "",
+      priority,
+      priorityLabel: label,
+      daysText,
+    });
+  }
+
+  // Include any standalone CRM tasks whose customer isn't in custMap yet
+  for (const t of dynamicTasksStore) {
+    const key = String(t.customerId || t.customerPhone || t.id);
+    if (!custMap.has(key)) {
+      const fakeCust = {
+        id: t.customerId || key,
+        lastInteractionDate: t.completedAt || null,
+      };
+      const { priority, label, daysText } = computePriorityForRow(
+        fakeCust,
+        t.isCompleted ? null : t
+      );
+      custMap.set(key, {
+        id: t.customerId || key,
+        taskId: t.id,
+        fullName: t.customerName || "Khách hàng",
+        phone: t.customerPhone || "",
+        pathology: t.customerPathology || "",
+        initialGlucose: t.customerGlucose ?? null,
+        carePath: t.carePath || "",
+        level: "",
+        careStatus: t.careStatus || "",
+        responseStatus: "",
+        lastNote: t.resultNote || "",
+        lastInteractionDate: t.completedAt || null,
+        nextCareDate: t.isCompleted ? "" : t.deadline || "",
+        taskType: t.taskType || "OTHER",
+        staffId: Number(t.staffId) || 1,
+        staffName: t.staffName || "Admin Quản Trị",
+        vpageUrl: "",
+        facebook: "",
+        zalo: "",
+        priority,
+        priorityLabel: label,
+        daysText,
+      });
+    }
+  }
+
+  const allRows = Array.from(custMap.values());
+  allRows.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority - b.priority;
+    return String(a.nextCareDate || "9999").localeCompare(String(b.nextCareDate || "9999"));
+  });
+
+  cache.rows = allRows;
+  cache.ts = now;
+  return allRows;
+}
+
 export async function GET(request) {
   try {
     const allCustomers = getAllCustomers();
@@ -89,123 +210,42 @@ export async function GET(request) {
 
     const staffIdParam = searchParams.get("staffId") || "ALL";
     const filterDate = searchParams.get("filterDate") || "ALL";
+    const includeAll = searchParams.get("includeAll") === "1";
+    const includeTasks = searchParams.get("includeTasks") === "1" || filterDate !== "ALL";
 
-    // Map pending tasks by customerId
-    const pendingByCustomer = new Map();
-    for (const t of dynamicTasksStore) {
-      if (t.isCompleted) continue;
-      const key = String(t.customerId || t.customerPhone || "");
-      if (!key) continue;
-      const existing = pendingByCustomer.get(key);
-      if (!existing || String(t.deadline) < String(existing.deadline)) {
-        pendingByCustomer.set(key, t);
-      }
-    }
-
-    // Build unified customer care rows (matching khachhang.addp.vn)
-    const custMap = new Map();
-    for (const c of allCustomers) {
-      const key = String(c.id || c.phone || "");
-      if (!key) continue;
-      const pendingTask =
-        pendingByCustomer.get(String(c.id)) ||
-        pendingByCustomer.get(String(c.phone || "")) ||
-        null;
-
-      const { priority, label, daysText } = computePriorityForRow(c, pendingTask);
-      const staffObj = allStaff.find((s) => Number(s.id) === Number(c.staffId));
-
-      custMap.set(key, {
-        id: c.id,
-        taskId: pendingTask?.id || null,
-        fullName: c.fullName || c.name || "Khách hàng",
-        phone: c.phone || "",
-        pathology: c.pathology || "",
-        initialGlucose: c.initialGlucose ?? null,
-        carePath: c.carePath || c.status || "",
-        level: c.level || "",
-        careStatus: c.careStatus || "",
-        responseStatus: c.lastFeedbackStatus || "",
-        lastNote: c.lastInteractionContent || "",
-        lastInteractionDate: c.lastInteractionDate || null,
-        nextCareDate: pendingTask?.deadline || "",
-        taskType: pendingTask?.taskType || "",
-        staffId: Number(c.staffId) || 1,
-        staffName: c.staffName || staffObj?.name || "Admin Quản Trị",
-        preferredZaloAccountId: c.preferredZaloAccountId || c.zaloAccountId || "",
-        vpageUrl: c.vpageUrl || "",
-        facebook: c.facebook || "",
-        zalo: c.zalo || "",
-        priority,
-        priorityLabel: label,
-        daysText,
-      });
-    }
-
-    // Include any standalone CRM tasks whose customer isn't in custMap yet
-    for (const t of dynamicTasksStore) {
-      const key = String(t.customerId || t.customerPhone || t.id);
-      if (!custMap.has(key)) {
-        const fakeCust = {
-          id: t.customerId || key,
-          lastInteractionDate: t.completedAt || null,
-        };
-        const { priority, label, daysText } = computePriorityForRow(
-          fakeCust,
-          t.isCompleted ? null : t
-        );
-        custMap.set(key, {
-          id: t.customerId || key,
-          taskId: t.id,
-          fullName: t.customerName || "Khách hàng",
-          phone: t.customerPhone || "",
-          pathology: t.customerPathology || "",
-          initialGlucose: t.customerGlucose ?? null,
-          carePath: t.carePath || "",
-          level: "",
-          careStatus: t.careStatus || "",
-          responseStatus: "",
-          lastNote: t.resultNote || "",
-          lastInteractionDate: t.completedAt || null,
-          nextCareDate: t.isCompleted ? "" : t.deadline || "",
-          taskType: t.taskType || "OTHER",
-          staffId: Number(t.staffId) || 1,
-          staffName: t.staffName || "Admin Quản Trị",
-          vpageUrl: "",
-          facebook: "",
-          zalo: "",
-          priority,
-          priorityLabel: label,
-          daysText,
-        });
-      }
-    }
-
-    let rows = Array.from(custMap.values());
-    rows = filterRecordsByRbac(currentStaff, rows, "tasks");
+    const unifiedRows = buildUnifiedCareRows(allCustomers, dynamicTasksStore, allStaff);
+    let rows = filterRecordsByRbac(currentStaff, unifiedRows, "tasks");
 
     if (staffIdParam !== "ALL") {
       rows = rows.filter((r) => String(r.staffId) === String(staffIdParam));
     }
 
-    rows.sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return String(a.nextCareDate || "9999").localeCompare(String(b.nextCareDate || "9999"));
-    });
+    const todayPendingCount = rows.filter((r) => r.priority === 1 || r.priority === 2).length;
+    const overdueCount = rows.filter((r) => r.priority === 3).length;
+    const completedTodayCount = rows.filter((r) => r.priority === 99).length;
+    const hiddenFutureCount = rows.filter((r) => r.priority === 5 || r.priority === 10).length;
 
-    // Legacy tasks array for backward compatibility
-    let tasks = filterRecordsByRbac(currentStaff, [...dynamicTasksStore], "tasks");
-    if (staffIdParam !== "ALL") {
-      tasks = tasks.filter((t) => String(t.staffId) === String(staffIdParam));
+    const returnedRows = includeAll
+      ? rows
+      : rows.filter((r) => r.priority !== 5 && r.priority !== 10);
+
+    // Legacy tasks array only computed when explicitly requested
+    let tasks = [];
+    if (includeTasks) {
+      tasks = filterRecordsByRbac(currentStaff, [...dynamicTasksStore], "tasks");
+      if (staffIdParam !== "ALL") {
+        tasks = tasks.filter((t) => String(t.staffId) === String(staffIdParam));
+      }
+      const todayStrForTasks = new Date().toISOString().slice(0, 10);
+      if (filterDate === "TODAY") {
+        tasks = tasks.filter((t) => !t.isCompleted && t.deadline === todayStrForTasks);
+      } else if (filterDate === "OVERDUE") {
+        tasks = tasks.filter((t) => !t.isCompleted && t.deadline < todayStrForTasks);
+      } else if (filterDate === "COMPLETED") {
+        tasks = tasks.filter((t) => t.isCompleted);
+      }
     }
     const todayStr = new Date().toISOString().slice(0, 10);
-    if (filterDate === "TODAY") {
-      tasks = tasks.filter((t) => !t.isCompleted && t.deadline === todayStr);
-    } else if (filterDate === "OVERDUE") {
-      tasks = tasks.filter((t) => !t.isCompleted && t.deadline < todayStr);
-    } else if (filterDate === "COMPLETED") {
-      tasks = tasks.filter((t) => t.isCompleted);
-    }
 
     // Metrics combining synced khachhang.addp.vn stats + CRM completions today
     const syncMeta = getLegacySyncMeta();
@@ -238,9 +278,11 @@ export async function GET(request) {
 
     return NextResponse.json({
       ok: true,
-      rows,
+      rows: returnedRows,
       tasks,
       total: rows.length,
+      hiddenFutureCount,
+      hasAllRows: includeAll,
       staffs: allStaff.map((s) => ({
         id: s.id,
         code: s.code,
@@ -256,9 +298,9 @@ export async function GET(request) {
         todayCount,
         dailyCareTarget,
         dailyMsgTarget,
-        todayPending: rows.filter((r) => r.priority === 1 || r.priority === 2).length,
-        overdue: rows.filter((r) => r.priority === 3).length,
-        completedToday: rows.filter((r) => r.priority === 99).length,
+        todayPending: todayPendingCount,
+        overdue: overdueCount,
+        completedToday: completedTodayCount,
       },
     });
   } catch (error) {
@@ -353,6 +395,10 @@ export async function POST(request) {
       }
 
       savePersistedTasks(dynamicTasksStore);
+      if (globalThis.__ADDP_CARE_UNIFIED_CACHE__) {
+        globalThis.__ADDP_CARE_UNIFIED_CACHE__.ts = 0;
+        globalThis.__ADDP_CARE_UNIFIED_CACHE__.rows = null;
+      }
       recordCrmCareCompletionMetric(cust?.staffId || completedTask?.staffId || 1);
 
       return NextResponse.json({

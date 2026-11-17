@@ -65,6 +65,28 @@ function ensureCustomerTagsArray(customer = {}) {
   };
 }
 
+if (!globalThis.__ADDP_CUSTOMERS_MEM_CACHE__) {
+  globalThis.__ADDP_CUSTOMERS_MEM_CACHE__ = {
+    list: null,
+    byPhone: new Map(),
+    lastMtimeMs: 0,
+    lastStatCheckTs: 0,
+    flushTimer: null,
+  };
+}
+
+function rebuildPhoneIndex(list) {
+  const map = new Map();
+  if (Array.isArray(list)) {
+    for (const c of list) {
+      if (c && c.phone) {
+        map.set(c.phone, c);
+      }
+    }
+  }
+  globalThis.__ADDP_CUSTOMERS_MEM_CACHE__.byPhone = map;
+}
+
 function ensureStorage() {
   const filePath = getCustomersFilePath();
   const dir = path.dirname(filePath);
@@ -73,35 +95,67 @@ function ensureStorage() {
   }
 }
 
-function loadPersistedCustomers() {
+function loadPersistedCustomers(forceDisk = false) {
+  const cache = globalThis.__ADDP_CUSTOMERS_MEM_CACHE__;
+  const now = Date.now();
+  if (!forceDisk && Array.isArray(cache.list) && now - cache.lastStatCheckTs < 2000) {
+    return cache.list;
+  }
+
   ensureStorage();
   const filePath = getCustomersFilePath();
   try {
     if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
+      cache.lastStatCheckTs = now;
+      if (!forceDisk && Array.isArray(cache.list) && stat.mtimeMs <= cache.lastMtimeMs) {
+        return cache.list;
+      }
       const data = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed.map(ensureCustomerTagsArray);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.map(ensureCustomerTagsArray);
+        cache.list = normalized;
+        cache.lastMtimeMs = stat.mtimeMs;
+        rebuildPhoneIndex(normalized);
+        return normalized;
+      }
     }
   } catch (err) {
     console.error("Lỗi đọc file customers.json:", err);
+    if (Array.isArray(cache.list)) return cache.list;
   }
-  return [];
+  cache.list = [];
+  rebuildPhoneIndex([]);
+  return cache.list;
 }
 
 function savePersistedCustomers(customers) {
-  ensureStorage();
-  const filePath = getCustomersFilePath();
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(customers, null, 2), "utf8");
-    return true;
-  } catch (err) {
-    console.error("Lỗi ghi file customers.json:", err);
-    return false;
+  const cache = globalThis.__ADDP_CUSTOMERS_MEM_CACHE__;
+  cache.list = customers;
+  cache.lastStatCheckTs = Date.now();
+  rebuildPhoneIndex(customers);
+
+  if (cache.flushTimer) {
+    clearTimeout(cache.flushTimer);
   }
+  cache.flushTimer = setTimeout(async () => {
+    ensureStorage();
+    const filePath = getCustomersFilePath();
+    try {
+      await fs.promises.writeFile(filePath, JSON.stringify(cache.list, null, 2), "utf8");
+      try {
+        cache.lastMtimeMs = fs.statSync(filePath).mtimeMs;
+      } catch {}
+    } catch (err) {
+      console.error("Lỗi ghi file customers.json:", err);
+    }
+  }, 300);
+  return true;
 }
 
 export function _resetCustomersStoreForTest() {
-  dynamicCustomersStore = loadPersistedCustomers();
+  dynamicCustomersStore = loadPersistedCustomers(true);
   return dynamicCustomersStore;
 }
 
@@ -138,7 +192,12 @@ export function extractPhoneNumbersFromText(text) {
 export function findCustomerByPhone(rawPhone) {
   const normalized = normalizePhone(rawPhone);
   if (!normalized) return null;
-  return dynamicCustomersStore.find((c) => c.phone === normalized) || null;
+  loadPersistedCustomers();
+  return (
+    globalThis.__ADDP_CUSTOMERS_MEM_CACHE__?.byPhone?.get(normalized) ||
+    dynamicCustomersStore.find((c) => c.phone === normalized) ||
+    null
+  );
 }
 
 /**

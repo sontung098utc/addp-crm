@@ -17,12 +17,16 @@ import path from "path";
 
 const DEFAULT_PAUSE_MINUTES = 45;
 
+let _cachedDataDir = null;
 function resolveDataDir() {
+  if (_cachedDataDir) return _cachedDataDir;
   const cwd = process.cwd();
   if (fs.existsSync(path.join(cwd, "portal", "package.json"))) {
-    return path.join(cwd, "portal", ".data");
+    _cachedDataDir = path.join(cwd, "portal", ".data");
+  } else {
+    _cachedDataDir = path.join(cwd, ".data");
   }
-  return path.join(cwd, ".data");
+  return _cachedDataDir;
 }
 
 function getBotStatesFilePath() {
@@ -50,6 +54,7 @@ function loadBotStoreFromDisk() {
     const filePath = getBotStatesFilePath();
     if (filePath && fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+      if (!raw.trim()) return createInitialStore();
       const parsed = JSON.parse(raw);
       return {
         channels: parsed && typeof parsed.channels === "object" ? parsed.channels : {},
@@ -65,6 +70,8 @@ function loadBotStoreFromDisk() {
 
 function saveBotStoreToDisk(store) {
   try {
+    globalThis.__addpBotControlStore = store;
+    globalThis.__addpBotControlStoreTs = Date.now();
     const filePath = getBotStatesFilePath();
     if (!filePath) return;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -75,9 +82,43 @@ function saveBotStoreToDisk(store) {
 }
 
 function getStore() {
+  const now = Date.now();
+  if (
+    globalThis.__addpBotControlStore &&
+    now - (globalThis.__addpBotControlStoreTs || 0) < 2500
+  ) {
+    return globalThis.__addpBotControlStore;
+  }
   const diskStore = loadBotStoreFromDisk();
   globalThis.__addpBotControlStore = diskStore;
+  globalThis.__addpBotControlStoreTs = now;
   return globalThis.__addpBotControlStore;
+}
+
+function getCachedChannelsList() {
+  const now = Date.now();
+  if (
+    Array.isArray(globalThis.__addpBotChannelsCache) &&
+    now - (globalThis.__addpBotChannelsCacheTs || 0) < 2500
+  ) {
+    return globalThis.__addpBotChannelsCache;
+  }
+  try {
+    const dataDir = resolveDataDir();
+    const channelsPath = path.join(dataDir, "channels.json");
+    if (fs.existsSync(channelsPath)) {
+      const raw = fs.readFileSync(channelsPath, "utf8").replace(/^\uFEFF/, "");
+      const channels = raw.trim() ? JSON.parse(raw) : [];
+      if (Array.isArray(channels)) {
+        globalThis.__addpBotChannelsCache = channels;
+        globalThis.__addpBotChannelsCacheTs = now;
+        return channels;
+      }
+    }
+  } catch {}
+  globalThis.__addpBotChannelsCache = [];
+  globalThis.__addpBotChannelsCacheTs = now;
+  return [];
 }
 
 /**
@@ -102,38 +143,33 @@ export function getChannelBotMode(channelOrAccountId = "") {
   }
 
   try {
-    const dataDir = resolveDataDir();
-    const channelsPath = path.join(dataDir, "channels.json");
-    if (fs.existsSync(channelsPath)) {
-      const raw = fs.readFileSync(channelsPath, "utf8").replace(/^\uFEFF/, "");
-      const channels = JSON.parse(raw);
-      if (Array.isArray(channels)) {
-        for (const ch of channels) {
-          if (!ch) continue;
-          const chId = String(ch.id || "").toLowerCase();
-          const extId = String(ch.externalId || "").toLowerCase();
-          const ownId = String(ch.config?.ownId || "").toLowerCase();
-          const accName = String(ch.config?.accountName || ch.name || "").toLowerCase();
-          const label = String(ch.config?.label || "").toLowerCase();
+    const channels = getCachedChannelsList();
+    if (Array.isArray(channels)) {
+      for (const ch of channels) {
+        if (!ch) continue;
+        const chId = String(ch.id || "").toLowerCase();
+        const extId = String(ch.externalId || "").toLowerCase();
+        const ownId = String(ch.config?.ownId || "").toLowerCase();
+        const accName = String(ch.config?.accountName || ch.name || "").toLowerCase();
+        const label = String(ch.config?.label || "").toLowerCase();
 
-          const isMatch =
-            chId === query ||
-            extId === query ||
-            ownId === query ||
-            `zalo_${extId}` === query ||
-            `zalo_${ownId}` === query ||
-            (query.length >= 3 &&
-              (chId.includes(query) ||
-                extId.includes(query) ||
-                ownId.includes(query) ||
-                accName.includes(query) ||
-                label.includes(query) ||
-                query.includes(accName) ||
-                query.includes(label)));
+        const isMatch =
+          chId === query ||
+          extId === query ||
+          ownId === query ||
+          `zalo_${extId}` === query ||
+          `zalo_${ownId}` === query ||
+          (query.length >= 3 &&
+            (chId.includes(query) ||
+              extId.includes(query) ||
+              ownId.includes(query) ||
+              accName.includes(query) ||
+              label.includes(query) ||
+              query.includes(accName) ||
+              query.includes(label)));
 
-          if (isMatch) {
-            return ch.botMode === "AI" ? "AI" : "HUMAN";
-          }
+        if (isMatch) {
+          return ch.botMode === "AI" ? "AI" : "HUMAN";
         }
       }
     }

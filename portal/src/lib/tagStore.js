@@ -15,7 +15,9 @@ const CANDIDATE_DIRS = [
   "C:\\addp-crm\\portal\\.data",
 ];
 
+let _cachedDataDirs = null;
 function getAllDataDirs() {
+  if (_cachedDataDirs) return _cachedDataDirs;
   const dirs = new Set();
   if (process.env.DATA_DIR) {
     const custom = path.isAbsolute(process.env.DATA_DIR)
@@ -30,7 +32,8 @@ function getAllDataDirs() {
       }
     } catch {}
   }
-  return Array.from(dirs);
+  _cachedDataDirs = Array.from(dirs);
+  return _cachedDataDirs;
 }
 
 function resolveDataPath(filename) {
@@ -59,6 +62,10 @@ export const DEFAULT_TAGS = [
 ];
 
 export function getTags() {
+  const now = Date.now();
+  if (Array.isArray(globalThis.__addpTagsCache) && now - (globalThis.__addpTagsCacheTs || 0) < 3000) {
+    return globalThis.__addpTagsCache;
+  }
   let existing = [];
   try {
     const file = resolveDataPath("tags.json");
@@ -87,11 +94,15 @@ export function getTags() {
     saveTags(merged);
   }
 
+  globalThis.__addpTagsCache = merged;
+  globalThis.__addpTagsCacheTs = now;
   return merged;
 }
 
 export function saveTags(tags) {
   try {
+    globalThis.__addpTagsCache = tags;
+    globalThis.__addpTagsCacheTs = Date.now();
     const content = JSON.stringify(tags, null, 2);
     const dirs = getAllDataDirs();
     for (const d of dirs) {
@@ -181,6 +192,8 @@ export function deleteTag(id) {
 
 export function saveConversationTags(map) {
   try {
+    globalThis.__addpConvTagsCache = map;
+    globalThis.__addpConvTagsCacheTs = Date.now();
     const content = JSON.stringify(map, null, 2);
     const dirs = getAllDataDirs();
     for (const d of dirs) {
@@ -197,6 +210,13 @@ export function saveConversationTags(map) {
 }
 
 export function getAllConversationTags() {
+  const now = Date.now();
+  if (
+    globalThis.__addpConvTagsCache &&
+    now - (globalThis.__addpConvTagsCacheTs || 0) < 2500
+  ) {
+    return globalThis.__addpConvTagsCache;
+  }
   const merged = {};
   const dirs = getAllDataDirs();
   for (const d of dirs) {
@@ -211,6 +231,8 @@ export function getAllConversationTags() {
       } catch {}
     }
   }
+  globalThis.__addpConvTagsCache = merged;
+  globalThis.__addpConvTagsCacheTs = now;
   return merged;
 }
 

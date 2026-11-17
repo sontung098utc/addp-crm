@@ -45,6 +45,8 @@ export default function WorkTrackingPage() {
   const [filterResponseStatus, setFilterResponseStatus] = useState("");
   const [search, setSearch] = useState("");
   const [showFutureOrUnscheduled, setShowFutureOrUnscheduled] = useState(false);
+  const [hasLoadedAllRows, setHasLoadedAllRows] = useState(false);
+  const [serverHiddenFutureCount, setServerHiddenFutureCount] = useState(0);
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
@@ -107,16 +109,31 @@ export default function WorkTrackingPage() {
     setTimeout(() => setToast(null), 5000);
   };
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (wantAll = false) => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (staffFilter !== "ALL") params.set("staffId", staffFilter);
+      if (
+        wantAll ||
+        showFutureOrUnscheduled ||
+        search.trim() ||
+        filterPriority ||
+        filterCarePath ||
+        filterCareStatus ||
+        filterResponseStatus
+      ) {
+        params.set("includeAll", "1");
+      }
 
       const res = await fetch(`/api/care/tasks?${params.toString()}`);
       const data = await res.json();
       if (data.ok) {
         setRows(data.rows || []);
+        setHasLoadedAllRows(Boolean(data.hasAllRows));
+        if (typeof data.hiddenFutureCount === "number") {
+          setServerHiddenFutureCount(data.hiddenFutureCount);
+        }
         if (Array.isArray(data.staffs)) setStaffs(data.staffs);
         if (data.metrics) setMetrics(data.metrics);
         setLastSyncedAt(data.lastSyncedAt || null);
@@ -131,6 +148,29 @@ export default function WorkTrackingPage() {
   useEffect(() => {
     fetchTasks();
   }, [staffFilter]);
+
+  useEffect(() => {
+    const needsAll = Boolean(
+      showFutureOrUnscheduled ||
+        search.trim() ||
+        filterPriority ||
+        filterCarePath ||
+        filterCareStatus ||
+        filterResponseStatus
+    );
+    if (needsAll && !hasLoadedAllRows && !loading) {
+      fetchTasks(true);
+    }
+  }, [
+    showFutureOrUnscheduled,
+    search,
+    filterPriority,
+    filterCarePath,
+    filterCareStatus,
+    filterResponseStatus,
+    hasLoadedAllRows,
+    loading,
+  ]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -218,8 +258,11 @@ export default function WorkTrackingPage() {
   };
 
   const hiddenFutureCount = useMemo(
-    () => rows.filter((r) => r.priority === 5 || r.priority === 10).length,
-    [rows]
+    () =>
+      hasLoadedAllRows
+        ? rows.filter((r) => r.priority === 5 || r.priority === 10).length
+        : serverHiddenFutureCount,
+    [rows, hasLoadedAllRows, serverHiddenFutureCount]
   );
 
   const dueCount = useMemo(
