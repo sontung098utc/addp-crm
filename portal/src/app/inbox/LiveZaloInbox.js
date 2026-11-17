@@ -1142,7 +1142,7 @@ export default function LiveZaloInbox() {
     const msgPoll = setInterval(() => {
       if (typeof document !== "undefined" && document.hidden) return;
       fetchMessagesForActive(true);
-    }, 7000);
+    }, 3500);
 
     const handleVisibility = () => {
       if (!document.hidden) fetchMessagesForActive(true);

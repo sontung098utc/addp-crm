@@ -1673,6 +1673,8 @@ export async function getThreadMessages(
     }
   }
 
+  const normChannel = String(channel || "").toUpperCase();
+
   // Nếu là hội thoại Shopee -> Kéo tin nhắn chi tiết từ Shopee Seller Chat API + gộp lịch sử cục bộ
   if (
     normChannel === "SHOPEE" ||
@@ -1744,7 +1746,6 @@ export async function getThreadMessages(
   }
 
   // Nếu là hội thoại TikTok Shop -> Kéo tin nhắn chi tiết trực tiếp từ TikTok CS API + gộp lịch sử cục bộ
-  const normChannel = String(channel || "").toUpperCase();
   const isTikTok =
     normChannel === "TIKTOK_SHOP" ||
     normChannel === "TIKTOK" ||
