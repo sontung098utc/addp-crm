@@ -111,8 +111,8 @@ export default function BroadcastPage() {
   const [templateText, setTemplateText] = useState(
     "{Dạ em Thảo chào|Em chào|Dạ kính chào} {fullName} ạ! {Dược sĩ ADDP|Chuyên viên {assignedStaff}} nhắn nhắc mình nhớ duy trì uống đều đặn 2 ly Sữa hạt Glucare Plus với nước ấm 45-50°C mỗi ngày để đường huyết lúc đói luôn bình ổn nhé ạ!"
   );
-  const [speedMin, setSpeedMin] = useState(45);
-  const [speedMax, setSpeedMax] = useState(120);
+  const [speedMin, setSpeedMin] = useState(3);
+  const [speedMax, setSpeedMax] = useState(5);
   const [useMessageTag, setUseMessageTag] = useState(false);
   const [messageTag, setMessageTag] = useState("POST_PURCHASE_UPDATE");
   const [useZnsTemplate, setUseZnsTemplate] = useState(false);
@@ -389,7 +389,7 @@ export default function BroadcastPage() {
           searchQuery: audienceSearch,
           ...(customRecipientsPayload ? { customRecipients: customRecipientsPayload } : {}),
           templateText: templateText.trim(),
-          speedRange: [Math.max(45, Number(speedMin) || 45), Math.max(45, Number(speedMax) || 120)],
+          speedRange: [Math.max(1, Number(speedMin) || 3), Math.max(1, Number(speedMax) || 5)],
           useMessageTag,
           messageTag,
           useZnsTemplate,
@@ -1377,29 +1377,71 @@ export default function BroadcastPage() {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
                 <div>
                   <span className="font-semibold text-slate-200">
-                    ⏱️ Giãn cách ngẫu nhiên giữa 2 tin liên tiếp (Anti-Ban):
+                    ⏱️ Tốc độ &amp; Giãn cách ngẫu nhiên giữa các nhịp gửi (Smart Burst &amp; Multi-Thread):
                   </span>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Hệ thống sẽ random độ trễ trong khoảng này để mô phỏng hoàn toàn hành vi người thật
+                    Chọn mức <strong>2s – 4s</strong> (kèm nhịp nghỉ tự động mỗi 25 tin) để đạt tốc độ <strong>~800 – 1.000 khách / 60 phút</strong>
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeedMin(2);
+                      setSpeedMax(4);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold cursor-pointer transition ${
+                      Number(speedMin) <= 3
+                        ? "border-emerald-500 bg-emerald-600 text-white"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-emerald-500"
+                    }`}
+                  >
+                    ⚡ Nhanh (~45-60p/1000 khách)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeedMin(10);
+                      setSpeedMax(20);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer transition ${
+                      Number(speedMin) === 10
+                        ? "border-blue-500 bg-blue-600 text-white"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-blue-500"
+                    }`}
+                  >
+                    ⚖️ Vừa (10-20s)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSpeedMin(30);
+                      setSpeedMax(45);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold cursor-pointer transition ${
+                      Number(speedMin) >= 30
+                        ? "border-amber-500 bg-amber-600 text-white"
+                        : "border-slate-700 bg-slate-900 text-slate-300 hover:border-amber-500"
+                    }`}
+                  >
+                    🛡️ Chậm (30-45s)
+                  </button>
                   <input
                     type="number"
-                    min={30}
+                    min={1}
                     max={300}
                     value={speedMin}
                     onChange={(e) => setSpeedMin(e.target.value)}
-                    className="w-16 rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-center font-mono text-xs text-slate-900 dark:text-white"
+                    className="w-14 rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-center font-mono text-xs text-slate-900 dark:text-white"
                   />
                   <span className="text-slate-400">đến</span>
                   <input
                     type="number"
-                    min={45}
+                    min={1}
                     max={600}
                     value={speedMax}
                     onChange={(e) => setSpeedMax(e.target.value)}
-                    className="w-16 rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-center font-mono text-xs text-slate-900 dark:text-white"
+                    className="w-14 rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-center font-mono text-xs text-slate-900 dark:text-white"
                   />
                   <span className="text-slate-400">giây / tin</span>
                 </div>
@@ -1674,7 +1716,21 @@ export default function BroadcastPage() {
                 </div>
 
                 {/* Các nút thao tác điều khiển */}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(activeCampaign.status === "RUNNING" ||
+                    activeCampaign.status === "SCHEDULED" ||
+                    activeCampaign.status === "PAUSED") &&
+                    (activeCampaign.speedRange?.[0] || 45) > 4 && (
+                      <button
+                        type="button"
+                        onClick={() => handleCampaignAction(activeCampaign.id, "turbo")}
+                        className="rounded-xl border border-cyan-500/50 bg-cyan-600 hover:bg-cyan-500 px-3.5 py-2 text-xs font-bold text-white transition cursor-pointer shadow-xs"
+                        title="Chuyển chiến dịch này sang tốc độ nhanh 2s-4s/tin (~45-60 phút/1000 khách)"
+                      >
+                        ⚡ Tăng Tốc (2s-4s/tin)
+                      </button>
+                    )}
+
                   {activeCampaign.status === "RUNNING" && (
                     <button
                       type="button"

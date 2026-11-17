@@ -331,9 +331,9 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
       };
     }
 
-    let targetHome = "";
+    let targetHome = customer.zaloHome || "";
     const activeHomes = getAllActiveZaloHomes();
-    if (campaign.channelId && campaign.channelId !== "ALL") {
+    if (!targetHome && campaign.channelId && campaign.channelId !== "ALL") {
       const matchedHome = activeHomes.find(
         (h) =>
           String(h.ownId || "") === String(campaign.channelId) ||
@@ -341,6 +341,16 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
           String(h.name || "").toLowerCase() === String(campaign.accountName || "").toLowerCase()
       );
       if (matchedHome?.homeDir) targetHome = matchedHome.homeDir;
+    }
+    // Phân tải Round-Robin qua tất cả các nick Zalo đang hoạt động khi chọn ALL hoặc bật multiAccountLoadBalance cho khách có SĐT
+    if (
+      !targetHome &&
+      activeHomes.length > 1 &&
+      (campaign.channelId === "ALL" || campaign.multiAccountLoadBalance) &&
+      recipientPhone
+    ) {
+      const rrIndex = (Number(campaign.sentCount) || 0) % activeHomes.length;
+      targetHome = activeHomes[rrIndex]?.homeDir || "";
     }
     if (!targetHome) {
       const resolved = resolveZaloHomeForThread(recipient || recipientPhone, "", campaign.channelId || "");
@@ -511,25 +521,68 @@ export async function runCampaignQueue(campaignId) {
         break;
       }
 
-      // Kiểm tra giới hạn cứng 150 tin/tài khoản Zalo/ngày
+      // Kiểm tra giới hạn tin/ngày (nếu người dùng đặt giới hạn cụ thể lớn hơn tổng số người nhận của chiến dịch)
       const channelKey = campaign.channelId || campaign.channel || "ZALO_PERSONAL";
       const sentToday = getSentCountTodayForChannel(channelKey);
-      const hardLimit = Number(campaign.dailyLimit) || HARD_DAILY_LIMIT_PER_ACCOUNT;
+      const configuredLimit = Number(campaign.dailyLimit) || 0;
+      const effectiveHardLimit =
+        configuredLimit > 0
+          ? Math.max(configuredLimit, Number(campaign.totalRecipients) || 0)
+          : Math.max(5000, Number(campaign.totalRecipients) || 5000);
 
-      if (sentToday >= hardLimit) {
+      if (sentToday >= effectiveHardLimit) {
         campaign.status = "PAUSED";
-        campaign.pauseReason = `Đạt giới hạn an toàn ${hardLimit} tin/ngày`;
+        campaign.pauseReason = `Đạt giới hạn ${effectiveHardLimit} tin/ngày`;
         campaign.nextSendInSec = null;
         campaign.updatedAt = new Date().toISOString();
         saveCampaignsToDisk(store);
         break;
       }
 
-      // Tìm người nhận tiếp theo đang ở trạng thái PENDING
+      // Tìm lô người nhận tiếp theo đang ở trạng thái PENDING
+      // Hỗ trợ gửi song song đa luồng (Parallel Batch) cho Fanpage/Zalo OA hoặc khi gửi Đa Nick Zalo (ALL)
       const recipients = Array.isArray(campaign.recipients) ? campaign.recipients : [];
-      const nextRecipient = recipients.find((r) => r.status === "PENDING");
+      const isOfficialApiChannel =
+        campaign.channel === "FACEBOOK" ||
+        campaign.channel === "ZALO_OA" ||
+        campaign.channel === "TIKTOK_SHOP" ||
+        campaign.channel === "SHOPEE";
+      const activeZaloCount = Math.max(1, getAllActiveZaloHomes().length);
+      const batchConcurrency = campaign.mockMode
+        ? 5
+        : Number(campaign.concurrency) > 1
+        ? Number(campaign.concurrency)
+        : isOfficialApiChannel
+        ? 4
+        : campaign.channelId === "ALL" || campaign.multiAccountLoadBalance
+        ? Math.min(activeZaloCount, 8)
+        : 1;
 
-      if (!nextRecipient) {
+      const nextBatch = [];
+      const usedAccountsInBatch = new Set();
+      for (const r of recipients) {
+        if (r.status !== "PENDING") continue;
+        if (batchConcurrency === 1) {
+          nextBatch.push(r);
+          break;
+        }
+        const accKey = String(r.accountId || r.zaloHome || "");
+        if (accKey && usedAccountsInBatch.has(accKey) && !isOfficialApiChannel) {
+          continue; // Mỗi nick Zalo chỉ gửi 1 tin trong cùng 1 nhịp song song để bảo vệ nick
+        }
+        if (accKey) usedAccountsInBatch.add(accKey);
+        nextBatch.push(r);
+        if (nextBatch.length >= batchConcurrency) break;
+      }
+
+      if (nextBatch.length === 0) {
+        const fallbackNext = recipients.find((r) => r.status === "PENDING");
+        if (fallbackNext) {
+          nextBatch.push(fallbackNext);
+        }
+      }
+
+      if (nextBatch.length === 0) {
         campaign.status = "COMPLETED";
         campaign.nextSendInSec = null;
         campaign.completedAt = new Date().toISOString();
@@ -538,61 +591,66 @@ export async function runCampaignQueue(campaignId) {
         break;
       }
 
-      // Sinh nội dung Spin Text & Cá nhân hóa cho từng khách hàng
-      const renderedText = spinAndPersonalizeText(campaign.templateText, nextRecipient);
-      let dispatchRes;
-      try {
-        dispatchRes = await dispatchPlatformBroadcastMessage(
-          campaign,
-          nextRecipient,
-          renderedText
-        );
-      } catch (dispatchErr) {
-        console.error("[BROADCAST_DISPATCH_ERR]", dispatchErr);
-        dispatchRes = {
-          ok: false,
-          error: dispatchErr?.message || "Lỗi gửi tin nhắn không xác định",
-        };
-      }
+      // Thực thi gửi đồng thời các tin trong batch (mỗi nick / mỗi kết nối API chạy song song)
+      await Promise.all(
+        nextBatch.map(async (nextRecipient) => {
+          const renderedText = spinAndPersonalizeText(campaign.templateText, nextRecipient);
+          let dispatchRes;
+          try {
+            dispatchRes = await dispatchPlatformBroadcastMessage(
+              campaign,
+              nextRecipient,
+              renderedText
+            );
+          } catch (dispatchErr) {
+            console.error("[BROADCAST_DISPATCH_ERR]", dispatchErr);
+            dispatchRes = {
+              ok: false,
+              error: dispatchErr?.message || "Lỗi gửi tin nhắn không xác định",
+            };
+          }
 
-      const nowIso = new Date().toISOString();
-      if (dispatchRes.ok) {
-        nextRecipient.status = "SUCCESS";
-        nextRecipient.sentAt = nowIso;
-        nextRecipient.renderedText = renderedText;
-        campaign.sentCount = (Number(campaign.sentCount) || 0) + 1;
-      } else if (dispatchRes.skipped) {
-        nextRecipient.status = "SKIPPED";
-        nextRecipient.sentAt = nowIso;
-        nextRecipient.note = dispatchRes.reason;
-        campaign.skippedCount = (Number(campaign.skippedCount) || 0) + 1;
-        campaign.failedCount = (Number(campaign.failedCount) || 0) + 1;
-      } else {
-        nextRecipient.status = "FAILED";
-        nextRecipient.sentAt = nowIso;
-        nextRecipient.note = dispatchRes.error;
-        campaign.failedCount = (Number(campaign.failedCount) || 0) + 1;
-      }
+          const nowIso = new Date().toISOString();
+          if (dispatchRes.ok) {
+            nextRecipient.status = "SUCCESS";
+            nextRecipient.sentAt = nowIso;
+            nextRecipient.renderedText = renderedText;
+            campaign.sentCount = (Number(campaign.sentCount) || 0) + 1;
+          } else if (dispatchRes.skipped) {
+            nextRecipient.status = "SKIPPED";
+            nextRecipient.sentAt = nowIso;
+            nextRecipient.note = dispatchRes.reason;
+            campaign.skippedCount = (Number(campaign.skippedCount) || 0) + 1;
+            campaign.failedCount = (Number(campaign.failedCount) || 0) + 1;
+          } else {
+            nextRecipient.status = "FAILED";
+            nextRecipient.sentAt = nowIso;
+            nextRecipient.note = dispatchRes.error;
+            campaign.failedCount = (Number(campaign.failedCount) || 0) + 1;
+          }
 
-      if (!Array.isArray(campaign.logs)) campaign.logs = [];
-      campaign.logs.unshift({
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        timestamp: nowIso,
-        customerName: nextRecipient.fullName || "Khách hàng",
-        phone: nextRecipient.phone || "",
-        maskedPhone: maskPhoneMiddle(nextRecipient.phone),
-        channel: campaign.channel || "ZALO_PERSONAL",
-        renderedText,
-        status: nextRecipient.status,
-        note:
-          dispatchRes.note ||
-          dispatchRes.reason ||
-          dispatchRes.error ||
-          "Thành công",
-      });
+          if (!Array.isArray(campaign.logs)) campaign.logs = [];
+          campaign.logs.unshift({
+            id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            timestamp: nowIso,
+            customerName: nextRecipient.fullName || "Khách hàng",
+            phone: nextRecipient.phone || "",
+            maskedPhone: maskPhoneMiddle(nextRecipient.phone),
+            channel: nextRecipient.channelLabel || campaign.channel || "ZALO_PERSONAL",
+            renderedText,
+            status: nextRecipient.status,
+            note:
+              dispatchRes.note ||
+              dispatchRes.reason ||
+              dispatchRes.error ||
+              "Thành công",
+          });
 
-      campaign.lastSentAt = nowIso;
-      campaign.updatedAt = nowIso;
+          campaign.lastSentAt = nowIso;
+          campaign.updatedAt = nowIso;
+        })
+      );
+
       saveCampaignsToDisk(store);
 
       // Kiểm tra xem còn khách hàng PENDING tiếp theo không
@@ -605,18 +663,29 @@ export async function runCampaignQueue(campaignId) {
         break;
       }
 
-      // Chờ giãn cách ngẫu nhiên:
-      // - Chế độ thật: await new Promise(r => setTimeout(r, randomDelay(45000, 120000)))
-      // - Chế độ mock test nhanh: cho phép delay ngắn (ví dụ 800-1500ms) nếu mockDelayMs được truyền
-      const speedRange = Array.isArray(campaign.speedRange) ? campaign.speedRange : [45, 120];
+      // Chờ giãn cách thông minh:
+      // - Tôn trọng chính xác khoảng giãn cách (speedRange) người dùng cấu hình (từ 1s trở lên)
+      // - Nếu gửi tốc độ nhanh trên 1 nick Zalo (< 15s/tin), tự động chèn nhịp nghỉ ngắn 20s sau mỗi 25 tin (Burst & Rest) để chống quét robot
+      const speedRange = Array.isArray(campaign.speedRange) ? campaign.speedRange : [15, 30];
+      const minSec = Math.max(1, Number(speedRange[0]) || 3);
+      const maxSec = Math.max(minSec, Number(speedRange[1]) || minSec + 2);
       const minMs = campaign.mockMode && campaign.mockDelayMs
         ? Number(campaign.mockDelayMs)
-        : Math.max(45, Number(speedRange[0]) || 45) * 1000;
+        : minSec * 1000;
       const maxMs = campaign.mockMode && campaign.mockDelayMs
         ? Number(campaign.mockDelayMs) + 400
-        : Math.max(minMs / 1000, Number(speedRange[1]) || 120) * 1000;
+        : maxSec * 1000;
 
-      const totalWaitMs = randomDelay(minMs, maxMs);
+      let totalWaitMs = randomDelay(minMs, maxMs);
+      if (
+        !isOfficialApiChannel &&
+        !campaign.mockMode &&
+        minSec < 15 &&
+        (Number(campaign.sentCount) || 0) > 0 &&
+        (Number(campaign.sentCount) || 0) % 25 === 0
+      ) {
+        totalWaitMs += randomDelay(18000, 28000);
+      }
 
       if (totalWaitMs >= 2000) {
         let remainingSec = Math.ceil(totalWaitMs / 1000);
@@ -775,6 +844,9 @@ export function createBroadcastCampaign(input = {}) {
     tags: Array.isArray(cust.tags) ? cust.tags : [],
     assignedStaff: cust.staffName || cust.assignedStaff || "Dược sĩ Thảo",
     zaloUid: cust.zaloUid || cust.zaloThreadId || null,
+    accountId: cust.accountId || "",
+    zaloHome: cust.zaloHome || "",
+    channelLabel: cust.channelLabel || cust.channel || "",
     facebookId: cust.facebookId || cust.psid || null,
     lastInteractionTime: cust.lastInteractionTime || cust.updatedAt || cust.createdAt || null,
     hasExistingThread: Boolean(cust.hasExistingThread ?? true),
@@ -792,8 +864,11 @@ export function createBroadcastCampaign(input = {}) {
 
   const speedRange =
     Array.isArray(input.speedRange) && input.speedRange.length === 2
-      ? [Math.max(45, Number(input.speedRange[0]) || 45), Math.max(45, Number(input.speedRange[1]) || 120)]
-      : [45, 120];
+      ? [
+          Math.max(1, Number(input.speedRange[0]) || 3),
+          Math.max(1, Number(input.speedRange[1]) || 5),
+        ]
+      : [3, 6];
 
   const autoStart = input.autoStart !== false;
   const scheduledTs =
@@ -839,7 +914,9 @@ export function createBroadcastCampaign(input = {}) {
     failedCount: 0,
     skippedCount: 0,
     speedRange,
-    dailyLimit: HARD_DAILY_LIMIT_PER_ACCOUNT,
+    concurrency: Number(input.concurrency) || (channel === "FACEBOOK" || channel === "ZALO_OA" ? 4 : 1),
+    multiAccountLoadBalance: Boolean(input.multiAccountLoadBalance),
+    dailyLimit: Math.max(Number(input.dailyLimit) || 5000, mappedRecipients.length),
     useMessageTag: Boolean(input.useMessageTag),
     messageTag: input.messageTag || "POST_PURCHASE_UPDATE",
     useZnsTemplate: Boolean(input.useZnsTemplate),
@@ -897,8 +974,20 @@ export function controlBroadcastCampaign(id, action = "pause", reason = "") {
     return campaign;
   }
 
+  if (act === "turbo" || act === "speedup") {
+    campaign.speedRange = [2, 4];
+    campaign.dailyLimit = Math.max(5000, Number(campaign.totalRecipients) || 5000);
+    campaign.updatedAt = nowIso;
+    saveCampaignsToDisk(store);
+    return campaign;
+  }
+
   if (act === "start" || act === "resume" || act === "running" || act === "processing") {
     campaign.status = "RUNNING";
+    campaign.dailyLimit = Math.max(
+      Number(campaign.dailyLimit) || 5000,
+      Number(campaign.totalRecipients) || 5000
+    );
     campaign.pauseReason = null;
     campaign.scheduledAt = null;
     campaign.updatedAt = nowIso;

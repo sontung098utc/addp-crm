@@ -58,7 +58,7 @@ export async function POST(request) {
     }
 
     // Hỗ trợ điều khiển trực tiếp nếu truyền action + id
-    if (body.id && ["start", "pause", "resume", "cancel"].includes(String(body.action || "").toLowerCase())) {
+    if (body.id && ["start", "pause", "resume", "cancel", "turbo", "speedup"].includes(String(body.action || "").toLowerCase())) {
       const updated = controlBroadcastCampaign(body.id, body.action, body.reason);
       if (!updated) {
         return NextResponse.json(

@@ -21,7 +21,7 @@ export async function POST(request, context) {
       );
     }
 
-    const validActions = ["start", "pause", "resume", "cancel"];
+    const validActions = ["start", "pause", "resume", "cancel", "turbo", "speedup"];
     const normAction = String(action || "").toLowerCase();
     if (!validActions.includes(normAction)) {
       return NextResponse.json(
