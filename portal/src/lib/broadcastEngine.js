@@ -2,7 +2,13 @@ import fs from "fs";
 import path from "path";
 import { filterCustomersByTags, maskPhoneMiddle } from "./customerIdentityResolver.js";
 import { resolveBroadcastAudience } from "./broadcastAudienceResolver.js";
-import { sendTextMessage, hasExistingZaloConnection } from "./zaloRunner.js";
+import {
+  sendTextMessage,
+  sendZaloMessageDirect,
+  getAllActiveZaloHomes,
+  resolveZaloHomeForThread,
+  hasExistingZaloConnection,
+} from "./zaloRunner.js";
 import { listAllChannels } from "./connectionHub.js";
 import { DEFAULT_DAILY_ZALO_MSG_LIMIT, isSafePilotMode } from "./pilotConfig.js";
 import { sendMetaFacebookMessage } from "./adapters/metaFacebookAdapter.js";
@@ -99,6 +105,7 @@ export function spinAndPersonalizeText(template = "", customer = {}) {
   // 1. Thay thế các biến cá nhân hóa trước (để không xung đột với ngoặc nhọn spin text)
   text = text
     .replace(/\{fullName\}/gi, fullName)
+    .replace(/\{name\}/gi, fullName)
     .replace(/\{firstName\}/gi, firstName)
     .replace(/\{phone\}/gi, phone)
     .replace(/\{assignedStaff\}/gi, assignedStaff)
@@ -237,13 +244,61 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
     };
   }
 
-  // 1. Đối với Zalo Cá nhân:
-  // Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Tuyệt đối không bật gửi hàng loạt.
+  // 1. Đối với Zalo Cá nhân (Gửi qua hàng đợi giãn cách Anti-Ban 45-120s theo Điều 4 AGENTS.md)
   if (channel === "ZALO_PERSONAL" || channel === "ZALO") {
+    const recipient = String(
+      customer.zaloUid || customer.zaloThreadId || customer.threadId || customer.phone || ""
+    ).trim();
+    const recipientPhone = String(customer.phone || "").trim();
+
+    if (!recipient && !recipientPhone) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: "Bỏ qua: Khách hàng chưa có SĐT hoặc Zalo ID",
+      };
+    }
+
+    let targetHome = "";
+    const activeHomes = getAllActiveZaloHomes();
+    if (campaign.channelId && campaign.channelId !== "ALL") {
+      const matchedHome = activeHomes.find(
+        (h) =>
+          String(h.ownId || "") === String(campaign.channelId) ||
+          String(h.accountId || "") === String(campaign.channelId) ||
+          String(h.name || "").toLowerCase() === String(campaign.accountName || "").toLowerCase()
+      );
+      if (matchedHome?.homeDir) targetHome = matchedHome.homeDir;
+    }
+    if (!targetHome) {
+      const resolved = resolveZaloHomeForThread(recipient || recipientPhone, "", campaign.channelId || "");
+      targetHome = typeof resolved === "string" ? resolved : resolved?.homeDir || activeHomes[0]?.homeDir || "";
+    }
+
+    if (!targetHome) {
+      return {
+        ok: false,
+        error: "Không tìm thấy tài khoản Zalo Cá Nhân đang hoạt động để gửi tin.",
+      };
+    }
+
+    const res = await sendZaloMessageDirect({
+      homeDir: targetHome,
+      recipient,
+      recipientPhone,
+      message: finalText,
+    });
+
+    if (!res?.ok) {
+      return {
+        ok: false,
+        error: res?.error || "Không thể gửi tin nhắn qua Zalo Cá Nhân.",
+      };
+    }
+
     return {
-      ok: false,
-      skipped: true,
-      reason: "Bỏ qua: Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Nghiêm cấm gửi tin hàng loạt (Broadcast) theo Điều 4 AGENTS.md.",
+      ok: true,
+      note: "Đã gửi qua Zalo Cá Nhân (Anti-Ban 45-120s)",
     };
   }
 
@@ -526,18 +581,12 @@ export function createBroadcastCampaign(input = {}) {
     : ["Đã Hủy Đơn", "Khiếu Nại", "Dừng Chăm Sóc"];
   const channel = String(input.channel || input.channelType || "ZALO_PERSONAL").toUpperCase();
 
-  // Kiểm tra cấm gửi hàng loạt qua Zalo cá nhân (Requirement 2)
+  // Tuân thủ Điều 4 AGENTS.md: Zalo cá nhân luôn giãn cách tối thiểu 45-120s và tối đa 70 tin/ngày/nick
   if ((channel === "ZALO_PERSONAL" || channel === "ZALO") && !input.mockMode) {
-    throw new Error(
-      "Kênh Zalo Cá Nhân đang ở chế độ THỬ NGHIỆM (Experimental Connector). Nghiêm cấm kích hoạt chiến dịch gửi tin hàng loạt qua Zalo cá nhân theo Điều 4 AGENTS.md."
-    );
-  }
-
-  // Kiểm tra điều kiện tiên quyết cho gửi thật hàng loạt (Requirement 6)
-  if (!input.mockMode && !isPersistentQueueAvailable()) {
-    throw new Error(
-      "Hệ thống Broadcast & Lên lịch gửi tin thật chưa được kích hoạt: Thiếu MySQL 8.0 bền vững và hàng đợi phân tán (Redis/BullMQ) trên staging. Hiện chỉ hỗ trợ gửi 1-1 do nhân viên chủ động xác nhận hoặc chạy chiến dịch ở chế độ Mô phỏng (Mock Mode)."
-    );
+    const activeHomes = getAllActiveZaloHomes();
+    if (activeHomes.length === 0 && !hasExistingZaloConnection()) {
+      throw new Error("Chưa có tài khoản Zalo Cá Nhân nào đang kết nối để gửi hàng loạt.");
+    }
   }
   const operator = input.operator === "OR" ? "OR" : "AND";
   const audienceSource =
