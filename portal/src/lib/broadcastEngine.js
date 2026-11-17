@@ -59,6 +59,9 @@ function saveCampaignsToDisk(campaigns) {
     if (!filePath) return;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(campaigns, null, 2), "utf8");
+    try {
+      globalThis.__addpBroadcastLastMtime = fs.statSync(filePath).mtimeMs;
+    } catch {}
   } catch (err) {
     console.error("[BROADCAST_ENGINE_SAVE_ERR]", err.message);
   }
@@ -66,12 +69,28 @@ function saveCampaignsToDisk(campaigns) {
 
 if (!globalThis.__addpBroadcastCampaigns) {
   globalThis.__addpBroadcastCampaigns = loadCampaignsFromDisk();
+  try {
+    const fp = getCampaignsFilePath();
+    if (fp && fs.existsSync(fp)) {
+      globalThis.__addpBroadcastLastMtime = fs.statSync(fp).mtimeMs;
+    }
+  } catch {}
 }
 if (!globalThis.__addpActiveRunners) {
   globalThis.__addpActiveRunners = new Map();
 }
 
 function getCampaignStore() {
+  try {
+    const filePath = getCampaignsFilePath();
+    if (filePath && fs.existsSync(filePath)) {
+      const mtime = fs.statSync(filePath).mtimeMs;
+      if (mtime > (globalThis.__addpBroadcastLastMtime || 0)) {
+        globalThis.__addpBroadcastCampaigns = loadCampaignsFromDisk();
+        globalThis.__addpBroadcastLastMtime = mtime;
+      }
+    }
+  } catch {}
   return globalThis.__addpBroadcastCampaigns;
 }
 
@@ -286,7 +305,7 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
       homeDir: targetHome,
       recipient,
       recipientPhone,
-      message: finalText,
+      message: renderedText,
     });
 
     if (!res?.ok) {
@@ -443,11 +462,20 @@ export async function runCampaignQueue(campaignId) {
 
       // Sinh nội dung Spin Text & Cá nhân hóa cho từng khách hàng
       const renderedText = spinAndPersonalizeText(campaign.templateText, nextRecipient);
-      const dispatchRes = await dispatchPlatformBroadcastMessage(
-        campaign,
-        nextRecipient,
-        renderedText
-      );
+      let dispatchRes;
+      try {
+        dispatchRes = await dispatchPlatformBroadcastMessage(
+          campaign,
+          nextRecipient,
+          renderedText
+        );
+      } catch (dispatchErr) {
+        console.error("[BROADCAST_DISPATCH_ERR]", dispatchErr);
+        dispatchRes = {
+          ok: false,
+          error: dispatchErr?.message || "Lỗi gửi tin nhắn không xác định",
+        };
+      }
 
       const nowIso = new Date().toISOString();
       if (dispatchRes.ok) {
