@@ -164,15 +164,16 @@ export async function POST(request) {
       });
     }
 
-    // Mặc định: Gửi qua đúng tài khoản Zalo Cá Nhân sở hữu hội thoại (Kênh thử nghiệm)
+    // Mặc định: Gửi qua đúng tài khoản Zalo Cá Nhân sở hữu hội thoại
+    // Lưu ý Anti-Ban (Điều 4 AGENTS.md): Mọi luồng gửi hàng loạt (Broadcast) phải đi qua /api/broadcast/send (SmartBroadcastQueue 45-120s)
     if (String(type).toUpperCase() === "BROADCAST") {
       return NextResponse.json(
         {
           ok: false,
           status: "failed",
-          error: "Kênh Zalo Cá Nhân đang ở chế độ thử nghiệm (Experimental Connector). Tuyệt đối cấm gửi tin hàng loạt (Broadcast) theo Điều 4 AGENTS.md.",
+          error: "Luồng gửi hàng loạt (Broadcast) cần đi qua hàng đợi Anti-Ban (/api/broadcast/send) để đảm bảo giãn cách 45-120 giây.",
         },
-        { status: 403 }
+        { status: 400 }
       );
     }
 
