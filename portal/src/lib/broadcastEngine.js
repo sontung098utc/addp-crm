@@ -594,10 +594,47 @@ export async function runCampaignQueue(campaignId) {
   }
 }
 
+export function ensureBroadcastSchedulerStarted() {
+  if (globalThis.__addpBroadcastSchedulerStarted) return;
+  globalThis.__addpBroadcastSchedulerStarted = true;
+
+  const checkScheduledCampaigns = () => {
+    try {
+      const store = getCampaignStore();
+      const nowMs = Date.now();
+      let changed = false;
+
+      for (const camp of store) {
+        if (camp.status === "SCHEDULED" && camp.scheduledAt) {
+          const targetMs = new Date(camp.scheduledAt).getTime();
+          if (Number.isFinite(targetMs) && targetMs <= nowMs) {
+            camp.status = "RUNNING";
+            camp.updatedAt = new Date().toISOString();
+            camp.pauseReason = null;
+            changed = true;
+            runCampaignQueue(camp.id).catch((err) => {
+              console.error("[BROADCAST_SCHEDULE_TRIGGER_ERR]", err);
+            });
+          }
+        }
+      }
+
+      if (changed) {
+        saveCampaignsToDisk(store);
+      }
+    } catch (err) {
+      console.error("[BROADCAST_SCHEDULER_TICK_ERR]", err.message);
+    }
+  };
+
+  setInterval(checkScheduledCampaigns, 15000);
+}
+
 /**
  * Lấy danh sách toàn bộ các chiến dịch kèm phần trăm tiến độ realtime
  */
 export function getAllBroadcastCampaigns() {
+  ensureBroadcastSchedulerStarted();
   const store = getCampaignStore();
   return store.map((c) => {
     const total = Number(c.totalRecipients) || 0;
@@ -706,6 +743,18 @@ export function createBroadcastCampaign(input = {}) {
       : [45, 120];
 
   const autoStart = input.autoStart !== false;
+  const scheduledTs =
+    input.scheduleEnabled && input.scheduledAt
+      ? new Date(input.scheduledAt).getTime()
+      : NaN;
+  const isScheduledFuture =
+    Number.isFinite(scheduledTs) && scheduledTs > Date.now() + 10000;
+  const initialStatus = isScheduledFuture
+    ? "SCHEDULED"
+    : autoStart
+    ? "RUNNING"
+    : "DRAFT";
+
   const nowIso = new Date().toISOString();
   const id = `camp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
@@ -730,7 +779,8 @@ export function createBroadcastCampaign(input = {}) {
       input.template ||
       "{Dạ em Thảo chào|Em chào|Dạ kính chào} {fullName} ạ, Dược sĩ ADDP xin phép hỏi thăm chỉ số đường huyết và sức khỏe của mình tuần này thế nào rồi ạ?",
     audienceSource,
-    status: autoStart ? "RUNNING" : "DRAFT",
+    status: initialStatus,
+    scheduledAt: isScheduledFuture ? new Date(scheduledTs).toISOString() : null,
     totalRecipients: mappedRecipients.length,
     sentCount: 0,
     failedCount: 0,
@@ -751,6 +801,7 @@ export function createBroadcastCampaign(input = {}) {
     updatedAt: nowIso,
   };
 
+  ensureBroadcastSchedulerStarted();
   const store = getCampaignStore();
   store.unshift(newCampaign);
   saveCampaignsToDisk(store);
@@ -794,16 +845,9 @@ export function controlBroadcastCampaign(id, action = "pause", reason = "") {
   }
 
   if (act === "start" || act === "resume" || act === "running" || act === "processing") {
-    if (!campaign.mockMode && !isSafePilotMode() && !isPersistentQueueAvailable()) {
-      campaign.status = "PAUSED";
-      campaign.pauseReason = "Chưa có MySQL 8.0 & Queue bền vững trên staging. Chỉ hỗ trợ gửi thử Mock Mode hoặc 1-1.";
-      campaign.updatedAt = nowIso;
-      saveCampaignsToDisk(store);
-      return campaign;
-    }
-
     campaign.status = "RUNNING";
     campaign.pauseReason = null;
+    campaign.scheduledAt = null;
     campaign.updatedAt = nowIso;
     saveCampaignsToDisk(store);
     runCampaignQueue(campaign.id).catch((err) => {

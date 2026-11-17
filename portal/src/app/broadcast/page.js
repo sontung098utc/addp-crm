@@ -104,6 +104,12 @@ export default function BroadcastPage() {
   const [messageTag, setMessageTag] = useState("POST_PURCHASE_UPDATE");
   const [useZnsTemplate, setUseZnsTemplate] = useState(false);
   const [mockMode, setMockMode] = useState(false);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState(() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
   const [submitting, setSubmitting] = useState(false);
   const [spinningAi, setSpinningAi] = useState(false);
   const [previewSeed, setPreviewSeed] = useState(0);
@@ -375,13 +381,19 @@ export default function BroadcastPage() {
           messageTag,
           useZnsTemplate,
           mockMode,
+          scheduleEnabled,
+          scheduledAt: scheduleEnabled && scheduledAt ? new Date(scheduledAt).toISOString() : null,
         }),
       });
       const data = await res.json();
       if (data.ok && data.campaign) {
         setSelectedCampaignId(data.campaign.id);
         setCampaignName("");
-        showNotice("🚀 Đã khởi tạo chiến dịch thành công và đưa vào Hàng đợi Smart Broadcast!");
+        showNotice(
+          data.campaign.status === "SCHEDULED"
+            ? `📅 Đã đặt lịch chiến dịch chạy tự động lúc ${new Date(data.campaign.scheduledAt).toLocaleString("vi-VN")}!`
+            : "🚀 Đã khởi tạo chiến dịch thành công và đưa vào Hàng đợi Smart Broadcast!"
+        );
         fetchCampaigns(false);
       } else {
         showNotice(data.error || "Không thể tạo chiến dịch.", "error");
@@ -1379,7 +1391,70 @@ export default function BroadcastPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 text-xs pt-2 border-t border-slate-800">
+              <div className="flex flex-col gap-3 text-xs pt-2 border-t border-slate-800">
+                <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={scheduleEnabled}
+                    onChange={(e) => setScheduleEnabled(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-900 text-blue-600"
+                  />
+                  <span>
+                    📅 <strong>Đặt lịch tự động chạy</strong> vào thời gian chỉ định (thay vì gửi ngay)
+                  </span>
+                </label>
+
+                {scheduleEnabled && (
+                  <div className="pl-6 flex flex-wrap items-center gap-2.5">
+                    <input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      className="rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date(Date.now() + 3600 * 1000);
+                        const pad = (n) => String(n).padStart(2, "0");
+                        setScheduledAt(
+                          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                        );
+                      }}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:border-blue-500 cursor-pointer"
+                    >
+                      +1 giờ nữa
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        const pad = (n) => String(n).padStart(2, "0");
+                        setScheduledAt(
+                          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T08:30`
+                        );
+                      }}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:border-blue-500 cursor-pointer"
+                    >
+                      Sáng mai 08:30
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = new Date();
+                        const pad = (n) => String(n).padStart(2, "0");
+                        setScheduledAt(
+                          `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T19:30`
+                        );
+                      }}
+                      className="rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] text-slate-300 hover:border-blue-500 cursor-pointer"
+                    >
+                      Tối nay 19:30
+                    </button>
+                  </div>
+                )}
+
                 <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1409,7 +1484,7 @@ export default function BroadcastPage() {
                 <span>Gửi Thử 1 Tin Đến Tôi / SĐT Chỉ Định</span>
               </button>
 
-              {/* Nút Khởi Chạy Toàn Bộ Chiến Dịch */}
+              {/* Nút Khởi Chạy / Đặt Lịch Chiến Dịch */}
               <button
                 type="submit"
                 disabled={submitting || effectiveSendCount === 0}
@@ -1417,15 +1492,19 @@ export default function BroadcastPage() {
                 className={`rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-lg transition cursor-pointer flex items-center gap-2 ${
                   effectiveSendCount === 0
                     ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                    : scheduleEnabled
+                    ? "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/30"
                     : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/30"
                 }`}
               >
-                <span>🚀</span>
+                <span>{scheduleEnabled ? "📅" : "🚀"}</span>
                 <span>
                   {submitting
                     ? "Đang khởi tạo hàng đợi..."
                     : effectiveSendCount === 0
                     ? "Chưa Chọn Khách (0 người) - Không Thể Gửi"
+                    : scheduleEnabled
+                    ? `Đặt Lịch Chiến Dịch (${effectiveSendCount} khách)`
                     : `Khởi Chạy Chiến Dịch (${effectiveSendCount} khách)`}
                 </span>
               </button>
@@ -1549,6 +1628,8 @@ export default function BroadcastPage() {
                       className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
                         activeCampaign.status === "RUNNING"
                           ? "bg-emerald-500/20 text-emerald-300"
+                          : activeCampaign.status === "SCHEDULED"
+                          ? "bg-indigo-500/20 text-indigo-300"
                           : activeCampaign.status === "PAUSED"
                           ? "bg-amber-500/20 text-amber-300"
                           : activeCampaign.status === "CANCELLED"
@@ -1558,7 +1639,7 @@ export default function BroadcastPage() {
                           : "bg-slate-500/20 text-slate-300"
                       }`}
                     >
-                      {activeCampaign.status}
+                      {activeCampaign.status === "SCHEDULED" ? "ĐÃ ĐẶT LỊCH" : activeCampaign.status}
                     </span>
                   </div>
 
@@ -1568,7 +1649,9 @@ export default function BroadcastPage() {
                       ? Math.round((activeCampaign.sentCount / activeCampaign.totalRecipients) * 100)
                       : 0}
                     %)
-                    {activeCampaign.status === "RUNNING" && activeCampaign.nextSendInSec
+                    {activeCampaign.status === "SCHEDULED" && activeCampaign.scheduledAt
+                      ? ` — 📅 Hẹn chạy tự động lúc: ${new Date(activeCampaign.scheduledAt).toLocaleString("vi-VN")}`
+                      : activeCampaign.status === "RUNNING" && activeCampaign.nextSendInSec
                       ? ` — ⏳ Đang chờ ${activeCampaign.nextSendInSec}s gửi tin tiếp theo`
                       : activeCampaign.pauseReason
                       ? ` — ⚠️ ${activeCampaign.pauseReason}`
@@ -1588,13 +1671,15 @@ export default function BroadcastPage() {
                     </button>
                   )}
 
-                  {(activeCampaign.status === "PAUSED" || activeCampaign.status === "DRAFT") && (
+                  {(activeCampaign.status === "PAUSED" ||
+                    activeCampaign.status === "DRAFT" ||
+                    activeCampaign.status === "SCHEDULED") && (
                     <button
                       type="button"
                       onClick={() => handleCampaignAction(activeCampaign.id, "resume")}
                       className="rounded-xl border border-emerald-500/40 bg-emerald-500/20 hover:bg-emerald-500/30 px-3.5 py-2 text-xs font-bold text-emerald-200 transition cursor-pointer"
                     >
-                      ▶️ Tiếp Tục
+                      {activeCampaign.status === "SCHEDULED" ? "▶️ Chạy Ngay" : "▶️ Tiếp Tục"}
                     </button>
                   )}
 
