@@ -2131,23 +2131,39 @@ export default function LiveZaloInbox() {
     if (!activeConv || aiComposing) return;
     try {
       setAiComposing(true);
+      const recentMsgs = (messages || []).slice(-10).map((m) => ({
+        isMe: Boolean(m.isMe),
+        text: m.text || "",
+        senderName: m.senderName || "",
+        timestamp: m.timestamp || 0,
+      }));
+      const lastCustomerText =
+        [...recentMsgs].reverse().find((m) => !m.isMe && m.text)?.text || "";
+
       const res = await fetch("/api/ai/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           threadId: activeConv.id,
           customerName: activeConv.name,
+          customerPhone: activeConv.phone || detectedChatPhone,
           phone: activeConv.phone || detectedChatPhone,
           pathology: matchedCustomer?.pathology,
           currentGlucose: matchedCustomer?.currentGlucose,
-          recentMessages: (messages || []).slice(-8),
+          customerMessage: lastCustomerText || inputMessage.trim(),
+          draftIdea: inputMessage.trim(),
+          accountName: activeConv.accountDisplayName || activeConv.accountName || "",
+          conversationHistory: recentMsgs,
+          recentMessages: recentMsgs,
           channel: activeConv.channel,
           pageId: activeConv.pageId,
+          accountId: activeConv.accountId,
         }),
       });
       const data = await res.json();
-      if (data.ok && data.suggestion) {
-        setInputMessage(data.suggestion);
+      const suggestedText = data?.suggestion || data?.replyText || "";
+      if (data.ok && suggestedText) {
+        setInputMessage(suggestedText);
         setToast({ type: "success", text: "✨ AI đã gợi ý câu trả lời tư vấn." });
         setTimeout(() => setToast(null), 3000);
       } else {

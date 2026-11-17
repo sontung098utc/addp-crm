@@ -24,6 +24,10 @@ function readPersistedTasksFallback() {
 
 import { DEFAULT_DAILY_ZALO_MSG_LIMIT } from "@/lib/pilotConfig.js";
 
+if (!globalThis.__ADDP_SIDEBAR_STATS_CACHE__) {
+  globalThis.__ADDP_SIDEBAR_STATS_CACHE__ = new Map();
+}
+
 export async function GET(request) {
   try {
     const currentStaff = await getSessionStaff(request);
@@ -32,6 +36,12 @@ export async function GET(request) {
         { ok: false, inboxUnreadCount: 0, careTasksCount: 0, channelsCount: 0, dailyZaloMsgLimit: DEFAULT_DAILY_ZALO_MSG_LIMIT },
         { status: 401 }
       );
+    }
+
+    const cacheKey = String(currentStaff.id || currentStaff.code || "staff");
+    const cached = globalThis.__ADDP_SIDEBAR_STATS_CACHE__.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 20000) {
+      return NextResponse.json(cached.payload);
     }
 
     // 1. Đếm số kênh thực tế đang ở trạng thái Connected / Active
@@ -71,13 +81,18 @@ export async function GET(request) {
       }
     }
 
-    return NextResponse.json({
+    const payload = {
       ok: true,
       inboxUnreadCount,
       careTasksCount,
       channelsCount,
       dailyZaloMsgLimit: DEFAULT_DAILY_ZALO_MSG_LIMIT,
+    };
+    globalThis.__ADDP_SIDEBAR_STATS_CACHE__.set(cacheKey, {
+      ts: Date.now(),
+      payload,
     });
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("GET /api/sidebar-stats error:", error);
     return NextResponse.json({

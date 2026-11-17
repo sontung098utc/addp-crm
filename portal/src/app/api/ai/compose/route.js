@@ -11,31 +11,72 @@ export async function POST(request) {
       draftIdea,
       customerName,
       customerPhone,
+      phone,
       pathology,
+      currentGlucose,
       accountName,
       conversationHistory,
+      recentMessages,
+      channel,
+      pageId,
+      accountId,
     } = body || {};
+
+    const rawHistory = Array.isArray(conversationHistory) && conversationHistory.length > 0
+      ? conversationHistory
+      : Array.isArray(recentMessages)
+      ? recentMessages
+      : [];
+
+    const normalizedHistory = rawHistory
+      .filter((m) => m && (m.text || m.content))
+      .map((m) => ({
+        isMe: Boolean(m.isMe || m.isSelf || m.role === "assistant"),
+        text: String(m.text || m.content || "").trim(),
+        senderName: m.senderName || "",
+        timestamp: m.timestamp || 0,
+      }));
+
+    const lastCustomerMsg =
+      [...normalizedHistory].reverse().find((m) => !m.isMe && m.text)?.text || "";
 
     const effectiveText =
       (typeof draftIdea === "string" && draftIdea.trim()) ||
       (typeof customerMessage === "string" && customerMessage.trim()) ||
       (typeof message === "string" && message.trim()) ||
-      "";
+      lastCustomerMsg ||
+      `Xin chào ${customerName || "anh/chị"}`;
+
+    const resolvedPhone = customerPhone || phone || null;
 
     // 1. Phán xử tin nhắn khách (AI Judge)
-    const judge = judgeCustomerMessage(customerMessage || effectiveText);
+    const judge = judgeCustomerMessage(customerMessage || lastCustomerMsg || effectiveText);
 
     // 2. Sinh câu trả lời chuẩn Chuyên viên tư vấn dinh dưỡng ADDP
     const aiResult = await generateHumanLikeReply({
       customerMessage: effectiveText,
       customerProfile: {
         fullName: customerName || "",
-        phone: customerPhone || null,
+        phone: resolvedPhone,
         pathology: pathology || "",
+        currentGlucose: currentGlucose || null,
       },
       accountName: accountName || "",
-      conversationHistory: Array.isArray(conversationHistory) ? conversationHistory : [],
+      channelConfig: {
+        channel: channel || "ZALO_PERSONAL",
+        pageId: pageId || "",
+        channelId: accountId || pageId || "",
+      },
+      conversationHistory: normalizedHistory,
     });
+
+    const replyText = String(aiResult?.replyText || "").trim();
+    if (!replyText) {
+      return NextResponse.json(
+        { ok: false, error: "AI chưa thể sinh câu trả lời phù hợp cho hội thoại này." },
+        { status: 400 }
+      );
+    }
 
     const mergedTags = Array.from(
       new Set([
@@ -48,7 +89,8 @@ export async function POST(request) {
 
     return NextResponse.json({
       ok: true,
-      replyText: aiResult.replyText,
+      suggestion: replyText,
+      replyText,
       typingDelayMs: aiResult.typingDelayMs,
       references: aiResult.matchedProducts,
       tags: mergedTags,

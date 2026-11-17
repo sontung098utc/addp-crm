@@ -44,6 +44,9 @@ export default function AppShell({ children }) {
       setAuthChecked(true);
       return;
     }
+    if (authChecked && currentUser) {
+      return;
+    }
     let cancelled = false;
     fetch("/api/auth/me", { cache: "no-store" })
       .then(async (res) => {
