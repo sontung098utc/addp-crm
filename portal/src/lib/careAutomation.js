@@ -167,13 +167,69 @@ export function buildCareSchedule({
   return tasks.sort((a, b) => a.offsetDays - b.offsetDays);
 }
 
+function sanitizeCareTasksList(rawList = []) {
+  if (!Array.isArray(rawList)) return { cleaned: [], changed: false };
+  let changed = false;
+  const seenCustomerPending = new Map();
+  const cleaned = [];
+
+  for (const t of rawList) {
+    if (!t || typeof t !== "object") {
+      changed = true;
+      continue;
+    }
+    const idStr = String(t.id || "");
+    const pathStr = String(t.customerPathology || "");
+    const isAutoKiotVietTask =
+      !idStr.startsWith("legacy_task_") &&
+      !idStr.includes("_followup_") &&
+      (Boolean(t.orderCode) ||
+        idStr.startsWith("task_HD") ||
+        idStr.startsWith("task_DH") ||
+        pathStr.startsWith("Đơn hàng mới:"));
+
+    // Loại bỏ các task tự động sinh hàng loạt từ lịch sử hóa đơn KiotViet cũ làm sai lệch số liệu Lịch chăm sóc
+    if (isAutoKiotVietTask) {
+      changed = true;
+      continue;
+    }
+
+    // Với các task chưa hoàn thành của cùng 1 khách hàng, chỉ giữ lịch hẹn gần nhất để không đếm trùng lặp
+    if (!t.isCompleted) {
+      const custKey = String(t.customerId || t.customerPhone || "").trim();
+      if (custKey) {
+        const prevIdx = seenCustomerPending.get(custKey);
+        if (prevIdx !== undefined) {
+          const prevTask = cleaned[prevIdx];
+          if (String(t.deadline || "9999") < String(prevTask.deadline || "9999")) {
+            cleaned[prevIdx] = t;
+          }
+          changed = true;
+          continue;
+        }
+        seenCustomerPending.set(custKey, cleaned.length);
+      }
+    }
+
+    cleaned.push(t);
+  }
+
+  return { cleaned, changed };
+}
+
 function loadCareTasksFromDisk() {
   try {
     const mods = getServerFs();
     const filePath = getCareTasksFilePath();
     if (mods && filePath && mods.fs.existsSync(filePath)) {
       const parsed = JSON.parse(mods.fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        const { cleaned, changed } = sanitizeCareTasksList(parsed);
+        if (changed) {
+          writeCareTasksToDisk(cleaned);
+        }
+        return cleaned;
+      }
     }
   } catch {}
   return [];
@@ -186,19 +242,36 @@ function writeCareTasksToDisk(tasks) {
     if (!mods || !filePath) return;
     mods.fs.mkdirSync(mods.path.dirname(filePath), { recursive: true });
     mods.fs.writeFileSync(filePath, JSON.stringify(tasks, null, 2), "utf8");
+    try {
+      globalThis.__addpCareTasksMtime = mods.fs.statSync(filePath).mtimeMs;
+    } catch {}
   } catch {}
 }
 
 export function getAllCareTasks() {
-  if (!globalThis.__addpCareTasksLoaded) {
+  const mods = getServerFs();
+  const filePath = getCareTasksFilePath();
+  let diskMtime = 0;
+  try {
+    if (mods && filePath && mods.fs.existsSync(filePath)) {
+      diskMtime = mods.fs.statSync(filePath).mtimeMs;
+    }
+  } catch {}
+
+  if (
+    !globalThis.__addpCareTasksLoaded ||
+    (diskMtime > 0 && diskMtime > (globalThis.__addpCareTasksMtime || 0))
+  ) {
     globalThis.__addpCareTasksStore = loadCareTasksFromDisk();
     globalThis.__addpCareTasksLoaded = true;
+    globalThis.__addpCareTasksMtime = diskMtime || Date.now();
   }
   return globalThis.__addpCareTasksStore || [];
 }
 
 export function savePersistedTasks(tasks) {
-  globalThis.__addpCareTasksStore = Array.isArray(tasks) ? tasks : [];
+  const { cleaned } = sanitizeCareTasksList(Array.isArray(tasks) ? tasks : []);
+  globalThis.__addpCareTasksStore = cleaned;
   globalThis.__addpCareTasksLoaded = true;
   writeCareTasksToDisk(globalThis.__addpCareTasksStore);
   return true;
@@ -238,8 +311,7 @@ export function appendOrderCareTasks(order = {}) {
     const taskId = `task_${orderTag}_${item.type}`;
     if (store.some((t) => t.id === taskId)) return;
 
-    const deadlineStr =
-      idx === 0 ? new Date().toISOString().slice(0, 10) : item.dueDate;
+    const deadlineStr = item.dueDate;
 
     const newTask = {
       id: taskId,

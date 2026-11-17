@@ -589,19 +589,18 @@ export default function LiveZaloInbox() {
     }
   }, []);
 
-  // Đồng bộ tiêu đề tab trình duyệt và badge sidebar theo tổng số tin chưa đọc
+  // Đồng bộ tiêu đề tab trình duyệt và badge sidebar theo số lượng hội thoại chưa đọc thực tế
   useEffect(() => {
-    const totalUnread = (conversations || []).reduce(
-      (sum, c) => sum + (c.isContactOnly ? 0 : Number(c.unreadCount || c.unread || 0)),
-      0
-    );
+    const unreadConvCount = (conversations || []).filter(
+      (c) => !c.isContactOnly && Number(c.unreadCount || c.unread || 0) > 0
+    ).length;
     if (typeof document !== "undefined") {
-      document.title = totalUnread > 0
-        ? `(${totalUnread}) 💬 ADDP CRM — Hộp thư Đa kênh`
+      document.title = unreadConvCount > 0
+        ? `(${unreadConvCount}) 💬 ADDP CRM — Hộp thư Đa kênh`
         : "ADDP CRM — Hộp thư Đa kênh";
     }
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("addp:unread-count", { detail: { count: totalUnread } }));
+      window.dispatchEvent(new CustomEvent("addp:unread-count", { detail: { count: unreadConvCount } }));
     }
   }, [conversations]);
 
@@ -2628,15 +2627,16 @@ export default function LiveZaloInbox() {
 
   // Helper lấy thông tin hiển thị cho nút Popover Gom Kênh
   const getSelectedFilterInfo = () => {
+    const activeConvsOnly = (conversations || []).filter((c) => !c.isContactOnly);
     if (selectedAccountFilter === "ALL") {
       return {
         icon: "🌐",
         label: "Tất cả kênh",
-        count: (conversations || []).length,
+        count: activeConvsOnly.length,
       };
     }
     if (selectedAccountFilter === "ZALO_ALL") {
-      const zaloCount = (conversations || []).filter((c) => c.channel === "ZALO_PERSONAL").length;
+      const zaloCount = activeConvsOnly.filter((c) => c.channel === "ZALO_PERSONAL").length;
       return {
         icon: "💬",
         label: "Tất cả Zalo QR",
@@ -2644,7 +2644,7 @@ export default function LiveZaloInbox() {
       };
     }
     if (selectedAccountFilter === "FB_ALL") {
-      const fbCount = (conversations || []).filter((c) => c.channel === "FACEBOOK").length;
+      const fbCount = activeConvsOnly.filter((c) => c.channel === "FACEBOOK").length;
       return {
         icon: <ChannelLogo platform="FACEBOOK" size={16} />,
         label: "Tất cả Fanpage",
@@ -2657,7 +2657,7 @@ export default function LiveZaloInbox() {
       return {
         icon: <ChannelLogo platform="ZALO_PERSONAL" size={16} />,
         label: matched ? `Zalo: ${matched.name}` : "Zalo Cá Nhân",
-        count: matched?.totalCount || 0,
+        count: matched?.activeCount || matched?.totalCount || 0,
       };
     }
     if (selectedAccountFilter.startsWith("PAGE:")) {
@@ -2952,9 +2952,65 @@ export default function LiveZaloInbox() {
     e.currentTarget.src = `/api/media/avatar-proxy?name=${encodeURIComponent(name || "Khách")}&type=fallback`;
   };
 
-  // Tính số lượng cho từng Pill-Filter
+  const isConvMatchingChannelAndAccount = (c) => {
+    if (channelFilter !== "ALL") {
+      if (channelFilter === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
+      if (channelFilter === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
+      if (channelFilter === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
+      if (
+        channelFilter === "TIKTOK_SHOP" &&
+        c.channel !== "TIKTOK_SHOP" &&
+        c.channel !== "TIKTOK"
+      ) {
+        return false;
+      }
+      if (channelFilter === "SHOPEE" && c.channel !== "SHOPEE") return false;
+    }
+
+    if (selectedZaloAccountId !== "ALL") {
+      if (c.channel !== "ZALO_PERSONAL" || String(c.accountId) !== String(selectedZaloAccountId)) {
+        return false;
+      }
+    }
+
+    if (selectedPageId !== "ALL") {
+      if (c.channel !== "FACEBOOK" || String(c.pageId) !== String(selectedPageId)) return false;
+    }
+
+    if (selectedTikTokShopId !== "ALL") {
+      const convShopId = String(c.shopId || c.accountId || c.pageId || "");
+      if (
+        (c.channel !== "TIKTOK_SHOP" && c.channel !== "TIKTOK") ||
+        convShopId !== String(selectedTikTokShopId)
+      ) {
+        return false;
+      }
+    }
+
+    if (selectedShopeeShopId !== "ALL") {
+      const convShopId = String(c.shopId || c.accountId || c.pageId || "");
+      if (c.channel !== "SHOPEE" || convShopId !== String(selectedShopeeShopId)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const isConvUnanswered = (c) => {
+    if (!c || c.isContactOnly) return false;
+    if (c.type === "GROUP" || String(c.name || "").startsWith("My Documents")) return false;
+    const msg = String(c.lastMessage || "").trim();
+    if (!msg || msg.startsWith("Bạn:") || Boolean(c.lastMessageFromMe)) return false;
+    if (msg.includes("đã được thu hồi") || msg.includes("đã bị xóa") || msg === "Danh bạ Zalo") {
+      return false;
+    }
+    return true;
+  };
+
+  // Tính số lượng cho từng Pill-Filter (đồng bộ chính xác theo kênh/tài khoản đang chọn)
   const pillCounts = useMemo(() => {
-    const list = conversations || [];
+    const list = (conversations || []).filter(isConvMatchingChannelAndAccount);
+    let all = 0;
     let hasPhone = 0;
     let unanswered = 0;
     let overSla = 0;
@@ -2963,34 +3019,43 @@ export default function LiveZaloInbox() {
 
     for (const c of list) {
       if (c.isContactOnly) continue;
+      all++;
       const phoneDirect = Boolean(c.phone && c.phone.trim().length >= 9);
       const phoneInMsg = Boolean(c.lastMessage && /(?:\+84|84|0)[35789]\d{8}/.test(c.lastMessage));
       if (phoneDirect || phoneInMsg) {
         hasPhone++;
       }
-      if (c.lastMessage && !c.lastMessage.startsWith("Bạn:") && !c.lastMessageFromMe) {
+      if (isConvUnanswered(c)) {
         unanswered++;
       }
-      if (c.is_over_sla || c.isOverSla || (c.unreadCount > 0 && Date.now() - (c.timestamp || 0) > 15 * 60 * 1000)) {
+      if (c.is_over_sla || c.isOverSla || ((c.unreadCount || 0) > 0 && Date.now() - (c.timestamp || 0) > 15 * 60 * 1000)) {
         overSla++;
       }
       if (!isConversationAccountHuman(c) && c.botMode !== "HUMAN") {
         botOn++;
       }
-      if ((c.unreadCount || c.unread || 0) > 0) {
+      if (Number(c.unreadCount || c.unread || 0) > 0) {
         unread++;
       }
     }
 
     return {
-      all: list.filter((c) => !c.isContactOnly).length,
+      all,
       hasPhone,
       unanswered,
       overSla,
       botOn,
       unread,
     };
-  }, [conversations, isConversationAccountHuman]);
+  }, [
+    conversations,
+    isConversationAccountHuman,
+    channelFilter,
+    selectedZaloAccountId,
+    selectedPageId,
+    selectedTikTokShopId,
+    selectedShopeeShopId,
+  ]);
 
   // Bộ lọc hội thoại nâng cao
   const filteredConversations = useMemo(() => {
@@ -3006,47 +3071,11 @@ export default function LiveZaloInbox() {
         (c.id && String(c.id).includes(q));
 
       if (!matchSearch) return false;
+      if (!isConvMatchingChannelAndAccount(c)) return false;
 
-      // Lọc theo Dropdown Kênh / Tài khoản
-      if (channelFilter !== "ALL") {
-        if (channelFilter === "ZALO_PERSONAL" && c.channel !== "ZALO_PERSONAL") return false;
-        if (channelFilter === "ZALO_OA" && c.channel !== "ZALO_OA") return false;
-        if (channelFilter === "FACEBOOK" && c.channel !== "FACEBOOK") return false;
-        if (
-          channelFilter === "TIKTOK_SHOP" &&
-          c.channel !== "TIKTOK_SHOP" &&
-          c.channel !== "TIKTOK"
-        ) {
-          return false;
-        }
-        if (channelFilter === "SHOPEE" && c.channel !== "SHOPEE") return false;
-      }
-
-      if (selectedZaloAccountId !== "ALL") {
-        if (c.channel !== "ZALO_PERSONAL" || String(c.accountId) !== String(selectedZaloAccountId)) {
-          return false;
-        }
-      }
-
-      if (selectedPageId !== "ALL") {
-        if (c.channel !== "FACEBOOK" || String(c.pageId) !== String(selectedPageId)) return false;
-      }
-
-      if (selectedTikTokShopId !== "ALL") {
-        const convShopId = String(c.shopId || c.accountId || c.pageId || "");
-        if (
-          (c.channel !== "TIKTOK_SHOP" && c.channel !== "TIKTOK") ||
-          convShopId !== String(selectedTikTokShopId)
-        ) {
-          return false;
-        }
-      }
-
-      if (selectedShopeeShopId !== "ALL") {
-        const convShopId = String(c.shopId || c.accountId || c.pageId || "");
-        if (c.channel !== "SHOPEE" || convShopId !== String(selectedShopeeShopId)) {
-          return false;
-        }
+      // Ở các tab lọc trạng thái, không hiển thị liên hệ rỗng chỉ nằm trong danh bạ (trừ khi người dùng đang gõ tìm kiếm ở tab Tất cả)
+      if (c.isContactOnly && (activeTab !== "all" || !q)) {
+        return false;
       }
 
       // Lọc theo Thanh Pill-Tabs thực chiến
@@ -3057,8 +3086,7 @@ export default function LiveZaloInbox() {
       }
 
       if (activeTab === "unanswered") {
-        const isLastFromCustomer = c.lastMessage && !c.lastMessage.startsWith("Bạn:") && !c.lastMessageFromMe;
-        return Boolean(isLastFromCustomer || (c.unreadCount || c.unread || 0) > 0);
+        return isConvUnanswered(c);
       }
 
       if (activeTab === "over_sla") {
@@ -3076,7 +3104,7 @@ export default function LiveZaloInbox() {
       }
 
       if (activeTab === "unread") {
-        return (c.unreadCount || c.unread || 0) > 0;
+        return Number(c.unreadCount || c.unread || 0) > 0;
       }
 
       // Lọc theo Thẻ Tag Khách Hàng
@@ -4007,13 +4035,13 @@ export default function LiveZaloInbox() {
               )}
             </div>
 
-            {/* Thanh Pill-Filter Thực Chiến Trượt Ngang */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs md:text-[11px] font-semibold no-scrollbar scroll-smooth max-w-full">
+            {/* Thanh Pill-Filter Thực Chiến (Hiển thị đầy đủ Chưa đọc & Chưa trả lời ngay hàng đầu) */}
+            <div className="flex flex-wrap items-center gap-1.5 pb-1 text-xs md:text-[11px] font-semibold max-w-full">
               {/* [Tất cả] */}
               <button
                 type="button"
                 onClick={() => setActiveTab("all")}
-                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1.5 border shadow-2xs ${
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "all"
                     ? "bg-blue-600 text-white border-blue-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700"
@@ -4029,11 +4057,58 @@ export default function LiveZaloInbox() {
                 </span>
               </button>
 
+              {/* [🔴 Chưa đọc] */}
+              <button
+                type="button"
+                onClick={() => setActiveTab("unread")}
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                  activeTab === "unread"
+                    ? "bg-rose-600 text-white border-rose-500 badge-solid-white font-bold"
+                    : "bg-slate-950/80 text-rose-400 border-slate-800 hover:border-rose-600/40"
+                }`}
+              >
+                <span>Chưa đọc</span>
+                <span
+                  className={`rounded-full px-1.5 text-[9px] tabular-nums font-bold ${
+                    activeTab === "unread"
+                      ? "bg-black/25 text-white"
+                      : pillCounts.unread > 0
+                      ? "bg-rose-600 text-white"
+                      : "bg-slate-800 text-slate-300"
+                  }`}
+                >
+                  {pillCounts.unread}
+                </span>
+              </button>
+
+              {/* [⏳ Chưa trả lời] */}
+              <button
+                type="button"
+                onClick={() => setActiveTab("unanswered")}
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                  activeTab === "unanswered"
+                    ? "bg-amber-600 text-white border-amber-500 badge-solid-white font-bold"
+                    : "bg-slate-950/80 text-amber-400 border-slate-800 hover:border-amber-600/40"
+                }`}
+              >
+                <Hourglass className="w-3 h-3 text-amber-300 shrink-0" />
+                <span>Chưa trả lời</span>
+                <span
+                  className={`rounded-full px-1.5 text-[9px] tabular-nums font-bold ${
+                    activeTab === "unanswered"
+                      ? "bg-black/25 text-white"
+                      : "bg-amber-950 text-amber-300 border border-amber-800/40"
+                  }`}
+                >
+                  {pillCounts.unanswered}
+                </span>
+              </button>
+
               {/* [🔥 Có SĐT] */}
               <button
                 type="button"
                 onClick={() => setActiveTab("has_phone")}
-                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "has_phone"
                     ? "bg-emerald-600 text-white border-emerald-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-emerald-400 border-slate-800 hover:border-emerald-600/40"
@@ -4052,34 +4127,11 @@ export default function LiveZaloInbox() {
                 </span>
               </button>
 
-              {/* [⏳ Chưa trả lời] */}
-              <button
-                type="button"
-                onClick={() => setActiveTab("unanswered")}
-                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
-                  activeTab === "unanswered"
-                    ? "bg-amber-600 text-white border-amber-500 badge-solid-white font-bold"
-                    : "bg-slate-950/80 text-amber-400 border-slate-800 hover:border-amber-600/40"
-                }`}
-              >
-                <Hourglass className="w-3 h-3 text-amber-300 shrink-0" />
-                <span>Chưa trả lời</span>
-                <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums ${
-                    activeTab === "unanswered"
-                      ? "bg-black/25 text-white"
-                      : "bg-amber-950 text-amber-300 border border-amber-800/40"
-                  }`}
-                >
-                  {pillCounts.unanswered}
-                </span>
-              </button>
-
               {/* [🚨 Quá SLA] */}
               <button
                 type="button"
                 onClick={() => setActiveTab("over_sla")}
-                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "over_sla"
                     ? "bg-rose-600 text-white border-rose-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-rose-400 border-slate-800 hover:border-rose-600/40"
@@ -4102,7 +4154,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("bot_on")}
-                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
                   activeTab === "bot_on"
                     ? "bg-purple-600 text-white border-purple-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-purple-400 border-slate-800 hover:border-purple-600/40"
@@ -4118,28 +4170,6 @@ export default function LiveZaloInbox() {
                   }`}
                 >
                   {pillCounts.botOn}
-                </span>
-              </button>
-
-              {/* [Chưa đọc] */}
-              <button
-                type="button"
-                onClick={() => setActiveTab("unread")}
-                className={`min-h-[38px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
-                  activeTab === "unread"
-                    ? "bg-sky-600 text-white border-sky-500 badge-solid-white font-bold"
-                    : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700"
-                }`}
-              >
-                <span>Chưa đọc</span>
-                <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums ${
-                    activeTab === "unread"
-                      ? "bg-black/25 text-white"
-                      : "bg-slate-800 text-slate-300"
-                  }`}
-                >
-                  {pillCounts.unread}
                 </span>
               </button>
 

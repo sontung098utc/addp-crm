@@ -135,7 +135,16 @@ export default function WorkTrackingPage() {
           setServerHiddenFutureCount(data.hiddenFutureCount);
         }
         if (Array.isArray(data.staffs)) setStaffs(data.staffs);
-        if (data.metrics) setMetrics(data.metrics);
+        if (data.metrics) {
+          setMetrics(data.metrics);
+          if (typeof window !== "undefined") {
+            const activeCareCount =
+              (Number(data.metrics.todayPending) || 0) + (Number(data.metrics.overdue) || 0);
+            window.dispatchEvent(
+              new CustomEvent("addp:care-count", { detail: { count: activeCareCount } })
+            );
+          }
+        }
         setLastSyncedAt(data.lastSyncedAt || null);
       }
     } catch (err) {

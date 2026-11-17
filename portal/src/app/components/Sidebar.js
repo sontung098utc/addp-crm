@@ -105,7 +105,14 @@ export default function Sidebar({
       }
     };
 
+    const handleRealtimeCareCount = (e) => {
+      if (typeof e?.detail?.count === "number") {
+        setSidebarStats((prev) => ({ ...prev, careTasksCount: e.detail.count }));
+      }
+    };
+
     window.addEventListener("addp:unread-count", handleRealtimeUnread);
+    window.addEventListener("addp:care-count", handleRealtimeCareCount);
 
     loadStats();
     const timer = setInterval(loadStats, 45000);
@@ -115,6 +122,7 @@ export default function Sidebar({
       clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("addp:unread-count", handleRealtimeUnread);
+      window.removeEventListener("addp:care-count", handleRealtimeCareCount);
     };
   }, [pathname, currentUser]);
 

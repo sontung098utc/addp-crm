@@ -126,14 +126,17 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
   const cached = globalThis.__ADDP_ZALO_HIST_THREADS_CACHE__.get(cacheKey);
   let baseThreadsMap;
   let unreadCounterMap;
+  let lastSelfTsMap;
 
   if (cached && cached.filesSig === filesSig && Date.now() - cached.ts < 15000) {
     baseThreadsMap = cached.baseThreadsMap;
     unreadCounterMap = cached.unreadCounterMap;
+    lastSelfTsMap = cached.lastSelfTsMap || new Map();
   } else {
     baseThreadsMap = new Map();
     const seenMsgIds = new Set();
     unreadCounterMap = new Map();
+    lastSelfTsMap = new Map();
 
     for (const filePath of historyFiles) {
       try {
@@ -160,7 +163,10 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
             const senderName = msg.senderName || "";
             const existing = baseThreadsMap.get(tid);
 
-            if (!isSelf) {
+            if (isSelf) {
+              const prevSelfTs = lastSelfTsMap.get(tid) || 0;
+              if (ts > prevSelfTs) lastSelfTsMap.set(tid, ts);
+            } else {
               const list = unreadCounterMap.get(tid) || [];
               list.push(ts);
               unreadCounterMap.set(tid, list);
@@ -195,25 +201,32 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
       ts: Date.now(),
       baseThreadsMap,
       unreadCounterMap,
+      lastSelfTsMap,
     });
   }
 
   const threadsMap = new Map();
-  // Gắn số lượng chưa đọc chuẩn xác vào từng thread
+  const nowMs = Date.now();
+  const recentWindowCutoff = nowMs - 24 * 3600 * 1000;
+  // Gắn số lượng chưa đọc chuẩn xác vào từng thread (chỉ tính tin khách gửi sau lần trả lời/mở đọc gần nhất và không đếm lịch sử cũ >24h chưa từng mở trên CRM)
   for (const [tid, rawThread] of baseThreadsMap.entries()) {
     const thread = { ...rawThread };
     const tidClean = tid.replace(/^[gu]_/, "");
     const lastReadTs = Number(readReceipts[tid] || readReceipts[tidClean] || 0);
-    if (thread.isSelf) {
+    const lastSelfTs = Number(lastSelfTsMap.get(tid) || 0);
+    const effectiveReadCutoff = Math.max(
+      lastReadTs,
+      lastSelfTs,
+      lastReadTs === 0 ? recentWindowCutoff : 0
+    );
+
+    if (thread.isSelf || String(tid) === String(ownId)) {
       thread.unreadCount = 0;
-    } else if (lastReadTs > 0 && thread.timestamp <= lastReadTs) {
+    } else if (thread.timestamp <= effectiveReadCutoff) {
       thread.unreadCount = 0;
     } else {
       const incomingTimestamps = unreadCounterMap.get(tid) || [];
-      const unreadCnt =
-        lastReadTs > 0
-          ? incomingTimestamps.filter((t) => t > lastReadTs).length
-          : incomingTimestamps.length;
+      const unreadCnt = incomingTimestamps.filter((t) => t > effectiveReadCutoff).length;
       thread.unreadCount = Math.max(1, unreadCnt || 1);
     }
     threadsMap.set(tid, thread);

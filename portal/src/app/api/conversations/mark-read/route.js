@@ -12,6 +12,12 @@ export async function POST(request) {
     }
 
     markThreadAsRead(threadId, timestamp);
+    if (globalThis.__ADDP_CONV_CACHE__) {
+      globalThis.__ADDP_CONV_CACHE__.clear();
+    }
+    if (globalThis.__ADDP_SIDEBAR_STATS_CACHE__) {
+      globalThis.__ADDP_SIDEBAR_STATS_CACHE__.clear();
+    }
     return NextResponse.json({
       ok: true,
       threadId,

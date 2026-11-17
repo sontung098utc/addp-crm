@@ -54,14 +54,21 @@ export async function GET(request) {
     const visibleChannels = filterChannelsForStaff(currentStaff, activeChannels);
     const channelsCount = visibleChannels.length;
 
-    // 2. Đếm số lịch chăm sóc đến hạn / quá hạn thực tế của nhân viên hiện tại
+    // 2. Đếm số khách hàng có lịch chăm sóc đến hạn / quá hạn thực tế của nhân viên hiện tại (khử trùng theo khách hàng)
     const memoryTasks = getAllCareTasks();
     const rawTasks = memoryTasks.length > 0 ? memoryTasks : readPersistedTasksFallback();
     const scopedTasks = filterRecordsByRbac(currentStaff, rawTasks, "tasks");
     const todayStr = new Date().toISOString().slice(0, 10);
-    const careTasksCount = scopedTasks.filter(
-      (t) => !t.isCompleted && (!t.deadline || String(t.deadline).slice(0, 10) <= todayStr)
-    ).length;
+    const dueCustomerKeys = new Set();
+    for (const t of scopedTasks) {
+      if (!t || t.isCompleted) continue;
+      const dl = t.deadline ? String(t.deadline).slice(0, 10) : todayStr;
+      if (dl <= todayStr) {
+        const custKey = String(t.customerId || t.customerPhone || t.id || "").trim();
+        if (custKey) dueCustomerKeys.add(custKey);
+      }
+    }
+    const careTasksCount = dueCustomerKeys.size;
 
     // 3. Đếm số hội thoại có tin nhắn chưa đọc thực tế trên các kênh được phân quyền
     let inboxUnreadCount = 0;

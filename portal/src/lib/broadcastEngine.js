@@ -13,6 +13,7 @@ import { listAllChannels } from "./connectionHub.js";
 import { DEFAULT_DAILY_ZALO_MSG_LIMIT, isSafePilotMode } from "./pilotConfig.js";
 import { sendMetaFacebookMessage } from "./adapters/metaFacebookAdapter.js";
 import { sendZaloOaMessage } from "./adapters/zaloOaAdapter.js";
+import { sendUnifiedMessage } from "./unifiedMessageRouter.js";
 
 /**
  * ADDP Omnichannel AI CRM — Smart Broadcast Engine & Anti-Ban Queue (WBS-35 - Modules 2 & 3)
@@ -403,6 +404,31 @@ async function dispatchPlatformBroadcastMessage(campaign, customer, renderedText
     return { ok: false, error: res.error || "Zalo OpenAPI từ chối gửi tin." };
   }
 
+  // 4. Đối với TikTok Shop & Shopee
+  if (channel === "TIKTOK_SHOP" || channel === "TIKTOK" || channel === "SHOPEE") {
+    const recipientId = String(customer.id || customer.phone || "");
+    if (!recipientId) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: `Bỏ qua: Khách hàng chưa có định danh hội thoại ${channel}`,
+      };
+    }
+    const res = await sendUnifiedMessage({
+      channel: channel === "TIKTOK" ? "TIKTOK_SHOP" : channel,
+      recipientId,
+      shopId: campaign.channelId && campaign.channelId !== "ALL" ? campaign.channelId : undefined,
+      message: renderedText,
+    });
+    if (res?.ok) {
+      return {
+        ok: true,
+        note: `Đã gửi qua ${channel}`,
+      };
+    }
+    return { ok: false, error: res?.error || `Không thể gửi tin nhắn qua ${channel}.` };
+  }
+
   return { ok: false, error: `Kênh không hợp lệ: ${channel}` };
 }
 
@@ -620,22 +646,35 @@ export function createBroadcastCampaign(input = {}) {
   const audienceSource =
     input.audienceSource || (includeTags.length > 0 ? "BY_TAG" : "ZALO_FRIENDS");
 
-  // Lấy danh sách người nhận từ bộ lọc thẻ hoặc từ customRecipients (khi chạy test)
+  // Lấy danh sách người nhận từ bộ lọc thẻ hoặc từ customRecipients (khi chạy test / chọn thủ công)
   let recipientsList = [];
   if (Array.isArray(input.customRecipients) && input.customRecipients.length > 0) {
     recipientsList = input.customRecipients;
   } else if (Array.isArray(input.recipients) && input.recipients.length > 0) {
     recipientsList = input.recipients;
   } else {
+    const targetAcc =
+      input.targetAccount && input.targetAccount !== "ALL"
+        ? input.targetAccount
+        : input.channelId && input.channelId !== channel && input.channelId !== "ALL"
+        ? input.channelId
+        : "ALL";
     const audienceResult = resolveBroadcastAudience({
       audienceSource,
       includeTags,
       excludeTags,
       channel,
       operator,
-      targetAccount: input.channelId || input.accountName,
+      targetAccount: targetAcc,
+      productFilter: input.productFilter || "ALL",
+      categoryFilter: input.categoryFilter || "ALL",
+      searchQuery: input.searchQuery || "",
     });
     recipientsList = audienceResult.allMatched || [];
+    if (Array.isArray(input.selectedRecipientIds) && input.selectedRecipientIds.length > 0) {
+      const selectedSet = new Set(input.selectedRecipientIds.map((id) => String(id)));
+      recipientsList = recipientsList.filter((r) => selectedSet.has(String(r.id)));
+    }
   }
 
   const mappedRecipients = recipientsList.map((cust) => ({

@@ -19,6 +19,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const channel = searchParams.get("channel") || "ALL";
     const audienceSource = searchParams.get("source") || "ZALO_FRIENDS";
+    const targetAccount = searchParams.get("targetAccount") || "ALL";
 
     const result = resolveBroadcastAudience({
       audienceSource,
@@ -26,6 +27,7 @@ export async function GET(request) {
       excludeTags: ["Đã Hủy Đơn", "Khiếu Nại", "Dừng Chăm Sóc"],
       channel,
       operator: "OR",
+      targetAccount,
     });
 
     const activeTags = getTags().map((t) => t.name);
@@ -35,6 +37,8 @@ export async function GET(request) {
       audienceSource,
       totalCount: result.totalCount,
       previewList: result.previewList,
+      availableProducts: result.availableProducts || [],
+      availableCategories: result.availableCategories || [],
       channelBreakdown: result.channelBreakdown,
       availableTags: activeTags.length > 0 ? activeTags : STANDARD_CUSTOMER_TAGS,
       standardTags: STANDARD_CUSTOMER_TAGS,
@@ -58,6 +62,9 @@ export async function POST(request) {
       channel = "ALL",
       operator = "OR",
       targetAccount = "ALL",
+      productFilter = "ALL",
+      categoryFilter = "ALL",
+      searchQuery = "",
     } = body || {};
 
     const result = resolveBroadcastAudience({
@@ -67,6 +74,9 @@ export async function POST(request) {
       channel,
       operator,
       targetAccount,
+      productFilter,
+      categoryFilter,
+      searchQuery,
     });
 
     const activeTags = getTags().map((t) => t.name);
@@ -76,6 +86,8 @@ export async function POST(request) {
       audienceSource,
       totalCount: result.totalCount,
       previewList: result.previewList,
+      availableProducts: result.availableProducts || [],
+      availableCategories: result.availableCategories || [],
       channelBreakdown: result.channelBreakdown,
       availableTags: activeTags.length > 0 ? activeTags : STANDARD_CUSTOMER_TAGS,
     });

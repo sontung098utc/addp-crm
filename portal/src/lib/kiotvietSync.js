@@ -357,9 +357,17 @@ export function calculateOrderSummaryForPhone(orders = [], rawPhone = "") {
 export function triggerCareScheduleForDeliveredOrders(orders = []) {
   let createdCount = 0;
   try {
+    // Không tự động sinh hàng vạn lịch chăm sóc ảo khi đang chạy đồng bộ lịch sử (backfill hàng loạt)
+    if (!Array.isArray(orders) || orders.length > 25) {
+      return 0;
+    }
+    const nowMs = Date.now();
     getAllCareTasks(getAllCustomers());
     for (const order of orders) {
       if (order && order.status === "DELIVERED") {
+        const orderTs = order.createdAt ? new Date(order.createdAt).getTime() : 0;
+        // Chỉ tạo lịch chăm sóc cho đơn hàng mới phát sinh trong vòng 48 giờ qua
+        if (!orderTs || nowMs - orderTs > 48 * 3600 * 1000) continue;
         const created = appendOrderCareTasks({
           ...order,
           channel: order.channel || "KIOTVIET",

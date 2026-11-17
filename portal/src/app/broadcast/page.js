@@ -75,7 +75,10 @@ export default function BroadcastPage() {
   const [selectedAccountId, setSelectedAccountId] = useState("ALL");
   const [accountName, setAccountName] = useState("Zalo Cá Nhân");
   const [zaloAccounts, setZaloAccounts] = useState([]);
+  const [zaloOaAccounts, setZaloOaAccounts] = useState([]);
   const [facebookPages, setFacebookPages] = useState([]);
+  const [tiktokShops, setTiktokShops] = useState([]);
+  const [shopeeShops, setShopeeShops] = useState([]);
   const [includeTags, setIncludeTags] = useState([]);
   const [excludeTags, setExcludeTags] = useState([
     "Đã Hủy Đơn",
@@ -83,6 +86,15 @@ export default function BroadcastPage() {
     "Dừng Chăm Sóc",
   ]);
   const [tagOperator, setTagOperator] = useState("OR");
+  const [productFilter, setProductFilter] = useState("ALL");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
+  const [audienceSearch, setAudienceSearch] = useState("");
+  const [availableProducts, setAvailableProducts] = useState([]);
+  const [availableCategories, setAvailableCategories] = useState([]);
+  const [selectedRecipientIds, setSelectedRecipientIds] = useState([]);
+  const [manualSelectionActive, setManualSelectionActive] = useState(false);
+  const [previewPage, setPreviewPage] = useState(1);
+  const previewPageSize = 30;
   const [templateText, setTemplateText] = useState(
     "{Dạ em Thảo chào|Em chào|Dạ kính chào} {fullName} ạ! {Dược sĩ ADDP|Chuyên viên {assignedStaff}} nhắn nhắc mình nhớ duy trì uống đều đặn 2 ly Sữa hạt Glucare Plus với nước ấm 45-50°C mỗi ngày để đường huyết lúc đói luôn bình ổn nhé ạ!"
   );
@@ -103,8 +115,10 @@ export default function BroadcastPage() {
     zalo: 0,
     messenger: 0,
     zaloOa: 0,
+    tiktok: 0,
+    shopee: 0,
   });
-  const [showPreviewDrawer, setShowPreviewDrawer] = useState(false);
+  const [showPreviewDrawer, setShowPreviewDrawer] = useState(true);
   const [loadingAudience, setLoadingAudience] = useState(false);
 
   // State Modal Gửi Thử 1 Tin
@@ -153,8 +167,22 @@ export default function BroadcastPage() {
         setZaloAccounts(
           active.filter((c) => c.platform === "ZALO_PERSONAL" || c.type === "zalo_personal")
         );
+        setZaloOaAccounts(
+          active.filter((c) => c.platform === "ZALO_OA" || c.type === "zalo_oa")
+        );
         setFacebookPages(
           active.filter((c) => c.platform === "FACEBOOK" || c.type === "facebook")
+        );
+        setTiktokShops(
+          active.filter(
+            (c) =>
+              c.platform === "TIKTOK_SHOP" ||
+              c.platform === "TIKTOK" ||
+              c.type === "tiktok_shop"
+          )
+        );
+        setShopeeShops(
+          active.filter((c) => c.platform === "SHOPEE" || c.type === "shopee")
         );
       })
       .catch(() => {});
@@ -174,7 +202,7 @@ export default function BroadcastPage() {
     return () => clearInterval(interval);
   }, [campaigns]);
 
-  // Tự động đếm tệp khách nhận mỗi khi thay đổi Nguồn tệp, Thẻ hoặc Kênh
+  // Tự động đếm & lọc tệp khách nhận mỗi khi thay đổi Nguồn tệp, Tài khoản, Thẻ, Sản phẩm, Phân loại hoặc Kênh
   useEffect(() => {
     let cancelled = false;
     async function countAudience() {
@@ -189,17 +217,31 @@ export default function BroadcastPage() {
             excludeTags,
             channel,
             operator: tagOperator,
+            targetAccount: selectedAccountId,
+            productFilter,
+            categoryFilter,
+            searchQuery: audienceSearch,
           }),
         });
         const data = await res.json();
         if (!cancelled && data.ok) {
+          const preview = Array.isArray(data.previewList) ? data.previewList : [];
           setAudienceCount(Number(data.totalCount) || 0);
-          setAudiencePreview(Array.isArray(data.previewList) ? data.previewList : []);
+          setAudiencePreview(preview);
+          setSelectedRecipientIds(preview.map((c) => String(c.id)));
+          setManualSelectionActive(false);
+          setPreviewPage(1);
           if (data.channelBreakdown) {
             setChannelBreakdown(data.channelBreakdown);
           }
           if (Array.isArray(data.availableTags)) {
             setAvailableTags(data.availableTags);
+          }
+          if (Array.isArray(data.availableProducts)) {
+            setAvailableProducts(data.availableProducts);
+          }
+          if (Array.isArray(data.availableCategories)) {
+            setAvailableCategories(data.availableCategories);
           }
         }
       } catch (err) {
@@ -212,7 +254,39 @@ export default function BroadcastPage() {
     return () => {
       cancelled = true;
     };
-  }, [audienceSource, includeTags, excludeTags, channel, tagOperator]);
+  }, [
+    audienceSource,
+    includeTags,
+    excludeTags,
+    channel,
+    tagOperator,
+    selectedAccountId,
+    productFilter,
+    categoryFilter,
+    audienceSearch,
+  ]);
+
+  const effectiveSendCount = manualSelectionActive
+    ? selectedRecipientIds.length
+    : audienceCount;
+
+  const toggleSelectRecipient = (id) => {
+    const strId = String(id);
+    setManualSelectionActive(true);
+    setSelectedRecipientIds((prev) =>
+      prev.includes(strId) ? prev.filter((x) => x !== strId) : [...prev, strId]
+    );
+  };
+
+  const handleSelectAllPreview = () => {
+    setManualSelectionActive(false);
+    setSelectedRecipientIds(audiencePreview.map((c) => String(c.id)));
+  };
+
+  const handleClearAllPreview = () => {
+    setManualSelectionActive(true);
+    setSelectedRecipientIds([]);
+  };
 
   const toggleIncludeTag = (tag) => {
     setIncludeTags((prev) =>
@@ -258,8 +332,8 @@ export default function BroadcastPage() {
   const handleCreateCampaign = async (e) => {
     e.preventDefault();
 
-    if (audienceCount === 0) {
-      showNotice("⚠️ Tệp khách hàng nhận tin đang rỗng (0 người)! Vui lòng kiểm tra lại bộ lọc.", "error");
+    if (effectiveSendCount === 0) {
+      showNotice("⚠️ Chưa có khách hàng nào được chọn để gửi tin (0 người)! Vui lòng tích chọn ít nhất 1 khách hàng.", "error");
       return;
     }
 
@@ -274,6 +348,9 @@ export default function BroadcastPage() {
 
     try {
       setSubmitting(true);
+      const customRecipientsPayload = manualSelectionActive
+        ? audiencePreview.filter((c) => selectedRecipientIds.includes(String(c.id)))
+        : null;
       const res = await fetch("/api/broadcast/campaigns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -282,11 +359,16 @@ export default function BroadcastPage() {
           audienceSource,
           channel,
           channelId: selectedAccountId !== "ALL" ? selectedAccountId : channel,
+          targetAccount: selectedAccountId,
           accountName,
           tags: includeTags,
           includeTags,
           excludeTags,
           operator: tagOperator,
+          productFilter,
+          categoryFilter,
+          searchQuery: audienceSearch,
+          ...(customRecipientsPayload ? { customRecipients: customRecipientsPayload } : {}),
           templateText: templateText.trim(),
           speedRange: [Math.max(45, Number(speedMin) || 45), Math.max(45, Number(speedMax) || 120)],
           useMessageTag,
@@ -525,25 +607,37 @@ export default function BroadcastPage() {
               </h3>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
               {[
                 {
                   id: "ZALO_PERSONAL",
                   label: "Zalo Cá Nhân (QR)",
-                  sub: "Kết nối danh bạ & lịch sử thật (zca-js)",
+                  sub: "Danh bạ & lịch sử nick",
                   icon: "💬",
-                },
-                {
-                  id: "FACEBOOK",
-                  label: "Fanpage Facebook",
-                  sub: "Luật Meta 24h & Message Tag",
-                  icon: "📘",
                 },
                 {
                   id: "ZALO_OA",
                   label: "Zalo OA Official",
-                  sub: "Tin Tư vấn 48h hoặc ZNS Template",
+                  sub: "Tin Tư vấn 48h / ZNS",
                   icon: "🏢",
+                },
+                {
+                  id: "FACEBOOK",
+                  label: "Fanpage Facebook",
+                  sub: "Luật Meta 24h & Tag",
+                  icon: "📘",
+                },
+                {
+                  id: "TIKTOK_SHOP",
+                  label: "TikTok Shop",
+                  sub: "Khách chat & đơn hàng",
+                  icon: "🎵",
+                },
+                {
+                  id: "SHOPEE",
+                  label: "Shopee",
+                  sub: "Khách chat & đơn hàng",
+                  icon: "🟧",
                 },
               ].map((chItem) => {
                 const active = channel === chItem.id;
@@ -555,8 +649,11 @@ export default function BroadcastPage() {
                       setChannel(chItem.id);
                       setSelectedAccountId("ALL");
                       setAccountName(chItem.label);
+                      if (chItem.id !== "ZALO_PERSONAL" && audienceSource === "ZALO_FRIENDS") {
+                        setAudienceSource("ALL_INBOX");
+                      }
                     }}
-                    className={`rounded-xl border p-3.5 text-left transition cursor-pointer ${
+                    className={`rounded-xl border p-3 text-left transition cursor-pointer ${
                       active
                         ? "border-blue-500 bg-blue-600/15 shadow-md shadow-blue-500/10"
                         : "border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700"
@@ -570,18 +667,18 @@ export default function BroadcastPage() {
                         </span>
                       )}
                     </div>
-                    <p className="font-bold text-xs text-slate-900 dark:text-white mt-2">{chItem.label}</p>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{chItem.sub}</p>
+                    <p className="font-bold text-xs text-slate-900 dark:text-white mt-1.5">{chItem.label}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{chItem.sub}</p>
                   </button>
                 );
               })}
             </div>
 
-            {/* Chọn Tài Khoản / Fanpage cụ thể để gửi */}
+            {/* Chọn Tài Khoản / Fanpage / Gian hàng cụ thể để gửi */}
             {channel === "ZALO_PERSONAL" && (
               <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                 <label className="font-semibold text-slate-700 dark:text-slate-200 shrink-0">
-                  👤 Tài khoản Zalo gửi tin:
+                  👤 Chọn Nick Zalo Cá Nhân gửi tin (Sẽ lọc đúng bạn bè &amp; khách của nick này):
                 </label>
                 <select
                   value={selectedAccountId}
@@ -605,6 +702,40 @@ export default function BroadcastPage() {
                     return (
                       <option key={acc.id || accKey} value={accKey}>
                         {acc.name || acc.displayName || accKey}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {channel === "ZALO_OA" && (
+              <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <label className="font-semibold text-slate-700 dark:text-slate-200 shrink-0">
+                  🏢 Tài khoản Zalo OA gửi tin:
+                </label>
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedAccountId(val);
+                    if (val === "ALL") {
+                      setAccountName("Zalo OA Official");
+                    } else {
+                      const found = zaloOaAccounts.find(
+                        (a) => String(a.config?.oaId || a.externalId || a.id) === String(val)
+                      );
+                      setAccountName(found?.name || `Zalo OA #${val}`);
+                    }
+                  }}
+                  className="w-full sm:w-80 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="ALL">Tất cả Zalo OA đã kết nối ({zaloOaAccounts.length || 1} OA)</option>
+                  {zaloOaAccounts.map((oa) => {
+                    const oaKey = String(oa.config?.oaId || oa.externalId || oa.id);
+                    return (
+                      <option key={oa.id || oaKey} value={oaKey}>
+                        {oa.name || oaKey}
                       </option>
                     );
                   })}
@@ -639,6 +770,74 @@ export default function BroadcastPage() {
                     return (
                       <option key={pg.id || pgKey} value={pgKey}>
                         {pg.name || pgKey}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {channel === "TIKTOK_SHOP" && (
+              <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <label className="font-semibold text-slate-700 dark:text-slate-200 shrink-0">
+                  🎵 Gian hàng TikTok Shop gửi tin:
+                </label>
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedAccountId(val);
+                    if (val === "ALL") {
+                      setAccountName("TikTok Shop (Tất cả)");
+                    } else {
+                      const found = tiktokShops.find(
+                        (s) => String(s.config?.shopId || s.externalId || s.id) === String(val)
+                      );
+                      setAccountName(found?.name || `TikTok Shop #${val}`);
+                    }
+                  }}
+                  className="w-full sm:w-80 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="ALL">Tất cả gian hàng TikTok Shop ({tiktokShops.length || 1} shop)</option>
+                  {tiktokShops.map((sh) => {
+                    const shKey = String(sh.config?.shopId || sh.externalId || sh.id);
+                    return (
+                      <option key={sh.id || shKey} value={shKey}>
+                        {sh.name || shKey}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {channel === "SHOPEE" && (
+              <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <label className="font-semibold text-slate-700 dark:text-slate-200 shrink-0">
+                  🟧 Gian hàng Shopee gửi tin:
+                </label>
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedAccountId(val);
+                    if (val === "ALL") {
+                      setAccountName("Shopee (Tất cả)");
+                    } else {
+                      const found = shopeeShops.find(
+                        (s) => String(s.config?.shopId || s.externalId || s.id) === String(val)
+                      );
+                      setAccountName(found?.name || `Shopee #${val}`);
+                    }
+                  }}
+                  className="w-full sm:w-80 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="ALL">Tất cả gian hàng Shopee ({shopeeShops.length || 1} shop)</option>
+                  {shopeeShops.map((sh) => {
+                    const shKey = String(sh.config?.shopId || sh.externalId || sh.id);
+                    return (
+                      <option key={sh.id || shKey} value={shKey}>
+                        {sh.name || shKey}
                       </option>
                     );
                   })}
@@ -738,22 +937,83 @@ export default function BroadcastPage() {
               })}
             </div>
 
-            {/* Khu vực chọn Thẻ Tag (Chỉ mở khi chọn chế độ BY_TAG) */}
-            {audienceSource === "BY_TAG" && (
-              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
+            {/* Bộ lọc đa tiêu chí: Sản phẩm mua, Phân loại KH, Tìm kiếm & Thẻ Tag */}
+            <div className="rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 p-4 space-y-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    📦 Lọc theo Sản phẩm đã mua:
+                  </label>
+                  <select
+                    value={productFilter}
+                    onChange={(e) => setProductFilter(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="ALL">Tất cả sản phẩm ({availableProducts.length} SP)</option>
+                    {availableProducts.map((prod) => (
+                      <option key={prod} value={prod}>
+                        {prod}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    💎 Lọc theo Phân loại khách hàng:
+                  </label>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="ALL">Tất cả phân loại ({availableCategories.length})</option>
+                    {availableCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    🔍 Tìm nhanh khách hàng (Tên / SĐT / UID):
+                  </label>
+                  <input
+                    type="text"
+                    value={audienceSearch}
+                    onChange={(e) => setAudienceSearch(e.target.value)}
+                    placeholder="Gõ tên, SĐT hoặc mã UID..."
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Chọn Thẻ Khách Hàng Cần Gửi (Include Tags - Luôn mở cho mọi chế độ) */}
+              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="text-xs font-semibold text-slate-300">
-                    🏷️ Chọn Thẻ Khách Hàng Cần Gửi (Include Tags):
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    🏷️ Lọc theo Thẻ Khách Hàng (Include Tags):
                   </span>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-400 text-[11px]">Toán tử khớp thẻ:</span>
+                    {includeTags.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setIncludeTags([])}
+                        className="text-[11px] text-rose-500 hover:underline cursor-pointer mr-2"
+                      >
+                        Xóa lọc thẻ ({includeTags.length})
+                      </button>
+                    )}
+                    <span className="text-slate-500 dark:text-slate-400 text-[11px]">Toán tử khớp thẻ:</span>
                     <button
                       type="button"
                       onClick={() => setTagOperator("OR")}
                       className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer ${
                         tagOperator === "OR"
                           ? "bg-blue-600 text-white border-blue-500"
-                          : "bg-slate-900 text-slate-400 border-slate-800"
+                          : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-800"
                       }`}
                     >
                       HOẶC (OR)
@@ -764,7 +1024,7 @@ export default function BroadcastPage() {
                       className={`px-2 py-0.5 rounded text-[11px] font-semibold border cursor-pointer ${
                         tagOperator === "AND"
                           ? "bg-blue-600 text-white border-blue-500"
-                          : "bg-slate-900 text-slate-400 border-slate-800"
+                          : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-800"
                       }`}
                     >
                       VÀ (AND)
@@ -772,30 +1032,19 @@ export default function BroadcastPage() {
                   </div>
                 </div>
 
-                {availableTags.length === 0 ? (
-                  <div className="p-3 text-xs text-slate-400 bg-slate-900/50 rounded-lg border border-slate-800">
-                    Chưa có thẻ tag nào được tạo. Vào{" "}
-                    <a href="/settings/tags" className="text-blue-400 underline font-semibold">
-                      ⚙️ Quản lý Thẻ Tag
-                    </a>{" "}
-                    hoặc gắn thẻ trực tiếp cho khách trong Hộp Thư Đa Kênh.
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
+                {availableTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
                     {availableTags.map((tag) => {
                       const selected = includeTags.includes(tag);
-                      const badgeStyle =
-                        TAG_BADGE_STYLES[tag] ||
-                        "bg-slate-800 text-slate-300 border-slate-700";
                       return (
                         <button
                           key={tag}
                           type="button"
                           onClick={() => toggleIncludeTag(tag)}
-                          className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
+                          className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition flex items-center gap-1 cursor-pointer ${
                             selected
-                              ? `${badgeStyle} ring-2 ring-blue-500/60`
-                              : "border-slate-800 bg-slate-900 text-slate-400 opacity-70 hover:opacity-100"
+                              ? "border-blue-600 bg-blue-600 text-white shadow-xs"
+                              : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-blue-400"
                           }`}
                         >
                           <span>{selected ? "✓" : "+"}</span>
@@ -806,11 +1055,11 @@ export default function BroadcastPage() {
                   </div>
                 )}
               </div>
-            )}
+            </div>
 
             {/* Danh sách thẻ loại trừ (Exclude Tags) */}
-            <div className="rounded-xl border border-rose-500/20 bg-rose-950/10 p-3.5 space-y-2">
-              <span className="text-xs font-semibold text-rose-300 block">
+            <div className="rounded-xl border border-rose-500/30 bg-rose-50 dark:bg-rose-950/15 p-3.5 space-y-2">
+              <span className="text-xs font-semibold text-rose-700 dark:text-rose-300 block">
                 🚫 Tự động loại trừ khách mang các thẻ sau (Exclude Tags):
               </span>
               <div className="flex flex-wrap gap-2">
@@ -823,8 +1072,8 @@ export default function BroadcastPage() {
                       onClick={() => toggleExcludeTag(tag)}
                       className={`rounded-lg border px-2.5 py-1 text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer ${
                         selected
-                          ? "border-rose-500/50 bg-rose-500/20 text-rose-200"
-                          : "border-slate-800 bg-slate-900/60 text-slate-500 hover:text-slate-300"
+                          ? "border-rose-500 bg-rose-600 text-white shadow-xs"
+                          : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900"
                       }`}
                     >
                       <span>{selected ? "✕" : "+"}</span>
@@ -837,85 +1086,196 @@ export default function BroadcastPage() {
 
             {/* Hộp Thống kê tệp nhận & Cảnh báo tệp rỗng */}
             {audienceCount === 0 && !loadingAudience ? (
-              <div className="rounded-xl border border-rose-500/40 bg-rose-950/30 p-4 space-y-2">
-                <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
+              <div className="rounded-xl border border-rose-500/40 bg-rose-50 dark:bg-rose-950/30 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-rose-700 dark:text-rose-300 font-bold text-xs">
                   <span>⚠️ CẢNH BÁO: Tệp người nhận hiện tại có 0 khách hàng!</span>
                 </div>
-                <p className="text-[12px] text-rose-200 leading-relaxed">
-                  {audienceSource === "BY_TAG"
-                    ? "Thẻ bạn chọn hiện chưa có khách hàng nào được gắn. Vui lòng bấm chọn nguồn '👥 Tất cả Bạn Bè Nick Zalo' hoặc vào Hộp Thư Đa Kênh gắn thẻ cho khách trước khi gửi."
-                    : "Không tìm thấy khách hàng nào thỏa mãn điều kiện lọc. Vui lòng chọn nguồn tệp khác hoặc bỏ bớt thẻ loại trừ."}
+                <p className="text-[12px] text-rose-600 dark:text-rose-200 leading-relaxed">
+                  Không tìm thấy khách hàng nào của tài khoản đang chọn thỏa mãn điều kiện lọc. Vui lòng đổi nguồn tệp hoặc xóa bớt bộ lọc thẻ / sản phẩm.
                 </p>
               </div>
             ) : (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="rounded-xl border border-emerald-500/40 bg-emerald-50/70 dark:bg-emerald-950/20 p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-emerald-300">
-                      📊 Thống kê tệp khách nhận THỰC TẾ:
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                      📊 Thống kê tệp khách của tài khoản đang chọn:
                     </span>
                     <span className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      {loadingAudience ? "Đang quét..." : `${audienceCount} khách hàng hợp lệ`}
+                      {loadingAudience
+                        ? "Đang quét..."
+                        : manualSelectionActive
+                        ? `Đã tích chọn ${selectedRecipientIds.length} / ${audienceCount} khách hàng`
+                        : `${audienceCount} khách hàng hợp lệ`}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                    <span>💬 Có Zalo: <strong className="text-cyan-300">{channelBreakdown.zalo}</strong></span>
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-400">
+                    <span>💬 Zalo: <strong className="text-cyan-700 dark:text-cyan-300">{channelBreakdown.zalo}</strong></span>
                     <span>•</span>
-                    <span>📘 Có Messenger: <strong className="text-blue-300">{channelBreakdown.messenger}</strong></span>
+                    <span>📘 Messenger: <strong className="text-blue-700 dark:text-blue-300">{channelBreakdown.messenger}</strong></span>
                     <span>•</span>
-                    <span>🏢 Có Zalo OA: <strong className="text-sky-300">{channelBreakdown.zaloOa}</strong></span>
+                    <span>🏢 Zalo OA: <strong className="text-sky-700 dark:text-sky-300">{channelBreakdown.zaloOa}</strong></span>
+                    {(channelBreakdown.tiktok > 0 || channelBreakdown.shopee > 0) && (
+                      <>
+                        <span>•</span>
+                        <span>🎵 TikTok: <strong>{channelBreakdown.tiktok || 0}</strong></span>
+                        <span>•</span>
+                        <span>🟧 Shopee: <strong>{channelBreakdown.shopee || 0}</strong></span>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={() => setShowPreviewDrawer(!showPreviewDrawer)}
-                  className="rounded-xl border border-emerald-500/40 bg-emerald-600/20 hover:bg-emerald-600/30 px-3.5 py-2 text-xs font-bold text-emerald-200 transition cursor-pointer shrink-0"
+                  className="rounded-xl border border-emerald-600 bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white transition cursor-pointer shrink-0 shadow-xs"
                 >
-                  {showPreviewDrawer ? "Ẩn danh sách xem trước" : "👁️ Xem danh sách khách nhận (Top 10)"}
+                  {showPreviewDrawer
+                    ? "Thu gọn bảng chọn khách hàng"
+                    : `☑️ Mở bảng chọn thủ công (${audiencePreview.length} khách)`}
                 </button>
               </div>
             )}
 
-            {/* Bảng xem trước 10 khách đầu tiên */}
+            {/* Bảng danh sách khách hàng & tích chọn thủ công bằng tay */}
             {showPreviewDrawer && (
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 overflow-x-auto">
+              <div className="rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800 text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSelectAllPreview}
+                      className="rounded-lg border border-blue-500 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 text-[11px] font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-100 cursor-pointer"
+                    >
+                      ✓ Chọn tất cả ({audienceCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearAllPreview}
+                      className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-200 cursor-pointer"
+                    >
+                      ✕ Bỏ chọn tất cả (Tích tay từng người)
+                    </button>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                    Đang chọn gửi:{" "}
+                    <strong className="text-blue-600 dark:text-blue-400">{effectiveSendCount}</strong> khách hàng
+                  </span>
+                </div>
+
                 {audiencePreview.length === 0 ? (
                   <p className="text-xs text-slate-500 text-center py-4">
                     Không có khách hàng nào trong tệp này.
                   </p>
                 ) : (
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-500 text-[11px]">
-                        <th className="pb-2">Họ và tên</th>
-                        <th className="pb-2">SĐT / UID</th>
-                        <th className="pb-2">Kênh</th>
-                        <th className="pb-2">Thẻ tag</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60">
-                      {audiencePreview.map((cust) => (
-                        <tr key={cust.id} className="hover:bg-slate-900/50">
-                          <td className="py-2 font-medium text-slate-900 dark:text-white">{cust.fullName}</td>
-                          <td className="py-2 font-mono text-emerald-400">{cust.maskedPhone}</td>
-                          <td className="py-2 text-[11px] text-slate-400">{cust.channel}</td>
-                          <td className="py-2">
-                            <div className="flex flex-wrap gap-1">
-                              {(cust.tags || []).map((t) => (
-                                <span
-                                  key={t}
-                                  className="rounded px-1.5 py-0.5 text-[9px] bg-slate-800 text-slate-300"
+                  <>
+                    <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                      <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+                        <thead className="sticky top-0 bg-slate-100 dark:bg-slate-900 z-10">
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-[11px]">
+                            <th className="py-2 px-2 w-8">Chọn</th>
+                            <th className="py-2 px-2">Họ và tên</th>
+                            <th className="py-2 px-2">SĐT / UID</th>
+                            <th className="py-2 px-2">Tài khoản / Kênh</th>
+                            <th className="py-2 px-2">Sản phẩm / Phân loại</th>
+                            <th className="py-2 px-2">Thẻ tag</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800/60">
+                          {audiencePreview
+                            .slice((previewPage - 1) * previewPageSize, previewPage * previewPageSize)
+                            .map((cust) => {
+                              const isChecked =
+                                !manualSelectionActive ||
+                                selectedRecipientIds.includes(String(cust.id));
+                              return (
+                                <tr
+                                  key={cust.id}
+                                  onClick={() => toggleSelectRecipient(cust.id)}
+                                  className={`hover:bg-slate-50 dark:hover:bg-slate-900/50 cursor-pointer ${
+                                    isChecked ? "bg-blue-50/40 dark:bg-blue-950/15" : ""
+                                  }`}
                                 >
-                                  {t}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                                  <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => toggleSelectRecipient(cust.id)}
+                                      className="rounded border-slate-400 text-blue-600 cursor-pointer"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2 font-semibold text-slate-900 dark:text-white">
+                                    {cust.fullName}
+                                  </td>
+                                  <td className="py-2 px-2 font-mono text-emerald-700 dark:text-emerald-400">
+                                    {cust.maskedPhone}
+                                  </td>
+                                  <td className="py-2 px-2 text-[11px] text-slate-600 dark:text-slate-400">
+                                    {cust.channel}
+                                  </td>
+                                  <td className="py-2 px-2 text-[11px]">
+                                    <span className="rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 text-[10px] font-semibold mr-1">
+                                      {cust.category || "Khách hàng"}
+                                    </span>
+                                    {(cust.purchasedProducts || []).slice(0, 2).map((p) => (
+                                      <span
+                                        key={p}
+                                        className="rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 text-[10px] mr-1"
+                                      >
+                                        {p}
+                                      </span>
+                                    ))}
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <div className="flex flex-wrap gap-1">
+                                      {(cust.tags || []).map((t) => (
+                                        <span
+                                          key={t}
+                                          className="rounded px-1.5 py-0.5 text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                                        >
+                                          {t}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {audiencePreview.length > previewPageSize && (
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
+                        <span className="text-slate-500">
+                          Trang {previewPage} / {Math.ceil(audiencePreview.length / previewPageSize)} (Hiển thị {audiencePreview.length} khách)
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={previewPage <= 1}
+                            onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                            className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                          >
+                            ← Trước
+                          </button>
+                          <button
+                            type="button"
+                            disabled={previewPage >= Math.ceil(audiencePreview.length / previewPageSize)}
+                            onClick={() =>
+                              setPreviewPage((p) =>
+                                Math.min(Math.ceil(audiencePreview.length / previewPageSize), p + 1)
+                              )
+                            }
+                            className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 disabled:opacity-40 cursor-pointer"
+                          >
+                            Sau →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -1052,10 +1412,10 @@ export default function BroadcastPage() {
               {/* Nút Khởi Chạy Toàn Bộ Chiến Dịch */}
               <button
                 type="submit"
-                disabled={submitting || audienceCount === 0}
-                title={audienceCount === 0 ? "Tệp người nhận rỗng, không thể gửi" : ""}
+                disabled={submitting || effectiveSendCount === 0}
+                title={effectiveSendCount === 0 ? "Chưa chọn khách nhận nào, không thể gửi" : ""}
                 className={`rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-lg transition cursor-pointer flex items-center gap-2 ${
-                  audienceCount === 0
+                  effectiveSendCount === 0
                     ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
                     : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/30"
                 }`}
@@ -1064,9 +1424,9 @@ export default function BroadcastPage() {
                 <span>
                   {submitting
                     ? "Đang khởi tạo hàng đợi..."
-                    : audienceCount === 0
-                    ? "Tệp Rỗng (0 khách) - Không Thể Gửi"
-                    : `Khởi Chạy Chiến Dịch (${audienceCount} khách)`}
+                    : effectiveSendCount === 0
+                    ? "Chưa Chọn Khách (0 người) - Không Thể Gửi"
+                    : `Khởi Chạy Chiến Dịch (${effectiveSendCount} khách)`}
                 </span>
               </button>
             </div>
