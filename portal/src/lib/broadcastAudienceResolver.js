@@ -146,7 +146,7 @@ export function getRealZaloFriends(targetAccount = "ALL") {
             if (!f?.userId) continue;
             const uid = String(f.userId);
             if (accOwnId && uid === accOwnId) continue;
-            const fullName = f.displayName || f.zaloName || "Khách Zalo";
+            const fullName = f.alias || f.aliasName || f.displayName || f.zaloName || "Khách Zalo";
             const cleanPhone = normalizePhone(f.phoneNumber || "");
             const crmCust = byZaloUid.get(uid) || (cleanPhone ? byPhone.get(cleanPhone) : null);
 
@@ -164,10 +164,13 @@ export function getRealZaloFriends(targetAccount = "ALL") {
               crmCust?.category ||
               (purchasedProducts.length > 0 ? "KH Cũ" : "Bạn Bè Zalo");
 
+            const hasAlias = Boolean(f.alias || f.aliasName);
+            const preferredName = hasAlias ? fullName : (crmCust?.fullName || fullName);
+
             contactsMap.set(`${accOwnId || hDir}_${uid}`, {
               id: uid,
-              fullName: crmCust?.fullName || fullName,
-              name: crmCust?.fullName || fullName,
+              fullName: preferredName,
+              name: preferredName,
               phone: cleanPhone || crmCust?.phone || f.phoneNumber || "",
               maskedPhone:
                 maskPhoneMiddle(cleanPhone || crmCust?.phone || f.phoneNumber || "") ||

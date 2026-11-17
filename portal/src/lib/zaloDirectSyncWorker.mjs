@@ -364,9 +364,12 @@ async function main() {
       } catch {}
     }
 
-    // 1. Tải song song Friends (kèm lastActionTime), Groups, Pinned, Archived, Unread, Account Info
-    const [friendsRes, groupsRes, pinRes, selfInfoRes, archivedRes, unreadRes] = await Promise.allSettled([
+    // 1. Tải song song Friends (kèm lastActionTime), Alias (Tên gợi nhớ nhân viên đặt), Groups, Pinned, Archived, Unread, Account Info
+    const [friendsRes, aliasRes, groupsRes, pinRes, selfInfoRes, archivedRes, unreadRes] = await Promise.allSettled([
       api.getAllFriends(),
+      typeof api.getAliasList === "function"
+        ? api.getAliasList(500, 1).catch(() => api.getAliasList())
+        : Promise.resolve(null),
       api.getAllGroups(),
       typeof api.getPinConversations === "function" ? api.getPinConversations() : Promise.resolve([]),
       typeof api.fetchAccountInfo === "function"
@@ -395,6 +398,32 @@ async function main() {
       ownAccountName = ownId === "1781287338457243967" ? "Sơn Tùng" : "Chuyên viên Zalo";
     }
 
+    const aliasMap = new Map();
+    if (aliasRes.status === "fulfilled" && aliasRes.value) {
+      const aVal = aliasRes.value;
+      const aList = Array.isArray(aVal)
+        ? aVal
+        : Array.isArray(aVal?.items)
+        ? aVal.items
+        : Array.isArray(aVal?.data)
+        ? aVal.data
+        : Array.isArray(aVal?.list)
+        ? aVal.list
+        : null;
+      if (aList) {
+        for (const item of aList) {
+          const uid = String(item?.userId || item?.uid || item?.id || "").trim();
+          const al = String(item?.alias || item?.aliasName || item?.name || "").trim();
+          if (uid && al) aliasMap.set(uid, al);
+        }
+      } else if (typeof aVal === "object") {
+        for (const [k, v] of Object.entries(aVal)) {
+          const al = typeof v === "string" ? v.trim() : String(v?.alias || v?.aliasName || "").trim();
+          if (k && al) aliasMap.set(String(k), al);
+        }
+      }
+    }
+
     const friends = [];
     const userNamesMap = new Map();
     if (ownId) {
@@ -408,13 +437,16 @@ async function main() {
       for (const f of rawFriends) {
         if (!f || !f.userId) continue;
         const uid = String(f.userId);
-        const name = f.displayName || f.zaloName || "Khách Zalo";
+        const aliasName =
+          aliasMap.get(uid) || String(f.alias || f.aliasName || f.remark || "").trim();
+        const name = aliasName || f.displayName || f.zaloName || "Khách Zalo";
         const rawLastAction = Number(f.lastActionTime) || 0;
         const lastActionTime =
           rawLastAction > 0 ? normalizeTs(rawLastAction, 0) : 0;
         userNamesMap.set(uid, name);
         friends.push({
           userId: uid,
+          alias: aliasName,
           displayName: f.displayName || "",
           zaloName: f.zaloName || "",
           avatar: f.avatar || "",
@@ -424,8 +456,16 @@ async function main() {
       }
     } else if (Array.isArray(prevCache?.friends)) {
       for (const f of prevCache.friends) {
-        friends.push(f);
-        if (f.userId) userNamesMap.set(String(f.userId), f.displayName || f.zaloName || "Khách Zalo");
+        const uid = String(f.userId || "");
+        const aliasName = aliasMap.get(uid) || String(f.alias || f.aliasName || "").trim();
+        const updatedFriend = aliasName ? { ...f, alias: aliasName } : f;
+        friends.push(updatedFriend);
+        if (uid) {
+          userNamesMap.set(
+            uid,
+            aliasName || f.displayName || f.zaloName || "Khách Zalo"
+          );
+        }
       }
     }
 

@@ -1816,6 +1816,8 @@ export async function scanAndAutoReplyZaloHistories(homeDir, ownIdOverride = "")
       ) {
         const friendInfo = friendMap.get(tid);
         const resolvedCustomerName =
+          friendInfo?.alias ||
+          friendInfo?.aliasName ||
           (lastMsg.senderName && lastMsg.senderName !== "Khách Zalo" ? lastMsg.senderName : "") ||
           friendInfo?.displayName ||
           friendInfo?.zaloName ||

@@ -456,7 +456,7 @@ export async function GET(request) {
           if (String(thread.threadId) === String(ownId)) {
             name = `My Documents (${displayName})`;
           } else if (f) {
-            name = f.displayName || f.zaloName || thread.peerName || "Khách Zalo";
+            name = f.alias || f.aliasName || f.displayName || f.zaloName || thread.peerName || "Khách Zalo";
             avatar = f.avatar || f.avatar_url || f.thumb || f.picture || f.avt || f.fullAvt || "";
             phone = f.phoneNumber || "";
           } else if (thread.peerName) {
@@ -565,7 +565,7 @@ export async function GET(request) {
           processedIds.add(uid);
           const fBotStatus = isBotActiveForThread(uid, accountId || ownId || displayName);
           accContactCount++;
-          const friendName = f.displayName || f.zaloName || "Bạn bè";
+          const friendName = f.alias || f.aliasName || f.displayName || f.zaloName || "Bạn bè";
           const rawFriendAvatar = f.avatar || f.avatar_url || f.thumb || f.picture || f.avt || f.fullAvt || "";
           const safeAvatar = buildSafeAvatarUrl(rawFriendAvatar, "zalo", uid, friendName);
           const lastAct = Number(f.lastActionTime) || 0;
