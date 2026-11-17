@@ -72,7 +72,10 @@ export default function BroadcastPage() {
   // State cho Form Tạo Chiến Dịch 4 Bước
   const [campaignName, setCampaignName] = useState("");
   const [channel, setChannel] = useState("ZALO_PERSONAL");
-  const [accountName, setAccountName] = useState("Zalo Cá Nhân (Sơn Tùng)");
+  const [selectedAccountId, setSelectedAccountId] = useState("ALL");
+  const [accountName, setAccountName] = useState("Zalo Cá Nhân");
+  const [zaloAccounts, setZaloAccounts] = useState([]);
+  const [facebookPages, setFacebookPages] = useState([]);
   const [includeTags, setIncludeTags] = useState([]);
   const [excludeTags, setExcludeTags] = useState([
     "Đã Hủy Đơn",
@@ -139,6 +142,22 @@ export default function BroadcastPage() {
 
   useEffect(() => {
     fetchCampaigns(false);
+    fetch("/api/channels")
+      .then((r) => r.json())
+      .then((d) => {
+        const list = Array.isArray(d?.channels) ? d.channels : [];
+        const active = list.filter((c) => {
+          const st = String(c?.status || "").toUpperCase();
+          return st !== "DISCONNECTED" && st !== "DELETED" && st !== "INACTIVE";
+        });
+        setZaloAccounts(
+          active.filter((c) => c.platform === "ZALO_PERSONAL" || c.type === "zalo_personal")
+        );
+        setFacebookPages(
+          active.filter((c) => c.platform === "FACEBOOK" || c.type === "facebook")
+        );
+      })
+      .catch(() => {});
   }, []);
 
   // Poll realtime mỗi 2s khi có chiến dịch đang chạy (RUNNING)
@@ -262,7 +281,7 @@ export default function BroadcastPage() {
           name: campaignName.trim(),
           audienceSource,
           channel,
-          channelId: channel,
+          channelId: selectedAccountId !== "ALL" ? selectedAccountId : channel,
           accountName,
           tags: includeTags,
           includeTags,
@@ -398,7 +417,7 @@ export default function BroadcastPage() {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight text-white">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               Gửi Tin Nhắn Hàng Loạt (Smart Broadcast) & Anti-Ban Queue
             </h1>
             <span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs font-semibold text-blue-400 border border-blue-500/30">
@@ -418,7 +437,7 @@ export default function BroadcastPage() {
           <div>
             <span className="text-[11px] text-slate-400 block">Hạn mức an toàn hôm nay</span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-bold text-white">{sentToday}</span>
+              <span className="text-lg font-bold text-slate-900 dark:text-white">{sentToday}</span>
               <span className="text-xs text-slate-400">/ 70 tin/tài khoản</span>
             </div>
           </div>
@@ -476,7 +495,7 @@ export default function BroadcastPage() {
         >
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
             <div>
-              <h2 className="text-base font-bold text-white">
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
                 Thiết Lập Chiến Dịch Gửi Tin Nhắn Mới
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -490,7 +509,7 @@ export default function BroadcastPage() {
                 value={campaignName}
                 onChange={(e) => setCampaignName(e.target.value)}
                 placeholder="Nhập tên chiến dịch..."
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-xl border border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
               />
             </div>
           </div>
@@ -498,11 +517,11 @@ export default function BroadcastPage() {
           {/* BƯỚC 1: Chọn Kênh Gửi */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white badge-solid-white">
                 1
               </span>
-              <h3 className="text-sm font-bold text-white">
-                Bước 1: Chọn Kênh Gửi Tin Nhắn
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Bước 1: Chọn Kênh &amp; Tài Khoản Gửi Tin Nhắn
               </h3>
             </div>
 
@@ -510,19 +529,19 @@ export default function BroadcastPage() {
               {[
                 {
                   id: "ZALO_PERSONAL",
-                  label: "Zalo Cá Nhân (Sơn Tùng)",
+                  label: "Zalo Cá Nhân (QR)",
                   sub: "Kết nối danh bạ & lịch sử thật (zca-js)",
                   icon: "💬",
                 },
                 {
                   id: "FACEBOOK",
-                  label: "Fanpage FB Dược Phẩm ADDP",
+                  label: "Fanpage Facebook",
                   sub: "Luật Meta 24h & Message Tag",
                   icon: "📘",
                 },
                 {
                   id: "ZALO_OA",
-                  label: "Zalo OA Dược Phẩm ADDP",
+                  label: "Zalo OA Official",
                   sub: "Tin Tư vấn 48h hoặc ZNS Template",
                   icon: "🏢",
                 },
@@ -534,28 +553,98 @@ export default function BroadcastPage() {
                     type="button"
                     onClick={() => {
                       setChannel(chItem.id);
+                      setSelectedAccountId("ALL");
                       setAccountName(chItem.label);
                     }}
                     className={`rounded-xl border p-3.5 text-left transition cursor-pointer ${
                       active
                         ? "border-blue-500 bg-blue-600/15 shadow-md shadow-blue-500/10"
-                        : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                        : "border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700"
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-lg">{chItem.icon}</span>
                       {active && (
-                        <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                        <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[10px] font-bold text-white badge-solid-white">
                           Đang chọn
                         </span>
                       )}
                     </div>
-                    <p className="font-bold text-xs text-white mt-2">{chItem.label}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{chItem.sub}</p>
+                    <p className="font-bold text-xs text-slate-900 dark:text-white mt-2">{chItem.label}</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{chItem.sub}</p>
                   </button>
                 );
               })}
             </div>
+
+            {/* Chọn Tài Khoản / Fanpage cụ thể để gửi */}
+            {channel === "ZALO_PERSONAL" && (
+              <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <label className="font-semibold text-slate-700 dark:text-slate-200 shrink-0">
+                  👤 Tài khoản Zalo gửi tin:
+                </label>
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedAccountId(val);
+                    if (val === "ALL") {
+                      setAccountName("Zalo Cá Nhân (Tất cả active)");
+                    } else {
+                      const found = zaloAccounts.find(
+                        (a) => String(a.config?.ownId || a.externalId || a.id) === String(val)
+                      );
+                      setAccountName(found?.name || `Zalo #${val}`);
+                    }
+                  }}
+                  className="w-full sm:w-80 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="ALL">Tất cả tài khoản Zalo active ({zaloAccounts.length} nick)</option>
+                  {zaloAccounts.map((acc) => {
+                    const accKey = String(acc.config?.ownId || acc.externalId || acc.id);
+                    return (
+                      <option key={acc.id || accKey} value={accKey}>
+                        {acc.name || acc.displayName || accKey}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {channel === "FACEBOOK" && (
+              <div className="rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/60 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <label className="font-semibold text-slate-700 dark:text-slate-200 shrink-0">
+                  📘 Fanpage Facebook gửi tin:
+                </label>
+                <select
+                  value={selectedAccountId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedAccountId(val);
+                    if (val === "ALL") {
+                      setAccountName("Fanpage Facebook (Tất cả)");
+                    } else {
+                      const found = facebookPages.find(
+                        (p) => String(p.config?.pageId || p.externalId || p.id) === String(val)
+                      );
+                      setAccountName(found?.name || `Fanpage #${val}`);
+                    }
+                  }}
+                  className="w-full sm:w-80 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-900 dark:text-white focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="ALL">Tất cả Fanpage đã kết nối ({facebookPages.length} trang)</option>
+                  {facebookPages.map((pg) => {
+                    const pgKey = String(pg.config?.pageId || pg.externalId || pg.id);
+                    return (
+                      <option key={pg.id || pgKey} value={pgKey}>
+                        {pg.name || pgKey}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
 
             {/* Tùy chọn bảo vệ kênh Facebook 24h */}
             {channel === "FACEBOOK" && (
@@ -589,10 +678,10 @@ export default function BroadcastPage() {
           <div className="space-y-4 border-t border-slate-800/80 pt-5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white badge-solid-white">
                   2
                 </span>
-                <h3 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                   Bước 2: Chọn Nguồn Tệp Khách Hàng Nhận Tin (Audience Source)
                 </h3>
               </div>
@@ -604,7 +693,7 @@ export default function BroadcastPage() {
                 {
                   id: "ZALO_FRIENDS",
                   title: "👥 Tất cả Bạn Bè Nick Zalo",
-                  desc: "Quét từ Danh bạ & Lịch sử tin nhắn thật của Zalo Sơn Tùng",
+                  desc: "Quét từ Danh bạ & Lịch sử tin nhắn thật của tài khoản Zalo đã chọn",
                   badge: "Khuyên dùng cho Zalo",
                 },
                 {
@@ -629,19 +718,19 @@ export default function BroadcastPage() {
                     className={`rounded-xl border p-3.5 text-left transition cursor-pointer ${
                       active
                         ? "border-emerald-500 bg-emerald-600/15 shadow-md shadow-emerald-500/10"
-                        : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
+                        : "border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 hover:border-slate-400 dark:hover:border-slate-700"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-white">{src.title}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-xs text-slate-900 dark:text-white">{src.title}</span>
                       {active && (
-                        <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">
+                        <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white badge-solid-white shrink-0">
                           ✓ Đang lọc
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-1">{src.desc}</p>
-                    <span className="inline-block mt-2 text-[10px] text-emerald-400 font-semibold">
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1">{src.desc}</p>
+                    <span className="inline-block mt-2 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
                       {src.badge}
                     </span>
                   </button>
@@ -765,7 +854,7 @@ export default function BroadcastPage() {
                     <span className="text-xs font-bold text-emerald-300">
                       📊 Thống kê tệp khách nhận THỰC TẾ:
                     </span>
-                    <span className="text-sm font-extrabold text-white">
+                    <span className="text-sm font-extrabold text-slate-900 dark:text-white">
                       {loadingAudience ? "Đang quét..." : `${audienceCount} khách hàng hợp lệ`}
                     </span>
                   </div>
@@ -808,7 +897,7 @@ export default function BroadcastPage() {
                     <tbody className="divide-y divide-slate-800/60">
                       {audiencePreview.map((cust) => (
                         <tr key={cust.id} className="hover:bg-slate-900/50">
-                          <td className="py-2 font-medium text-white">{cust.fullName}</td>
+                          <td className="py-2 font-medium text-slate-900 dark:text-white">{cust.fullName}</td>
                           <td className="py-2 font-mono text-emerald-400">{cust.maskedPhone}</td>
                           <td className="py-2 text-[11px] text-slate-400">{cust.channel}</td>
                           <td className="py-2">
@@ -839,7 +928,7 @@ export default function BroadcastPage() {
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                   3
                 </span>
-                <h3 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                   Bước 3: Mẫu Tin Nhắn Cá Nhân Hóa & AI Spin Text
                 </h3>
               </div>
@@ -883,7 +972,7 @@ export default function BroadcastPage() {
               value={templateText}
               onChange={(e) => setTemplateText(e.target.value)}
               placeholder="Nhập nội dung tin nhắn có biến thể Spin dạng {a|b|c} và {fullName}..."
-              className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-xs text-white leading-relaxed focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-xl border border-slate-700 bg-white dark:bg-slate-950 p-3 text-xs text-slate-900 dark:text-white leading-relaxed focus:border-blue-500 focus:outline-none"
             />
           </div>
 
@@ -893,7 +982,7 @@ export default function BroadcastPage() {
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                 4
               </span>
-              <h3 className="text-sm font-bold text-white">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                 Bước 4: Cấu Hình Hàng Đợi An Toàn & Khởi Chạy
               </h3>
             </div>
@@ -915,7 +1004,7 @@ export default function BroadcastPage() {
                     max={300}
                     value={speedMin}
                     onChange={(e) => setSpeedMin(e.target.value)}
-                    className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center font-mono text-xs text-white"
+                    className="w-16 rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-center font-mono text-xs text-slate-900 dark:text-white"
                   />
                   <span className="text-slate-400">đến</span>
                   <input
@@ -924,7 +1013,7 @@ export default function BroadcastPage() {
                     max={600}
                     value={speedMax}
                     onChange={(e) => setSpeedMax(e.target.value)}
-                    className="w-16 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center font-mono text-xs text-white"
+                    className="w-16 rounded-lg border border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-center font-mono text-xs text-slate-900 dark:text-white"
                   />
                   <span className="text-slate-400">giây / tin</span>
                 </div>
@@ -996,7 +1085,7 @@ export default function BroadcastPage() {
                     AD
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-white truncate max-w-[150px]">{accountName}</p>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate max-w-[150px]">{accountName}</p>
                     <p className="text-[10px] text-emerald-400">● Đang hoạt động</p>
                   </div>
                 </div>
@@ -1052,7 +1141,7 @@ export default function BroadcastPage() {
       <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 space-y-5 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-800 pb-4">
           <div>
-            <h2 className="text-base font-bold text-white">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
               Bảng Theo Dõi Tiến Độ Chiến Dịch Đang Chạy (Realtime Campaign Monitor)
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -1090,7 +1179,7 @@ export default function BroadcastPage() {
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-bold text-white">
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">
                       {activeCampaign.name}
                     </span>
                     <span className="rounded-md bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 text-[10px] font-semibold text-blue-300">
@@ -1205,7 +1294,7 @@ export default function BroadcastPage() {
                             ? new Date(log.timestamp).toLocaleTimeString("vi-VN")
                             : "--:--"}
                         </td>
-                        <td className="py-2.5 px-4 font-semibold text-white">
+                        <td className="py-2.5 px-4 font-semibold text-slate-900 dark:text-white">
                           {log.customerName}
                         </td>
                         <td className="py-2.5 px-4 font-mono text-emerald-400">
@@ -1265,7 +1354,7 @@ export default function BroadcastPage() {
                 <label className="text-xs font-semibold text-slate-300 block mb-1">
                   Kênh gửi thử:
                 </label>
-                <div className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white">
+                <div className="rounded-lg border border-slate-800 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white">
                   {accountName} ({channel})
                 </div>
               </div>
@@ -1280,7 +1369,7 @@ export default function BroadcastPage() {
                   value={testTarget}
                   onChange={(e) => setTestTarget(e.target.value)}
                   placeholder="VD: 0912345678 hoặc Zalo UID 720430069894969208..."
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-purple-500 focus:outline-none"
                 />
               </div>
 
@@ -1293,7 +1382,7 @@ export default function BroadcastPage() {
                   value={testName}
                   onChange={(e) => setTestName(e.target.value)}
                   placeholder="VD: Sơn Tùng, Anh Tuấn..."
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-xs text-slate-900 dark:text-white focus:border-purple-500 focus:outline-none"
                 />
               </div>
 
