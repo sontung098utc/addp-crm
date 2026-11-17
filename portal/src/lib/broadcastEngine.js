@@ -183,11 +183,10 @@ export function spinAndPersonalizeText(template = "", customer = {}) {
     .replace(/\{assignedStaff\}/gi, assignedStaff)
     .replace(/\{productName\}/gi, productName);
 
-  // 2. Kiểm tra xem trong mẫu đã có cú pháp Spin Text `{a|b}` hoặc `{a/b}` hay chưa
+  // 2. Chỉ xử lý Spin Text `{a|b}` nếu người dùng chủ động viết cú pháp Spin trong mẫu
+  // Tuyệt đối giữ nguyên 100% nội dung gốc người dùng đã soạn, không tự ý chèn thêm câu chào hay câu kết
   const spinRegex = /\{([^{}]*[|/][^{}]*)\}/g;
-  const hasExplicitSpin = spinRegex.test(text);
-
-  if (hasExplicitSpin) {
+  if (spinRegex.test(text)) {
     text = text.replace(/\{([^{}]*[|/][^{}]*)\}/g, (_, group) => {
       const delimiter = group.includes("|") ? "|" : "/";
       const options = group
@@ -198,30 +197,9 @@ export function spinAndPersonalizeText(template = "", customer = {}) {
       const randomIdx = Math.floor(Math.random() * options.length);
       return options[randomIdx];
     });
-  } else {
-    // 3. Nếu chưa có biến thể Spin Text, tự động dùng AI biến thiên 5 phiên bản mở đầu & kết câu đồng nghĩa
-    const aiOpeners = [
-      `Dạ em Thảo chào ${fullName} ạ, `,
-      `Em chào ${fullName} nhé, `,
-      `Dạ kính chào ${fullName}, `,
-      `Chào ${fullName}, Dược sĩ tại ADDP nhắn mình chút ạ: `,
-      `Dạ ${fullName} ơi, `,
-    ];
-    const aiClosers = [
-      " Chúc mình và gia đình luôn dồi dào sức khỏe nhé ạ!",
-      " Cần hỗ trợ kiểm tra chỉ số sức khỏe anh/chị cứ nhắn lại cho em nha!",
-      " Chúc anh/chị một ngày mới thật nhiều niềm vui và bình an ạ!",
-      " Nếu có thắc mắc nào trong quá trình sử dụng mình nhắn em hỗ trợ ngay nhé!",
-      " Em cảm ơn anh/chị đã luôn tin tưởng đồng hành cùng Dược phẩm ADDP ạ!",
-    ];
-
-    const cleanedBody = text.replace(/^(dạ\s+)?(em\s+)?(kính\s+)?chào\s+[^,!.]+[,!.\s]*/i, "");
-    const opener = aiOpeners[Math.floor(Math.random() * aiOpeners.length)];
-    const closer = aiClosers[Math.floor(Math.random() * aiClosers.length)];
-    text = `${opener}${cleanedBody}${closer}`;
   }
 
-  return text.replace(/\s{2,}/g, " ").trim();
+  return text.replace(/[ \t]{2,}/g, " ").trim();
 }
 
 /**
