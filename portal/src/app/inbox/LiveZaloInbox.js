@@ -4927,9 +4927,9 @@ export default function LiveZaloInbox() {
                     <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-emerald-500 border border-white dark:border-slate-900" />
                   </div>
 
-                  <div className="min-w-0 flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0 flex items-center gap-1.5">
                     <h3
-                      className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate max-w-[140px] sm:max-w-[180px] xl:max-w-[220px]"
+                      className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate min-w-[72px]"
                       title={activeConv.name}
                     >
                       {activeConv.name}
@@ -4937,7 +4937,7 @@ export default function LiveZaloInbox() {
 
                     {(activeConv.phone || detectedChatPhone) && (
                       <span
-                        className="hidden sm:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 shrink-0 tabular-nums"
+                        className="hidden md:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 shrink-0 tabular-nums"
                         title="Số điện thoại xác thực của khách hàng"
                       >
                         📞 {activeConv.phone || detectedChatPhone}
@@ -4945,7 +4945,7 @@ export default function LiveZaloInbox() {
                     )}
 
                     <span
-                      className={`rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap shrink-0 ${
+                      className={`hidden sm:inline-block rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap truncate max-w-[105px] xl:max-w-[150px] shrink ${
                         getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
                       }`}
                       title={
@@ -4964,7 +4964,7 @@ export default function LiveZaloInbox() {
                 </div>
 
                 {/* Cụm Phải: Sale Trực / AI + Lên Đơn + Hồ Sơ 360 + Gắn Thẻ */}
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   {(() => {
                     const isThreadHuman = convBotMode === "HUMAN";
 
@@ -4982,20 +4982,20 @@ export default function LiveZaloInbox() {
                               ? "Cài đặt riêng cho khách này: AI đang trực — Bấm để chuyển sang Sale trực"
                               : "Cài đặt riêng cho khách này: Sale đang trực — Bấm để bật AI trực"
                           }
-                          className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer focus:outline-none shrink-0"
+                          className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/90 px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer focus:outline-none shrink-0"
                         >
                           <span className="text-[11px] font-bold whitespace-nowrap">
                             {!isThreadHuman ? (
                               <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
                                 <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse shrink-0" />
-                                <span className="hidden sm:inline">AI Trực</span>
-                                <span className="sm:hidden">AI</span>
+                                <span className="hidden xl:inline">AI Trực</span>
+                                <span className="xl:hidden">AI</span>
                               </span>
                             ) : (
                               <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1">
                                 <span className="h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
-                                <span className="hidden sm:inline">Sale Trực</span>
-                                <span className="sm:hidden">Sale</span>
+                                <span className="hidden xl:inline">Sale Trực</span>
+                                <span className="xl:hidden">Sale</span>
                               </span>
                             )}
                           </span>
@@ -5039,7 +5039,7 @@ export default function LiveZaloInbox() {
                     }`}
                   >
                     <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden lg:inline">Hồ Sơ 360</span>
+                    <span className="hidden 2xl:inline">Hồ Sơ 360</span>
                   </button>
 
                   {/* Nút + Gắn Thẻ Popover */}
@@ -5721,9 +5721,9 @@ export default function LiveZaloInbox() {
                     className="w-full min-h-[36px] max-h-[96px] rounded-xl border border-slate-700/80 bg-slate-950 px-3 py-1.5 text-sm md:text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none leading-snug overflow-y-auto"
                   />
 
-                  <div className="flex items-center justify-between gap-1.5">
-                    {/* Nhóm công cụ bên trái */}
-                    <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar sm:overflow-visible min-w-0">
+                  <div className="flex items-center justify-between gap-2 min-w-0">
+                    {/* Nhóm công cụ bên trái — cuộn ngang an toàn, không bao giờ đè lên nút Gửi bên phải */}
+                    <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar py-0.5">
                       <button
                         type="button"
                         onClick={() => setIsQuickRepliesOpen(true)}
@@ -5850,7 +5850,8 @@ export default function LiveZaloInbox() {
                         className="px-2 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap ml-0.5"
                       >
                         <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
-                        <span className="hidden md:inline">Tạo đơn KiotViet</span>
+                        <span className="hidden 2xl:inline">Tạo đơn </span>
+                        <span className="hidden md:inline">KiotViet</span>
                       </button>
                     </div>
 
