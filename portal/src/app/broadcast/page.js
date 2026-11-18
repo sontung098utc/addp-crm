@@ -1743,13 +1743,22 @@ export default function BroadcastPage() {
 
                   {(activeCampaign.status === "PAUSED" ||
                     activeCampaign.status === "DRAFT" ||
-                    activeCampaign.status === "SCHEDULED") && (
+                    activeCampaign.status === "SCHEDULED" ||
+                    (activeCampaign.status === "CANCELLED" &&
+                      (Number(activeCampaign.sentCount || 0) +
+                        Number(activeCampaign.failedCount || 0)) <
+                        Number(activeCampaign.totalRecipients || 0))) && (
                     <button
                       type="button"
                       onClick={() => handleCampaignAction(activeCampaign.id, "resume")}
                       className="rounded-xl border border-emerald-500/40 bg-emerald-500/20 hover:bg-emerald-500/30 px-3.5 py-2 text-xs font-bold text-emerald-200 transition cursor-pointer"
+                      title="Chỉ gửi tiếp những khách hàng chưa được gửi ở lần trước (không gửi trùng)"
                     >
-                      {activeCampaign.status === "SCHEDULED" ? "▶️ Chạy Ngay" : "▶️ Tiếp Tục"}
+                      {activeCampaign.status === "SCHEDULED"
+                        ? "▶️ Chạy Ngay"
+                        : activeCampaign.status === "CANCELLED"
+                        ? "▶️ Gửi Tiếp Phần Còn Lại"
+                        : "▶️ Tiếp Tục"}
                     </button>
                   )}
 
