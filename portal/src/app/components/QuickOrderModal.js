@@ -176,31 +176,33 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
+      <div className="w-full max-w-2xl rounded-t-2xl sm:rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-950">
-          <div>
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
+        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-slate-800 px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-950">
+          <div className="min-w-0">
+            <h3 className="text-base font-bold text-white flex flex-wrap items-center gap-2">
               <span>🛒 Lên Đơn Hàng Nhanh & Đẩy KiotViet POS</span>
-              <span className="rounded bg-blue-500/20 text-blue-400 text-[11px] font-semibold px-2 py-0.5">
+              <span className="rounded bg-blue-500/20 text-blue-400 text-[11px] font-semibold px-2 py-0.5 shrink-0">
                 WBS-39
               </span>
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-400 mt-0.5">
               Tự động đẩy đơn sang KiotViet Open API, trừ tồn kho Combo và sinh 7 mốc CarePlan sau bán
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+            className="text-slate-400 hover:text-white min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer flex items-center justify-center shrink-0"
           >
             ✕
           </button>
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Content + Sticky Footer */}
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4">
           {errorMsg && (
             <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-400">
               ⚠️ {errorMsg}
@@ -220,7 +222,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="Nhập họ tên khách hàng..."
-                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 />
               </div>
               <div className="space-y-1">
@@ -233,7 +235,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="VD: 0912345678"
-                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs font-mono text-blue-400 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 font-mono text-blue-400 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 />
               </div>
             </div>
@@ -246,30 +248,30 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="Số nhà, ngõ/đường, Phường/Xã, Quận/Huyện, Tỉnh/TP..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
             </div>
           </div>
 
           {/* Product Selector + Real-time Stock */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                 Chọn Sản Phẩm & Tồn Kho KiotViet ({products.length} SKU):
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                 <input
                   type="text"
                   value={searchProduct}
                   onChange={(e) => setSearchProduct(e.target.value)}
                   placeholder="Tìm nhanh mã SKU, Glucare, Dovital..."
-                  className="rounded-lg bg-slate-950 border border-slate-700 px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                  className="w-full sm:w-auto rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 sm:px-2.5 sm:py-1 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleSyncKiotVietCatalog}
                   disabled={syncingProducts}
-                  className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 transition cursor-pointer"
+                  className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-3 py-2 sm:px-2.5 sm:py-1 min-h-[44px] sm:min-h-0 text-[11px] font-semibold text-emerald-300 transition cursor-pointer flex items-center justify-center shrink-0"
                 >
                   {syncingProducts ? "Đang đồng bộ..." : "🔄 Đồng bộ Tồn kho"}
                 </button>
@@ -283,17 +285,17 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                 return (
                   <div
                     key={p.id}
-                    className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
+                    className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border transition ${
                       qty > 0
                         ? "bg-blue-600/10 border-blue-500/40"
                         : "bg-slate-950/60 border-slate-800 hover:border-slate-700"
                     }`}
                   >
-                    <div className="flex-1 pr-3">
-                      <div className="text-xs font-bold text-slate-200 flex items-center gap-2">
-                        <span>{p.name}</span>
+                    <div className="flex-1 min-w-0 pr-1">
+                      <div className="text-xs font-bold text-slate-200 flex flex-wrap items-center gap-1.5">
+                        <span className="break-words">{p.name}</span>
                         <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-mono shrink-0 ${
                             onHand > 10
                               ? "bg-emerald-500/15 text-emerald-300"
                               : "bg-amber-500/20 text-amber-300"
@@ -311,12 +313,12 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleQtyChange(p.id, -1)}
                         disabled={qty === 0}
-                        className="h-7 w-7 rounded-lg bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 flex items-center justify-center font-bold text-xs cursor-pointer"
+                        className="h-10 w-10 sm:h-7 sm:w-7 rounded-lg bg-slate-800 text-slate-300 disabled:opacity-30 hover:bg-slate-700 flex items-center justify-center font-bold text-sm sm:text-xs cursor-pointer"
                       >
                         -
                       </button>
@@ -326,7 +328,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                       <button
                         type="button"
                         onClick={() => handleQtyChange(p.id, 1)}
-                        className="h-7 w-7 rounded-lg bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center font-bold text-xs cursor-pointer"
+                        className="h-10 w-10 sm:h-7 sm:w-7 rounded-lg bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center font-bold text-sm sm:text-xs cursor-pointer"
                       >
                         +
                       </button>
@@ -346,7 +348,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
               <select
                 value={branchId}
                 onChange={(e) => setBranchId(Number(e.target.value))}
-                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white focus:border-blue-500 focus:outline-none"
               >
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -363,7 +365,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
               <select
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
-                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white focus:border-blue-500 focus:outline-none"
               >
                 <option value="Cash">COD / Tiền mặt (Cash)</option>
                 <option value="Transfer">Chuyển khoản (Transfer)</option>
@@ -378,7 +380,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
               <select
                 value={targetPlatform}
                 onChange={(e) => setTargetPlatform(e.target.value)}
-                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white focus:border-blue-500 focus:outline-none"
               >
                 <option value="KIOTVIET">KiotViet POS (Kho hàng)</option>
                 <option value="MAGENTO">Website Magento 2.4.8 (ADDP.vn)</option>
@@ -400,7 +402,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
                 placeholder="0"
-                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
             </div>
 
@@ -413,7 +415,7 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="VD: Đơn hàng tạo từ ADDP CRM qua Zalo/Fanpage, giao giờ hành chính..."
-                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                className="w-full mt-1 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 text-base sm:text-xs min-h-[44px] sm:min-h-0 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
               />
             </div>
           </div>
@@ -441,20 +443,21 @@ export default function QuickOrderModal({ isOpen, onClose, customer, onSuccess }
               </span>
             </div>
           </div>
+          </div>
 
-          {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-3 pt-2">
+          {/* Sticky Footer Actions */}
+          <div className="shrink-0 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 sm:gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-800 bg-slate-950/90">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold transition cursor-pointer"
+              className="px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold transition cursor-pointer flex items-center justify-center"
             >
               Hủy
             </button>
             <button
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-blue-900/40 transition flex items-center gap-1.5 cursor-pointer"
+              className="px-5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold shadow-lg shadow-blue-900/40 transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
               {submitting ? (
                 <span>Đang đẩy đơn sang KiotViet...</span>

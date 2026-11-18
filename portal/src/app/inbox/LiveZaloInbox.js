@@ -169,6 +169,30 @@ function getChannelMeta(channel, pageId = "", connectedPages = []) {
   }
 }
 
+function getConvCacheKey(conv) {
+  if (!conv) return "";
+  return `${conv.channel || "ZALO_PERSONAL"}_${conv.accountId || ""}_${conv.id}`;
+}
+
+function normalizeAiSummary(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const pathology = String(raw.pathology || raw.medicalCondition || "").trim();
+  const demand = String(raw.demand || raw.needs || "").trim();
+  const concerns = String(raw.concerns || raw.objections || "").trim();
+  const closing_script = String(raw.closing_script || raw.closingScript || "").trim();
+  if (!pathology && !demand && !concerns && !closing_script) return null;
+  return {
+    ...raw,
+    pathology,
+    demand,
+    needs: demand,
+    concerns,
+    objections: concerns,
+    closing_script,
+    closingScript: closing_script,
+  };
+}
+
 function extractChatPhoneNumbers(messagesList = []) {
   const phoneRegex = /(?:\+84|84|0)[35789](?:[\s.-]?\d){8}\b/g;
   const found = [];
@@ -184,6 +208,269 @@ function extractChatPhoneNumbers(messagesList = []) {
     }
   }
   return found;
+}
+
+const ADDRESS_KEYWORDS_REGEX =
+  /\b(?:địa\s*chỉ|đ\/c|đc|số\s*nhà|sn|ngõ|ngách|hẻm|đường|phố|ấp|thôn|xóm|khu\s*phố|kp|tổ\s*\d+|khóm|bản|làng|phường|p\.\s*\w+|xã|thị\s*trấn|tt\.|quận|q\.\s*\w+|huyện|thị\s*xã|tx\.|tỉnh|thành\s*phố|tp\.?\s*\w+|chung\s*cư|tòa\s*nhà|kđt|khu\s*đô\s*thị|kcn|hà\s*nội|hồ\s*chí\s*minh|tphcm|hcm|sài\s*gòn|đà\s*nẵng|hải\s*phòng|cần\s*thơ|đồng\s*nai|trảng\s*bom|biên\s*hòa|bình\s*dương|long\s*an|bà\s*rịa|vũng\s*tàu|bắc\s*ninh|bắc\s*giang|hưng\s*yên|hải\s*dương|thanh\s*hóa|nghệ\s*an|hà\s*tĩnh|quảng\s*ninh|thái\s*nguyên|vĩnh\s*phúc|phú\s*thọ|nam\s*định|thái\s*bình|ninh\s*bình|hà\s*nam|quảng\s*bình|quảng\s*trị|huế|quảng\s*nam|quảng\s*ngãi|bình\s*định|phú\s*yên|khánh\s*hòa|nha\s*trang|ninh\s*thuận|bình\s*thuận|lâm\s*đồng|đà\s*lạt|đắk\s*lắk|đắk\s*nông|gia\s*lai|kon\s*tum|tây\s*ninh|bình\s*phước|tiền\s*giang|bến\s*tre|trà\s*vinh|vĩnh\s*long|đồng\s*tháp|an\s*giang|kiên\s*giang|hậu\s*giang|sóc\s*trăng|bạc\s*liêu|cà\s*mau|lào\s*cai|yên\s*bái|tuyên\s*quang|hà\s*giang|cao\s*bằng|bắc\s*kạn|lạng\s*sơn|sơn\s*la|điện\s*biên|lai\s*châu|hòa\s*bình)\b/gi;
+
+const PROMPT_QUESTION_EXCLUDE_REGEX =
+  /(?:cho\s+(?:em|mình|shop|nhà\s+thuốc|dược\s+sĩ)\s+xin|gửi\s+giúp\s+em|nhắn\s+giúp\s+em|anh\/chị\s+ở\s+đâu|mình\s+ở\s+tỉnh\s+nào|địa\s+chỉ\s+nhận\s+hàng\s+để\s+em|\?$)/i;
+
+function cleanAddressCandidate(rawLine) {
+  return String(rawLine || "")
+    .replace(/^(?:địa\s*chỉ(?:\s*nhận\s*hàng|\s*giao\s*hàng)?|đ\/c|đc|dc|giao\s*(?:về|đến|tới))\s*[:\-]?\s*/i, "")
+    .replace(/^[,\-–—:;|\s]+|[,\-–—:;|\s]+$/g, "")
+    .trim();
+}
+
+function isPlaceholderAddress(val) {
+  if (!val || typeof val !== "string") return true;
+  const t = val.trim().toLowerCase();
+  return !t || t === "chưa cập nhật" || t === "n/a" || t === "chưa có" || t === "không có" || t === "-";
+}
+
+/**
+ * Tự động trích xuất SĐT (chuẩn 10 số VN bắt đầu bằng 0) và Địa chỉ giao hàng
+ * từ tin nhắn hội thoại, Hồ sơ 360 hoặc lịch sử đơn hàng KiotViet/CRM.
+ */
+function resolveCustomerPhoneAndAddressForOrder(
+  activeConv,
+  messages = [],
+  customer360 = null,
+  previousOrders = [],
+  aiSummary = null
+) {
+  const phoneRegex = /(?:\+84|84|0)[35789](?:[\s.-]?\d){8}\b/g;
+  const msgList = Array.isArray(messages) ? messages : [];
+
+  // -------------------------------------------------------------------------
+  // 1. RESOLVE PHONE (Priority 1: Messages -> Priority 2: Conv/Customer360 -> Priority 3: Orders)
+  // -------------------------------------------------------------------------
+  let resolvedPhone = "";
+
+  // Priority 1a: Quét tin nhắn của khách hàng (từ mới nhất về cũ nhất)
+  for (let i = msgList.length - 1; i >= 0 && !resolvedPhone; i--) {
+    const m = msgList[i];
+    if (!m || m.isMe || m.isSystem || m.isRecalled) continue;
+    const txt = String(m.text || "");
+    const matches = txt.match(phoneRegex) || [];
+    for (const rawMatch of matches) {
+      const norm = normalizePhone(rawMatch);
+      if (isValidVietnamPhone(norm)) {
+        resolvedPhone = norm;
+        break;
+      }
+    }
+  }
+
+  // Priority 1b: Quét toàn bộ tin nhắn trong hội thoại (bao gồm cả tin nhân viên xác nhận đơn)
+  for (let i = msgList.length - 1; i >= 0 && !resolvedPhone; i--) {
+    const m = msgList[i];
+    if (!m || m.isSystem || m.isRecalled) continue;
+    const txt = String(m.text || "");
+    const matches = txt.match(phoneRegex) || [];
+    for (const rawMatch of matches) {
+      const norm = normalizePhone(rawMatch);
+      if (isValidVietnamPhone(norm)) {
+        resolvedPhone = norm;
+        break;
+      }
+    }
+  }
+
+  // Priority 1c: Quét lastMessage snippet nếu messages chưa nạp kịp
+  if (!resolvedPhone && activeConv?.lastMessage) {
+    const matches = String(activeConv.lastMessage).match(phoneRegex) || [];
+    for (const rawMatch of matches) {
+      const norm = normalizePhone(rawMatch);
+      if (isValidVietnamPhone(norm)) {
+        resolvedPhone = norm;
+        break;
+      }
+    }
+  }
+
+  // Priority 2: activeConv.phone hoặc customer360.phone hoặc aiSummary.extractedPhone
+  if (!resolvedPhone) {
+    const candidates = [
+      activeConv?.phone,
+      activeConv?.zaloPhone,
+      activeConv?.customerPhone,
+      activeConv?.recipientPhone,
+      customer360?.phone,
+      aiSummary?.extractedPhone,
+      aiSummary?.phone,
+    ];
+    for (const cand of candidates) {
+      const norm = normalizePhone(cand || "");
+      if (isValidVietnamPhone(norm)) {
+        resolvedPhone = norm;
+        break;
+      }
+    }
+  }
+
+  // Priority 3: SĐT từ lịch sử đơn hàng KiotViet / CRM trước đó
+  if (!resolvedPhone && Array.isArray(previousOrders)) {
+    for (const ord of previousOrders) {
+      const norm = normalizePhone(ord?.phone || ord?.customerPhone || ord?.receiverPhone || "");
+      if (isValidVietnamPhone(norm)) {
+        resolvedPhone = norm;
+        break;
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 2. RESOLVE ADDRESS (Priority 1: Messages -> Priority 2: Customer360/Conv -> Priority 3: Orders)
+  // -------------------------------------------------------------------------
+  let resolvedAddress = "";
+
+  const extractAddressFromMessageText = (rawText) => {
+    if (!rawText || typeof rawText !== "string") return "";
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+
+    // Trường hợp A: Tin nhắn có chứa SĐT (VD: "Quyên 0334781071\n103/13 nguyễn hoàng ấp 2 xã trảng bom huyện trảng bom tỉnh đồng nai")
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      phoneRegex.lastIndex = 0;
+      if (phoneRegex.test(line)) {
+        // Kiểm tra dòng ngay bên dưới (hoặc các dòng tiếp theo trong cùng tin nhắn)
+        for (let nextIdx = idx + 1; nextIdx < lines.length; nextIdx++) {
+          const nextLine = cleanAddressCandidate(lines[nextIdx]);
+          if (
+            nextLine.length >= 8 &&
+            !PROMPT_QUESTION_EXCLUDE_REGEX.test(nextLine) &&
+            (ADDRESS_KEYWORDS_REGEX.test(nextLine) ||
+              /^\d+(?:\/\d+)?\s+\S+/i.test(nextLine) ||
+              nextLine.split(/\s+/).length >= 4)
+          ) {
+            ADDRESS_KEYWORDS_REGEX.lastIndex = 0;
+            return nextLine;
+          }
+          ADDRESS_KEYWORDS_REGEX.lastIndex = 0;
+        }
+        // Kiểm tra dòng ngay phía trên SĐT nếu khách viết địa chỉ trước, SĐT sau
+        for (let prevIdx = idx - 1; prevIdx >= 0; prevIdx--) {
+          const prevLine = cleanAddressCandidate(lines[prevIdx]);
+          if (
+            prevLine.length >= 10 &&
+            !PROMPT_QUESTION_EXCLUDE_REGEX.test(prevLine) &&
+            (ADDRESS_KEYWORDS_REGEX.test(prevLine) || /^\d+(?:\/\d+)?\s+\S+/i.test(prevLine))
+          ) {
+            ADDRESS_KEYWORDS_REGEX.lastIndex = 0;
+            return prevLine;
+          }
+          ADDRESS_KEYWORDS_REGEX.lastIndex = 0;
+        }
+        // Kiểm tra nếu SĐT và địa chỉ nằm trên CÙNG 1 dòng (VD: "Quyên 0334781071 - 103/13 nguyễn hoàng ấp 2 xã trảng bom đồng nai")
+        const withoutPhone = cleanAddressCandidate(line.replace(phoneRegex, " "));
+        if (withoutPhone.length >= 12 && !PROMPT_QUESTION_EXCLUDE_REGEX.test(withoutPhone)) {
+          const keywordMatches = withoutPhone.match(ADDRESS_KEYWORDS_REGEX) || [];
+          ADDRESS_KEYWORDS_REGEX.lastIndex = 0;
+          if (keywordMatches.length >= 1 || /\b\d+\/\d+\b/.test(withoutPhone)) {
+            // Nếu có dấu phân cách giữa tên và địa chỉ (VD: "Quyên - 103/13 nguyễn hoàng...")
+            const parts = withoutPhone.split(/\s*[\-|,;:]\s*/).filter(Boolean);
+            if (parts.length > 1 && parts[0].split(/\s+/).length <= 3 && !/\d/.test(parts[0])) {
+              const rest = cleanAddressCandidate(parts.slice(1).join(", "));
+              if (rest.length >= 10) return rest;
+            }
+            // Nếu tên đứng đầu trước số nhà (VD: "Quyên 103/13 nguyễn hoàng...")
+            const houseMatch = withoutPhone.match(/(?:^|\s)(\d+(?:\/\d+)?\s+.{8,})$/);
+            if (houseMatch && houseMatch[1]) {
+              return cleanAddressCandidate(houseMatch[1]);
+            }
+            return withoutPhone;
+          }
+        }
+      }
+    }
+
+    // Trường hợp B: Dòng tin nhắn độc lập chứa tiền tố địa chỉ hoặc từ khóa hành chính/đường phố
+    for (const line of lines) {
+      if (PROMPT_QUESTION_EXCLUDE_REGEX.test(line)) continue;
+
+      const explicitMatch = line.match(
+        /(?:địa\s*chỉ(?:\s*nhận\s*hàng|\s*giao\s*hàng)?|đ\/c|đc|giao\s*(?:về|đến|tới))\s*[:\-]\s*(.{8,})/i
+      );
+      if (explicitMatch && explicitMatch[1]) {
+        const cleaned = cleanAddressCandidate(explicitMatch[1]);
+        if (cleaned.length >= 8 && !PROMPT_QUESTION_EXCLUDE_REGEX.test(cleaned)) {
+          return cleaned;
+        }
+      }
+
+      const cleanedLine = cleanAddressCandidate(line);
+      if (cleanedLine.length < 10 || cleanedLine.length > 240) continue;
+
+      const kwMatches = cleanedLine.match(ADDRESS_KEYWORDS_REGEX) || [];
+      ADDRESS_KEYWORDS_REGEX.lastIndex = 0;
+      const hasHouseOrAlleyNumber = /^(?:số\s*)?\d+(?:\/\d+)?\s+\S+/i.test(cleanedLine);
+
+      if (kwMatches.length >= 2 || (kwMatches.length >= 1 && (hasHouseOrAlleyNumber || cleanedLine.includes(",")))) {
+        return cleanedLine;
+      }
+    }
+
+    return "";
+  };
+
+  // Priority 1a: Quét tin nhắn của khách hàng trước (từ mới nhất về cũ nhất)
+  for (let i = msgList.length - 1; i >= 0 && !resolvedAddress; i--) {
+    const m = msgList[i];
+    if (!m || m.isMe || m.isSystem || m.isRecalled) continue;
+    const foundAddr = extractAddressFromMessageText(m.text);
+    if (foundAddr) {
+      resolvedAddress = foundAddr;
+      break;
+    }
+  }
+
+  // Priority 1b: Quét tin nhắn của nhân viên (VD nhân viên nhắn xác nhận đơn có ghi Địa chỉ: ...)
+  for (let i = msgList.length - 1; i >= 0 && !resolvedAddress; i--) {
+    const m = msgList[i];
+    if (!m || !m.isMe || m.isAi || m.isSystem || m.isRecalled) continue;
+    const foundAddr = extractAddressFromMessageText(m.text);
+    if (foundAddr) {
+      resolvedAddress = foundAddr;
+      break;
+    }
+  }
+
+  // Priority 1c: Từ AI Summary nếu đã trích xuất được địa chỉ
+  if (!resolvedAddress && !isPlaceholderAddress(aiSummary?.extractedAddress || aiSummary?.address)) {
+    resolvedAddress = String(aiSummary.extractedAddress || aiSummary.address).trim();
+  }
+
+  // Priority 2: customer360.address hoặc activeConv.address
+  if (!resolvedAddress) {
+    if (!isPlaceholderAddress(customer360?.address)) {
+      resolvedAddress = String(customer360.address).trim();
+    } else if (!isPlaceholderAddress(activeConv?.address)) {
+      resolvedAddress = String(activeConv.address).trim();
+    }
+  }
+
+  // Priority 3: Địa chỉ từ các đơn hàng KiotViet / CRM trước đó
+  if (!resolvedAddress && Array.isArray(previousOrders)) {
+    for (const ord of previousOrders) {
+      const ordAddr =
+        ord?.address || ord?.shippingAddress || ord?.receiverAddress || ord?.deliveryAddress || "";
+      if (!isPlaceholderAddress(ordAddr)) {
+        resolvedAddress = String(ordAddr).trim();
+        break;
+      }
+    }
+  }
+
+  return {
+    phone: resolvedPhone,
+    address: resolvedAddress,
+  };
 }
 
 function formatMessageForDisplay(rawText, msgType) {
@@ -341,7 +628,10 @@ export default function LiveZaloInbox() {
 
   // Virtualization / Infinite Scroll chống lag Main Thread (WBS-21 Performance)
   const [visibleCount, setVisibleCount] = useState(40);
-  const messageCacheRef = useRef(new Map());
+  const messagesCacheRef = useRef(new Map());
+  const messageCacheRef = messagesCacheRef;
+  const prefetchedConvKeysRef = useRef(new Set());
+  const aiSummaryCacheRef = useRef(new Map());
 
   // Chế độ AI & Toggle Switch từng khách (Mặc định Nhân viên trực)
   const [aiMode, setAiMode] = useState("HUMAN_ONLY"); // 'HUMAN_ONLY' | 'DRAFT_ONLY' | 'AUTO_REPLY'
@@ -359,8 +649,10 @@ export default function LiveZaloInbox() {
   const [editingMsgText, setEditingMsgText] = useState("");
   const [actionLoadingMsgId, setActionLoadingMsgId] = useState(null);
 
-  // Lên đơn hàng nhanh trong chat (QuickOrderModal)
+  // Lên đơn hàng nhanh trong chat (QuickOrderModal) + Tự động điền SĐT & Địa chỉ
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false);
+  const [orderPhone, setOrderPhone] = useState("");
+  const [orderAddress, setOrderAddress] = useState("");
 
   // Vpage Enhanced Chat States (Trả lời nhanh, Sản phẩm, Ghi âm, File đính kèm)
   const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
@@ -946,7 +1238,7 @@ export default function LiveZaloInbox() {
   useEffect(() => {
     if (!activeConv?.id) return;
     let isCancelled = false;
-    const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
+    const convCacheKey = getConvCacheKey(activeConv);
     latestTimestampRef.current = 0;
     forceScrollNextRef.current = true;
     isNearBottomRef.current = true;
@@ -1001,14 +1293,14 @@ export default function LiveZaloInbox() {
           if (data.incremental) {
             if (data.messages.length > 0) {
               setMessages((prev) => {
-                const existing = prev || [];
+                const existing = (prev || []).filter((m) => !m.isFallbackPreview);
                 const seen = new Set(existing.map((m) => String(m.id)));
                 const additions = data.messages.filter((m) => !seen.has(String(m.id)));
                 if (additions.length === 0) return existing;
                 const merged = [...existing, ...additions].sort(
                   (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
                 );
-                messageCacheRef.current.set(convCacheKey, merged);
+                messagesCacheRef.current.set(convCacheKey, merged);
                 return merged;
               });
             }
@@ -1056,11 +1348,12 @@ export default function LiveZaloInbox() {
             }
 
             setMessages((prev) => {
-              const existing = prev || [];
+              const existing = (prev || []).filter((m) => !m.isFallbackPreview);
               if (silent && existing.length > 0) {
                 const byId = new Map(existing.map((m) => [String(m.id), m]));
                 let changed = false;
                 for (const m of incoming) {
+                  if (m.isFallbackPreview) continue;
                   const key = String(m.id);
                   const old = byId.get(key);
                   if (!old) {
@@ -1079,10 +1372,10 @@ export default function LiveZaloInbox() {
                 const merged = Array.from(byId.values()).sort(
                   (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
                 );
-                messageCacheRef.current.set(convCacheKey, merged);
+                messagesCacheRef.current.set(convCacheKey, merged);
                 return merged;
               }
-              messageCacheRef.current.set(convCacheKey, incoming);
+              messagesCacheRef.current.set(convCacheKey, incoming);
               return incoming;
             });
           }
@@ -1095,15 +1388,19 @@ export default function LiveZaloInbox() {
         }
       } finally {
         msgInFlightRef.current = false;
-        if (!silent && !isCancelled) setLoadingMessages(false);
+        if (!isCancelled) setLoadingMessages(false);
       }
     }
 
-    // Hiển thị ngay lập tức từ client cache nếu đã mở trước đó (0ms delay)
-    const cachedMsgs = messageCacheRef.current.get(convCacheKey);
-    if (cachedMsgs && Array.isArray(cachedMsgs) && cachedMsgs.length > 0) {
+    // Hiển thị ngay lập tức (0ms) từ messagesCacheRef nếu đã nạp/prefetch trước đó (không hiện spinner chặn màn hình)
+    if (messagesCacheRef.current.has(convCacheKey)) {
+      const cachedMsgs = messagesCacheRef.current.get(convCacheKey) || [];
+      setLoadingMessages(false);
       setMessages(cachedMsgs);
-      const maxCachedTs = cachedMsgs.reduce((mx, m) => Math.max(mx, Number(m.timestamp) || 0), 0);
+      const maxCachedTs = cachedMsgs.reduce(
+        (mx, m) => (m.isFallbackPreview ? mx : Math.max(mx, Number(m.timestamp) || 0)),
+        0
+      );
       latestTimestampRef.current = maxCachedTs;
       fetchMessagesForActive(true);
     } else if (
@@ -1111,7 +1408,7 @@ export default function LiveZaloInbox() {
       String(activeConv.lastMessage).trim() &&
       String(activeConv.lastMessage).trim() !== "[Tin nhắn]"
     ) {
-      // Nạp ngay tin nhắn preview trong lúc fetch API để người dùng không thấy màn hình trống
+      // Nạp ngay tin nhắn preview trong lúc fetch ngầm API để người dùng không thấy spinner "Đang nạp lịch sử tin nhắn..."
       const rawSnippet = String(activeConv.lastMessage).trim();
       const isSystem = rawSnippet.startsWith("[Hệ thống]");
       const isMe = !isSystem && (rawSnippet.startsWith("Bạn:") || Boolean(activeConv.isSelf));
@@ -1132,8 +1429,9 @@ export default function LiveZaloInbox() {
           isFallbackPreview: true,
         },
       ];
+      setLoadingMessages(false);
       setMessages(previewMsg);
-      fetchMessagesForActive(false);
+      fetchMessagesForActive(true);
     } else {
       fetchMessagesForActive(false);
     }
@@ -1182,8 +1480,8 @@ export default function LiveZaloInbox() {
           const merged = [...older, ...existing].sort(
             (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
           );
-          const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
-          messageCacheRef.current.set(convCacheKey, merged);
+          const convCacheKey = getConvCacheKey(activeConv);
+          messagesCacheRef.current.set(convCacheKey, merged);
           return merged;
         });
         setMessagesMeta((prev) => ({
@@ -1205,7 +1503,7 @@ export default function LiveZaloInbox() {
     }
   };
 
-  // Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 khi đổi người chat
+  // Tìm kiếm & đồng bộ Hồ Sơ Khách Hàng 360 + Tự động nạp AI Summary đã lưu khi đổi người chat
   useEffect(() => {
     if (!activeConv) {
       setMatchedCustomer(null);
@@ -1214,13 +1512,61 @@ export default function LiveZaloInbox() {
       return;
     }
     let isCancelled = false;
+    const threadKey = String(activeConv.id || "").trim();
 
-    // CHỈ sử dụng SĐT xác thực của khách hàng / Zalo profile (tuyệt đối KHÔNG quét bừa SĐT từ nội dung tin nhắn)
     const verifiedConvPhone =
       (activeConv.phone && normalizePhone(activeConv.phone)) ||
       (activeConv.zaloPhone && normalizePhone(activeConv.zaloPhone)) ||
       "";
     setDetectedChatPhone(verifiedConvPhone);
+
+    // 1. Khôi phục tức thì AI Summary từ bộ nhớ đệm (RAM / localStorage) rồi đồng bộ từ GET /api/zalo/ai-summary
+    let cachedSummary = aiSummaryCacheRef.current.get(threadKey) || null;
+    if (!cachedSummary && typeof window !== "undefined" && threadKey) {
+      try {
+        const rawSaved = localStorage.getItem(`addp_ai_summary_${threadKey}`);
+        if (rawSaved) {
+          cachedSummary = normalizeAiSummary(JSON.parse(rawSaved));
+          if (cachedSummary) aiSummaryCacheRef.current.set(threadKey, cachedSummary);
+        }
+      } catch {}
+    }
+    setAiSummary(cachedSummary);
+
+    async function loadPersistedAiSummary() {
+      if (!threadKey) return;
+      try {
+        const res = await fetch(
+          `/api/zalo/ai-summary?threadId=${encodeURIComponent(threadKey)}&phone=${encodeURIComponent(
+            verifiedConvPhone
+          )}`
+        );
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (isCancelled || !data?.ok || !data?.summary) return;
+        const norm = normalizeAiSummary({
+          ...data.summary,
+          extractedPhone: data.extractedPhone || data.summary.extractedPhone || "",
+          extractedAddress: data.extractedAddress || data.summary.extractedAddress || "",
+        });
+        if (norm) {
+          aiSummaryCacheRef.current.set(threadKey, norm);
+          try {
+            localStorage.setItem(`addp_ai_summary_${threadKey}`, JSON.stringify(norm));
+          } catch {}
+          setAiSummary(norm);
+        }
+        const exPhone = normalizePhone(data.extractedPhone || data.summary?.extractedPhone || "");
+        if (exPhone && isValidVietnamPhone(exPhone)) {
+          setOrderPhone((prev) => prev || exPhone);
+          setDetectedChatPhone((prev) => prev || exPhone);
+        }
+        const exAddr = data.extractedAddress || data.summary?.extractedAddress || "";
+        if (!isPlaceholderAddress(exAddr)) {
+          setOrderAddress((prev) => prev || String(exAddr).trim());
+        }
+      } catch {}
+    }
 
     async function loadCustomerProfile() {
       try {
@@ -1261,6 +1607,7 @@ export default function LiveZaloInbox() {
       }
     }
 
+    loadPersistedAiSummary();
     loadCustomerProfile();
 
     return () => {
@@ -1268,9 +1615,78 @@ export default function LiveZaloInbox() {
     };
   }, [activeConv?.id, activeConv?.zaloUid, activeConv?.phone, activeConv?.zaloPhone]);
 
+  // Tự động trích xuất SĐT & Địa chỉ giao hàng từ tin nhắn hội thoại / Hồ sơ 360 / Đơn KiotViet
+  useEffect(() => {
+    if (!activeConv) {
+      setOrderPhone("");
+      setOrderAddress("");
+      return;
+    }
+    const resolved = resolveCustomerPhoneAndAddressForOrder(
+      activeConv,
+      messages,
+      matchedCustomer,
+      customerOrders,
+      aiSummary
+    );
+    setOrderPhone(resolved.phone || "");
+    setOrderAddress(resolved.address || "");
+
+    if (resolved.phone && isValidVietnamPhone(resolved.phone) && !detectedChatPhone) {
+      setDetectedChatPhone(resolved.phone);
+    }
+  }, [activeConv, messages, matchedCustomer, customerOrders, aiSummary, isOrderModalOpen, detectedChatPhone]);
+
+  // Khi mở Modal Tạo đơn KiotViet (hoặc khi phát hiện SĐT trong tin nhắn nhưng chưa có địa chỉ KiotViet trên local),
+  // tự động truy vấn /api/customers?search=<phone_or_name> để kéo địa chỉ & hồ sơ đã lưu từ KiotViet/CRM
+  useEffect(() => {
+    if (!activeConv) return;
+    if (!isOrderModalOpen && orderAddress) return;
+    const queryTarget =
+      orderPhone ||
+      normalizePhone(activeConv.phone || detectedChatPhone || matchedCustomer?.phone || "") ||
+      String(activeConv.name || "").trim();
+    if (!queryTarget) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/customers?search=${encodeURIComponent(queryTarget)}`);
+        const data = await res.json().catch(() => null);
+        if (cancelled || !data?.ok || !Array.isArray(data.customers) || data.customers.length === 0) {
+          return;
+        }
+        const targetPhone = normalizePhone(orderPhone || activeConv.phone || detectedChatPhone || "");
+        const bestMatch =
+          data.customers.find(
+            (c) =>
+              (targetPhone && normalizePhone(c.phone || "") === targetPhone) ||
+              String(c.zaloUid || "") === String(activeConv.id || "") ||
+              String(c.zaloThreadId || "") === String(activeConv.id || "")
+          ) || data.customers[0];
+
+        if (!bestMatch || cancelled) return;
+        setMatchedCustomer((prev) => prev || bestMatch);
+
+        const foundPhone = normalizePhone(bestMatch.phone || "");
+        if (foundPhone && isValidVietnamPhone(foundPhone)) {
+          setOrderPhone((prev) => prev || foundPhone);
+          setDetectedChatPhone((prev) => prev || foundPhone);
+        }
+        if (!isPlaceholderAddress(bestMatch.address)) {
+          setOrderAddress((prev) => prev || String(bestMatch.address).trim());
+        }
+      } catch {}
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOrderModalOpen, orderPhone, orderAddress, activeConv, detectedChatPhone, matchedCustomer]);
+
   // SĐT chuẩn hóa dùng để tra cứu đơn hàng KiotViet & CRM của khách đang chat
   const activeOrderPhone = normalizePhone(
-    activeConv?.phone || matchedCustomer?.phone || detectedChatPhone || ""
+    orderPhone || activeConv?.phone || matchedCustomer?.phone || detectedChatPhone || ""
   );
 
   const fetchCustomerOrders = useCallback(async (phoneToFetch) => {
@@ -1611,28 +2027,76 @@ export default function LiveZaloInbox() {
     }
   };
 
-  // Trợ lý AI Tóm Tắt 4 Mục (gửi tới POST /api/zalo/ai-summary)
+  // Trợ lý AI Tóm Tắt 4 Mục (gửi tới POST /api/zalo/ai-summary & lưu bền vững)
   const handleGenerateAiSummary = async () => {
     if (!activeConv) return;
     try {
       setSummarizing(true);
+      const threadKey = String(activeConv.id || "").trim();
+      const resolvedOrderInfo = resolveCustomerPhoneAndAddressForOrder(
+        activeConv,
+        messages,
+        matchedCustomer,
+        customerOrders,
+        aiSummary
+      );
+      const effectivePhone =
+        resolvedOrderInfo.phone ||
+        normalizePhone(activeConv.phone || detectedChatPhone || matchedCustomer?.phone || "");
+      const effectiveName =
+        activeConv.name || matchedCustomer?.fullName || matchedCustomer?.name || "Khách hàng";
+
       const res = await fetch("/api/zalo/ai-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          threadId: activeConv.id,
           thread_id: activeConv.id,
-          messages: (messages || []).slice(-15),
-          customer: matchedCustomer || {
-            name: activeConv.name,
-            phone: activeConv.phone || detectedChatPhone,
-            pathology: activeConv.pathology,
+          customerName: effectiveName,
+          phone: effectivePhone,
+          accountId: activeConv.accountId || "",
+          pageId: activeConv.pageId || "",
+          homeDir: activeConv.zaloHome || "",
+          channel: activeConv.channel || "ZALO_PERSONAL",
+          messages: (messages || []).slice(-40),
+          customer: {
+            ...(matchedCustomer || {}),
+            id: matchedCustomer?.id || activeConv.customerId || "",
+            name: effectiveName,
+            fullName: effectiveName,
+            phone: effectivePhone,
+            address: resolvedOrderInfo.address || matchedCustomer?.address || activeConv.address || "",
+            pathology: matchedCustomer?.pathology || activeConv.pathology || "",
           },
         }),
       });
       const data = await res.json();
       if (data.ok && data.summary) {
-        setAiSummary(data.summary);
-        setToast({ type: "success", text: "Trợ lý AI đã cập nhật tóm tắt 4 mục!" });
+        const normSummary = normalizeAiSummary({
+          ...data.summary,
+          extractedPhone: data.extractedPhone || data.summary.extractedPhone || effectivePhone,
+          extractedAddress:
+            data.extractedAddress || data.summary.extractedAddress || resolvedOrderInfo.address || "",
+        });
+        if (normSummary) {
+          setAiSummary(normSummary);
+          if (threadKey) {
+            aiSummaryCacheRef.current.set(threadKey, normSummary);
+            try {
+              localStorage.setItem(`addp_ai_summary_${threadKey}`, JSON.stringify(normSummary));
+            } catch {}
+          }
+        }
+        const exPhone = normalizePhone(data.extractedPhone || data.summary?.extractedPhone || "");
+        if (exPhone && isValidVietnamPhone(exPhone)) {
+          setOrderPhone((prev) => prev || exPhone);
+          setDetectedChatPhone((prev) => prev || exPhone);
+        }
+        const exAddr = data.extractedAddress || data.summary?.extractedAddress || "";
+        if (!isPlaceholderAddress(exAddr)) {
+          setOrderAddress((prev) => prev || String(exAddr).trim());
+        }
+        setToast({ type: "success", text: "Trợ lý AI đã cập nhật & lưu tóm tắt 4 mục!" });
         setTimeout(() => setToast(null), 3000);
       }
     } catch (err) {
@@ -3160,6 +3624,80 @@ export default function LiveZaloInbox() {
     return displayedActiveChats.slice(0, visibleCount);
   }, [displayedActiveChats, visibleCount]);
 
+  // Prefetch ngầm tin nhắn cho Top 5 hội thoại đầu tiên đang hiển thị để khi bấm vào sẽ hiển thị tức thì (0ms)
+  useEffect(() => {
+    if (!Array.isArray(visibleActiveChats) || visibleActiveChats.length === 0) return;
+    const topConvs = visibleActiveChats.slice(0, 5);
+    let cancelled = false;
+
+    topConvs.forEach((conv, idx) => {
+      if (!conv?.id || conv.isContactOnly || conv.isDirectCareTemp) return;
+      const convKey = getConvCacheKey(conv);
+      if (messagesCacheRef.current.has(convKey) || prefetchedConvKeysRef.current.has(convKey)) {
+        return;
+      }
+      prefetchedConvKeysRef.current.add(convKey);
+
+      setTimeout(async () => {
+        if (cancelled || messagesCacheRef.current.has(convKey)) return;
+        try {
+          const res = await fetch(
+            `/api/channels/zalo/messages?threadId=${encodeURIComponent(conv.id)}&type=${encodeURIComponent(
+              conv.type || "DIRECT"
+            )}&channel=${encodeURIComponent(conv.channel || "ZALO_PERSONAL")}&pageId=${encodeURIComponent(
+              conv.pageId || ""
+            )}&accountId=${encodeURIComponent(conv.accountId || "")}&homeDir=${encodeURIComponent(
+              conv.zaloHome || ""
+            )}&name=${encodeURIComponent(conv.name || conv.customerName || "")}&limit=100`
+          );
+          const data = await res.json().catch(() => null);
+          if (!cancelled && res.ok && data?.ok && Array.isArray(data.messages)) {
+            messagesCacheRef.current.set(convKey, data.messages);
+          }
+        } catch {}
+      }, idx * 75);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleActiveChats]);
+
+  const quickOrderCustomer = useMemo(() => {
+    if (!activeConv) return null;
+    const resolvedForOrder = resolveCustomerPhoneAndAddressForOrder(
+      activeConv,
+      messages,
+      matchedCustomer,
+      customerOrders,
+      aiSummary
+    );
+    return {
+      ...activeConv,
+      fullName: activeConv.name || matchedCustomer?.fullName || matchedCustomer?.name || "",
+      name: activeConv.name || matchedCustomer?.fullName || matchedCustomer?.name || "",
+      phone:
+        orderPhone ||
+        resolvedForOrder.phone ||
+        normalizePhone(activeConv.phone || detectedChatPhone || matchedCustomer?.phone || ""),
+      address:
+        orderAddress ||
+        resolvedForOrder.address ||
+        matchedCustomer?.address ||
+        activeConv.address ||
+        "",
+    };
+  }, [
+    activeConv,
+    messages,
+    matchedCustomer,
+    customerOrders,
+    aiSummary,
+    orderPhone,
+    orderAddress,
+    detectedChatPhone,
+  ]);
+
   const handleScrollConversationList = useCallback(
     (e) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
@@ -3226,6 +3764,15 @@ export default function LiveZaloInbox() {
           setConvBotMode(isAi ? "AI" : "HUMAN");
           setIsAccountLevelHuman(!isAi);
           setAiMode(isAi ? "AUTO_REPLY" : "HUMAN_ONLY");
+
+          // Hiển thị tức thì (0ms) tin nhắn từ cache ngay khi click chuột
+          const convKey = getConvCacheKey(conv);
+          if (messagesCacheRef.current.has(convKey)) {
+            const cached = messagesCacheRef.current.get(convKey) || [];
+            setLoadingMessages(false);
+            setMessages(cached);
+          }
+
           setActiveConv(conv);
           setMobilePane("chat");
 
@@ -3440,30 +3987,77 @@ export default function LiveZaloInbox() {
             mobilePane === "list" ? "flex" : "hidden"
           } md:flex w-full md:w-[255px] xl:w-[275px] 2xl:w-[310px] flex-shrink-0 md:border-r border-slate-800 bg-slate-900/90 flex-col min-h-0`}
         >
-          {/* Header gọn gàng & Tìm kiếm */}
-          <div className="p-3 border-b border-slate-800 space-y-2.5 shrink-0">
-            {/* Hàng 1: Tiêu đề Hộp Thư Đa Kênh + Cụm nút công cụ */}
-            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-0.5">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white font-bold text-xs shrink-0 badge-solid-white shadow-xs">
-                  Z
+          {/* Header siêu gọn (Compact 3 hàng: Kênh + Công cụ | Tìm kiếm + Thẻ | Pills lọc nhanh) */}
+          <div className="p-2 border-b border-slate-800 space-y-1.5 shrink-0">
+            {/* Hàng 1: Chọn Kênh/Tài khoản (Trái) + Toggle Sale/AI Toàn nick & Cụm icon tác nghiệp (Phải) */}
+            <div className="relative flex items-center justify-between gap-1" ref={channelPopoverRef}>
+              <button
+                type="button"
+                onClick={() => setChannelPopoverOpen(!channelPopoverOpen)}
+                aria-label="Lọc theo kênh hoặc tài khoản"
+                title="Nhấn để chọn kênh và tài khoản lọc tin nhắn"
+                className={`h-7 flex-1 min-w-0 flex items-center justify-between px-2 rounded-lg text-xs font-semibold shadow-2xs border transition-all cursor-pointer ${
+                  selectedAccountFilter === "ALL"
+                    ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-500 badge-solid-white"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white dark:border-slate-600"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 min-w-0 truncate">
+                  <span className="text-sm leading-none shrink-0">{getSelectedFilterInfo().icon}</span>
+                  <span className="truncate">{getSelectedFilterInfo().label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold tabular-nums shrink-0 ${
+                      selectedAccountFilter === "ALL"
+                        ? "bg-white/25 text-white badge-solid-white"
+                        : "bg-blue-600 text-white badge-solid-white"
+                    }`}
+                  >
+                    {getSelectedFilterInfo().count}
+                  </span>
                 </span>
-                <h2 className="text-sm font-bold text-white tracking-tight truncate">
-                  Hộp Thư Đa Kênh
-                </h2>
-              </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 ml-1 shrink-0 transition-transform duration-200 ${
+                    selectedAccountFilter === "ALL"
+                      ? "text-white/90"
+                      : "text-slate-600 dark:text-slate-300"
+                  } ${channelPopoverOpen ? "rotate-180" : ""}`}
+                />
+              </button>
 
-              {/* Cụm nút công cụ tác nghiệp */}
+              {/* Cụm nút tác nghiệp nhỏ gọn + Toggle Sale Trực / AI Toàn nick */}
               <div className="flex items-center gap-1 shrink-0">
-                {/* Nút Gửi Tin Nhắn Hàng Loạt */}
+                {currentSelectedAccount && (
+                  <button
+                    type="button"
+                    onClick={() => handleToggleAccountBotMode(currentSelectedAccount)}
+                    title={`Toàn nick "${currentSelectedAccount.name || currentSelectedAccount.label}": Hiện đang là ${
+                      currentSelectedAccount.botMode === "AI" ? "AI Tự Động" : "Sale Trực"
+                    }. Bấm để chuyển đổi.`}
+                    className={`h-7 px-1.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer inline-flex items-center gap-1 shadow-2xs shrink-0 ${
+                      currentSelectedAccount.botMode === "AI"
+                        ? "bg-purple-500/15 text-purple-300 border-purple-500/30 hover:bg-purple-500/25"
+                        : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        currentSelectedAccount.botMode === "AI" ? "bg-purple-400 animate-pulse" : "bg-emerald-400"
+                      }`}
+                    />
+                    <span className="whitespace-nowrap">
+                      {currentSelectedAccount.botMode === "AI" ? "AI" : "Sale Trực"}
+                    </span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setIsBulkModalOpen(true)}
+                  aria-label="Gửi tin nhắn hàng loạt"
                   title="Gửi tin nhắn hàng loạt (Broadcast) có Anti-Ban"
-                  className="rounded-lg border border-blue-500/40 bg-blue-600/20 px-2 py-1.5 text-blue-300 hover:text-white hover:bg-blue-600 transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold"
+                  className="h-7 w-7 flex items-center justify-center rounded-lg border border-blue-500/40 bg-blue-600/20 text-blue-300 hover:text-white hover:bg-blue-600 transition-colors cursor-pointer shrink-0"
                 >
                   <Send className="w-3 h-3" />
-                  <span className="hidden 2xl:inline">Gửi Loạt</span>
                 </button>
 
                 {(effectiveTikTokShops.length > 0 || channelFilter === "TIKTOK_SHOP") && (
@@ -3473,12 +4067,9 @@ export default function LiveZaloInbox() {
                     disabled={isSyncingTikTok}
                     aria-label="Đồng bộ tin nhắn TikTok Shop"
                     title="Kéo hội thoại và tin nhắn từ TikTok Shop Open API về CRM"
-                    className="rounded-lg border border-pink-500/40 bg-pink-600/15 px-2 py-1.5 text-pink-600 dark:text-pink-300 hover:bg-pink-600 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1 text-[11px] font-bold disabled:opacity-50"
+                    className="h-7 w-7 flex items-center justify-center rounded-lg border border-pink-500/40 bg-pink-600/15 text-pink-300 hover:bg-pink-600 hover:text-white transition-colors cursor-pointer disabled:opacity-50 shrink-0"
                   >
                     <RefreshCw className={`w-3 h-3 ${isSyncingTikTok ? "animate-spin" : ""}`} />
-                    <span className="hidden 2xl:inline">
-                      {isSyncingTikTok ? "Đang kéo..." : "Đồng bộ TikTok"}
-                    </span>
                   </button>
                 )}
 
@@ -3488,7 +4079,7 @@ export default function LiveZaloInbox() {
                   disabled={isSyncingHistory}
                   aria-label="Đồng bộ lịch sử tin nhắn"
                   title="Đồng bộ toàn bộ lịch sử tin nhắn cũ từ Zalo & Facebook"
-                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+                  className="h-7 w-7 flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer disabled:opacity-50 shrink-0"
                 >
                   <DownloadCloud
                     className={`w-3.5 h-3.5 ${isSyncingHistory ? "animate-bounce text-blue-400" : ""}`}
@@ -3500,7 +4091,7 @@ export default function LiveZaloInbox() {
                   onClick={() => loadConversations(false, true)}
                   aria-label="Làm mới danh sách hội thoại"
                   title="Làm mới danh sách hội thoại"
-                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  className="h-7 w-7 flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-blue-400" : ""}`} />
                 </button>
@@ -3509,8 +4100,8 @@ export default function LiveZaloInbox() {
                   type="button"
                   onClick={toggleSoundMute}
                   aria-label={isSoundMuted ? "Bật chuông thông báo" : "Tắt chuông thông báo"}
-                  title={isSoundMuted ? "Chuông thông báo: ĐÃ TẮT (Bấm để BẬT)" : "Chuông thông báo: ĐANG BẬT (Bấm để thử chuông / tắt)"}
-                  className={`rounded-lg border p-1.5 transition-colors cursor-pointer ${
+                  title={isSoundMuted ? "Chuông thông báo: ĐÃ TẮT (Bấm để BẬT)" : "Chuông thông báo: ĐANG BẬT (Bấm để tắt)"}
+                  className={`h-7 w-7 flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0 ${
                     isSoundMuted
                       ? "border-rose-700/60 bg-rose-950/40 text-rose-400 hover:text-rose-300"
                       : "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300 hover:bg-slate-700"
@@ -3522,65 +4113,11 @@ export default function LiveZaloInbox() {
                     <Bell className="w-3.5 h-3.5" />
                   )}
                 </button>
-
-                <Link
-                  href="/settings/tags"
-                  aria-label="Quản lý thẻ tag"
-                  title="Quản lý danh mục thẻ tag"
-                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors"
-                >
-                  <Tag className="w-3.5 h-3.5 text-amber-400" />
-                </Link>
-
-                <Link
-                  href="/channels"
-                  aria-label="Quản lý kênh kết nối"
-                  title="Quản lý kênh kết nối"
-                  className="rounded-lg border border-slate-700 bg-slate-800 p-1.5 text-slate-300 hover:text-white transition-colors"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                </Link>
               </div>
-            </div>
-
-            {/* Hàng 2: Nút chọn kênh chuẩn chỉnh Full-Width độ tương phản cao (Sáng & Tối) */}
-            <div className="relative w-full" ref={channelPopoverRef}>
-              <button
-                type="button"
-                onClick={() => setChannelPopoverOpen(!channelPopoverOpen)}
-                aria-label="Lọc theo kênh hoặc tài khoản"
-                title="Nhấn để chọn kênh và tài khoản lọc tin nhắn"
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-semibold shadow-sm border transition-all cursor-pointer ${
-                  selectedAccountFilter === "ALL"
-                    ? "bg-blue-600 hover:bg-blue-700 text-white border-blue-500 badge-solid-white shadow-blue-600/20"
-                    : "bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-white dark:border-slate-600"
-                }`}
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <span className="text-base leading-none shrink-0">{getSelectedFilterInfo().icon}</span>
-                  <span className="truncate">{getSelectedFilterInfo().label}</span>
-                  <span
-                    className={`text-[11px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
-                      selectedAccountFilter === "ALL"
-                        ? "bg-white/25 text-white badge-solid-white"
-                        : "bg-blue-600 text-white badge-solid-white"
-                    }`}
-                  >
-                    {getSelectedFilterInfo().count}
-                  </span>
-                </span>
-                <ChevronDown
-                  className={`w-4 h-4 shrink-0 transition-transform duration-200 ${
-                    selectedAccountFilter === "ALL"
-                      ? "text-white/90"
-                      : "text-slate-600 dark:text-slate-300"
-                  } ${channelPopoverOpen ? "rotate-180" : ""}`}
-                />
-              </button>
 
               {/* Popover Menu Thả Xuống Full-Width Tự Đóng Khi Chọn */}
               {channelPopoverOpen && (
-                <div className="absolute left-0 right-0 top-full mt-2 w-full rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 z-50 max-h-[28rem] overflow-y-auto space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute left-0 right-0 top-full mt-1.5 w-full rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 z-50 max-h-[28rem] overflow-y-auto space-y-2 text-xs animate-in fade-in zoom-in-95 duration-100">
                   {/* Nhóm 1: Tất cả kênh hợp nhất */}
                   <div>
                     <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -3982,66 +4519,55 @@ export default function LiveZaloInbox() {
               )}
             </div>
 
-            {/* Chế độ trực của TOÀN NICK đang chọn */}
-            {currentSelectedAccount && (
-              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] shadow-2xs">
-                <span className="text-slate-400 flex items-center gap-1.5 truncate">
-                  <span className="text-xs">⚙️</span>
-                  <span>Toàn nick:</span>
-                  <span className="font-semibold text-slate-200 truncate max-w-[125px]">
-                    {currentSelectedAccount.name || currentSelectedAccount.label}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleToggleAccountBotMode(currentSelectedAccount)}
-                  title={`Cài đặt cho TOÀN NICK: Hiện đang là ${currentSelectedAccount.botMode === "AI" ? "AI Tự Động" : "Sale Trực"}. Bấm để chuyển đổi cho cả nick.`}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
-                    currentSelectedAccount.botMode === "AI"
-                      ? "bg-purple-500/15 text-purple-300 border-purple-500/30 hover:bg-purple-500/25"
-                      : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-750"
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      currentSelectedAccount.botMode === "AI" ? "bg-purple-400 animate-pulse" : "bg-slate-400"
-                    }`}
-                  />
-                  <span>{currentSelectedAccount.botMode === "AI" ? "🤖 AI Trực" : "👤 Sale Trực"}</span>
-                  <span className="text-[9px] opacity-60">✕ Đổi</span>
-                </button>
+            {/* Hàng 2: Ô tìm kiếm nhanh + Dropdown Thẻ trên cùng 1 hàng gọn (h-8 text-xs) */}
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1 min-w-0">
+                <input
+                  type="text"
+                  placeholder="Tìm tên khách, SĐT, nội dung..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-slate-800 bg-slate-950 pl-7 pr-6 text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+                />
+                <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    aria-label="Xóa tìm kiếm"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
               </div>
-            )}
 
-            {/* Ô tìm kiếm nhanh */}
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Tìm tên khách, SĐT, nội dung..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 pl-9 md:pl-8 pr-8 py-2.5 md:py-1.5 text-base md:text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none"
-              />
-              <Search className="w-4 h-4 md:w-3.5 md:h-3.5 absolute left-3 md:left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  aria-label="Xóa tìm kiếm"
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-white cursor-pointer"
-                >
-                  <X className="w-4 h-4 md:w-3.5 md:h-3.5" />
-                </button>
-              )}
+              <select
+                value={selectedTagFilter}
+                onChange={(e) => setSelectedTagFilter(e.target.value)}
+                title="Lọc theo thẻ khách hàng"
+                className={`h-8 max-w-[96px] px-1.5 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer focus:outline-none shrink-0 truncate ${
+                  selectedTagFilter !== "ALL"
+                    ? "bg-amber-600 text-white border-amber-500 font-bold shadow-2xs"
+                    : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200"
+                }`}
+              >
+                <option value="ALL">🏷️ Thẻ</option>
+                {availableTags.map((t) => (
+                  <option key={t.id || t.name} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Thanh Pill-Filter Thực Chiến (Hiển thị đầy đủ Chưa đọc & Chưa trả lời ngay hàng đầu) */}
-            <div className="flex flex-wrap items-center gap-1.5 pb-1 text-xs md:text-[11px] font-semibold max-w-full">
+            {/* Hàng 3: Thanh Pill-Filter Thực Chiến siêu gọn (px-2 py-0.5 text-[11px]) */}
+            <div className="flex flex-wrap items-center gap-1 text-[11px] font-semibold max-w-full">
               {/* [Tất cả] */}
               <button
                 type="button"
                 onClick={() => setActiveTab("all")}
-                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
                   activeTab === "all"
                     ? "bg-blue-600 text-white border-blue-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700"
@@ -4049,7 +4575,7 @@ export default function LiveZaloInbox() {
               >
                 <span>Tất cả</span>
                 <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums ${
+                  className={`rounded-full px-1 text-[9px] tabular-nums ${
                     activeTab === "all" ? "bg-black/25 text-white" : "bg-slate-800 text-slate-300"
                   }`}
                 >
@@ -4061,7 +4587,7 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("unread")}
-                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
                   activeTab === "unread"
                     ? "bg-rose-600 text-white border-rose-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-rose-400 border-slate-800 hover:border-rose-600/40"
@@ -4069,7 +4595,7 @@ export default function LiveZaloInbox() {
               >
                 <span>Chưa đọc</span>
                 <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums font-bold ${
+                  className={`rounded-full px-1 text-[9px] tabular-nums font-bold ${
                     activeTab === "unread"
                       ? "bg-black/25 text-white"
                       : pillCounts.unread > 0
@@ -4085,16 +4611,15 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("unanswered")}
-                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
                   activeTab === "unanswered"
                     ? "bg-amber-600 text-white border-amber-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-amber-400 border-slate-800 hover:border-amber-600/40"
                 }`}
               >
-                <Hourglass className="w-3 h-3 text-amber-300 shrink-0" />
                 <span>Chưa trả lời</span>
                 <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums font-bold ${
+                  className={`rounded-full px-1 text-[9px] tabular-nums font-bold ${
                     activeTab === "unanswered"
                       ? "bg-black/25 text-white"
                       : "bg-amber-950 text-amber-300 border border-amber-800/40"
@@ -4108,16 +4633,15 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("has_phone")}
-                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
                   activeTab === "has_phone"
                     ? "bg-emerald-600 text-white border-emerald-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-emerald-400 border-slate-800 hover:border-emerald-600/40"
                 }`}
               >
-                <Flame className="w-3 h-3 text-amber-400 shrink-0" />
                 <span>Có SĐT</span>
                 <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums ${
+                  className={`rounded-full px-1 text-[9px] tabular-nums ${
                     activeTab === "has_phone"
                       ? "bg-black/25 text-white"
                       : "bg-emerald-950 text-emerald-300 border border-emerald-800/40"
@@ -4131,16 +4655,15 @@ export default function LiveZaloInbox() {
               <button
                 type="button"
                 onClick={() => setActiveTab("over_sla")}
-                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
                   activeTab === "over_sla"
                     ? "bg-rose-600 text-white border-rose-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-rose-400 border-slate-800 hover:border-rose-600/40"
                 }`}
               >
-                <ShieldAlert className="w-3 h-3 text-rose-400 shrink-0" />
                 <span>Quá SLA</span>
                 <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums ${
+                  className={`rounded-full px-1 text-[9px] tabular-nums ${
                     activeTab === "over_sla"
                       ? "bg-black/25 text-white"
                       : "bg-rose-950 text-rose-300 border border-rose-800/40"
@@ -4150,20 +4673,19 @@ export default function LiveZaloInbox() {
                 </span>
               </button>
 
-              {/* [🤖 AI Trả lời] */}
+              {/* [🤖 AI] */}
               <button
                 type="button"
                 onClick={() => setActiveTab("bot_on")}
-                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 rounded-xl whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border shadow-2xs ${
+                className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
                   activeTab === "bot_on"
                     ? "bg-purple-600 text-white border-purple-500 badge-solid-white font-bold"
                     : "bg-slate-950/80 text-purple-400 border-slate-800 hover:border-purple-600/40"
                 }`}
               >
-                <Bot className="w-3 h-3 text-purple-300 shrink-0" />
-                <span>AI Trả lời</span>
+                <span>AI</span>
                 <span
-                  className={`rounded-full px-1.5 text-[9px] tabular-nums ${
+                  className={`rounded-full px-1 text-[9px] tabular-nums ${
                     activeTab === "bot_on"
                       ? "bg-black/25 text-white"
                       : "bg-purple-950 text-purple-300 border border-purple-800/40"
@@ -4172,26 +4694,6 @@ export default function LiveZaloInbox() {
                   {pillCounts.botOn}
                 </span>
               </button>
-
-              {/* [🏷️ Lọc theo Thẻ Tag] */}
-              <div className="relative inline-flex items-center shrink-0">
-                <select
-                  value={selectedTagFilter}
-                  onChange={(e) => setSelectedTagFilter(e.target.value)}
-                  className={`min-h-[38px] md:min-h-0 px-2.5 md:px-2 py-1.5 md:py-1 rounded-xl text-xs md:text-[11px] font-semibold border transition-all cursor-pointer focus:outline-none ${
-                    selectedTagFilter !== "ALL"
-                      ? "bg-amber-600 text-white border-amber-500 font-bold shadow-2xs"
-                      : "bg-slate-950/80 text-slate-400 border-slate-800 hover:text-slate-200"
-                  }`}
-                >
-                  <option value="ALL">🏷️ Thẻ (Tất cả)</option>
-                  {availableTags.map((t) => (
-                    <option key={t.id || t.name} value={t.name}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
           </div>
 
@@ -5411,7 +5913,7 @@ export default function LiveZaloInbox() {
                       Trợ Lý AI Tóm Tắt
                     </h5>
                     <p className="text-[10px] text-purple-600/80 dark:text-purple-400/80">
-                      Phân tích từ 15 tin gần nhất
+                      Phân tích từ hội thoại &amp; tự động lưu
                     </p>
                   </div>
                 </div>
@@ -5664,17 +6166,7 @@ export default function LiveZaloInbox() {
       <QuickOrderModal
         isOpen={isOrderModalOpen}
         onClose={() => setIsOrderModalOpen(false)}
-        customer={
-          activeConv
-            ? {
-                ...activeConv,
-                fullName: activeConv.name,
-                name: activeConv.name,
-                phone: activeConv.phone || detectedChatPhone || matchedCustomer?.phone || "",
-                address: matchedCustomer?.address || "",
-              }
-            : null
-        }
+        customer={quickOrderCustomer}
         onSuccess={(order) => {
           setToast({ type: "success", text: `Đã tạo đơn hàng ${order.orderCode} lên KiotViet thành công!` });
           setTimeout(() => setToast(null), 3500);

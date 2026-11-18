@@ -20,6 +20,7 @@ import { getChannelBotMode, isBotActiveForThread } from "@/lib/botControlStore.j
 import { getAllConversationTags } from "@/lib/tagStore.js";
 import { getAllReadReceipts } from "@/lib/readReceiptStore.js";
 import { normalizePhone } from "@/lib/phone.js";
+import { getAllCustomers } from "@/lib/customerIdentityResolver.js";
 import {
   guardApiRequest,
   filterChannelsForStaff,
@@ -122,7 +123,7 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
     } catch {}
   }
 
-  const cacheKey = `${zaloHome}::${ownId}`;
+  const cacheKey = `v2::${zaloHome}::${ownId}`;
   const cached = globalThis.__ADDP_ZALO_HIST_THREADS_CACHE__.get(cacheKey);
   let baseThreadsMap;
   let unreadCounterMap;
@@ -172,7 +173,15 @@ function getLatestThreadsFromAllHistories(zaloHome, ownId = "1781287338457243967
               unreadCounterMap.set(tid, list);
             }
 
-            const peerName = !isSelf && senderName ? senderName : existing?.peerName || "";
+            const outgoingPeerHint = String(
+              msg.recipientName ||
+                msg.toName ||
+                msg.peerName ||
+                (msg.dName && String(msg.dName) !== String(senderName) ? msg.dName : "") ||
+                ""
+            ).trim();
+            const incomingPeerHint = !isSelf ? String(senderName || msg.peerName || msg.dName || "").trim() : "";
+            const peerName = incomingPeerHint || outgoingPeerHint || existing?.peerName || "";
 
             if (!existing || ts >= existing.timestamp) {
               baseThreadsMap.set(tid, {
@@ -307,7 +316,7 @@ export async function GET(request) {
     const assignedKey = Array.isArray(liveStaff?.assignedChannels)
       ? [...liveStaff.assignedChannels].map(String).sort().join(",")
       : "";
-    const cacheKey = `${liveStaff?.id || "anon"}_${liveStaff?.role || "ADMIN"}_${liveStaff?.customerScope || ""}_${assignedKey}`;
+    const cacheKey = `v2_${liveStaff?.id || "anon"}_${liveStaff?.role || "ADMIN"}_${liveStaff?.customerScope || ""}_${assignedKey}`;
     const cachedEntry = globalThis.__ADDP_CONV_CACHE__.get(cacheKey);
     const nowTs = Date.now();
     if (!forceRefresh && cachedEntry && nowTs - cachedEntry.timestamp < 3000) {
@@ -422,6 +431,27 @@ export async function GET(request) {
     const contactOnlyConversations = [];
     const connectedZaloAccounts = [];
 
+    // Xây dựng bảng tra cứu nhanh Khách hàng 360 theo zaloUid / zaloThreadId / id để lấy tên khách khi hội thoại mới chỉ có tin nhắn chiều đi (isSelf)
+    const customerByZaloId = new Map();
+    try {
+      const allCustomers = getAllCustomers() || [];
+      for (const c of allCustomers) {
+        if (!c) continue;
+        const candidateIds = [c.zaloUid, c.zaloThreadId, c.id, c.externalId]
+          .map((v) => String(v || "").trim())
+          .filter(Boolean);
+        for (const cid of candidateIds) {
+          if (!customerByZaloId.has(cid)) {
+            customerByZaloId.set(cid, c);
+          }
+          const cidClean = cid.replace(/^[gu]_/, "");
+          if (cidClean && !customerByZaloId.has(cidClean)) {
+            customerByZaloId.set(cidClean, c);
+          }
+        }
+      }
+    } catch {}
+
     // 3. Xây dựng danh sách các cuộc hội thoại từ TẤT CẢ các tài khoản Zalo đã kết nối
     for (let accIdx = 0; accIdx < zaloSyncResults.length; accIdx++) {
       const { acc, ownId, friendMap, groupMap, pinnedSet, threadsMap } = zaloSyncResults[accIdx];
@@ -433,6 +463,7 @@ export async function GET(request) {
       const processedIds = new Set();
       let accActiveCount = 0;
       let accContactCount = 0;
+      let hasMyDocumentsForAccount = false;
 
       const activeThreads = Array.from(threadsMap.values()).sort(
         (a, b) => b.timestamp - a.timestamp || String(a.threadId).localeCompare(String(b.threadId))
@@ -440,31 +471,60 @@ export async function GET(request) {
 
       for (const thread of activeThreads) {
         processedIds.add(thread.threadId);
+        const tidStr = String(thread.threadId || "").trim();
+        const tidClean = tidStr.replace(/^[gu]_/, "");
         const isGroup = thread.threadType === "group" || groupMap.has(thread.threadId);
+        const isTrueSelfThread =
+          !isGroup &&
+          ((Boolean(ownId) && tidStr === String(ownId)) || tidStr === "0");
+
         let name = "";
         let avatar = "";
         let memberCount = 0;
         let phone = "";
 
         if (isGroup) {
-          const g = groupMap.get(thread.threadId);
-          name = g?.name || `Nhóm Zalo (${thread.threadId.slice(-4)})`;
+          const g = groupMap.get(thread.threadId) || (tidClean ? groupMap.get(tidClean) : null);
+          name = g?.name || `Nhóm Zalo (${tidStr.slice(-4)})`;
           avatar = g?.avatar || g?.avt || g?.fullAvt || g?.groupTopic?.avatar || "";
           memberCount = g?.memberCount || 0;
+        } else if (isTrueSelfThread) {
+          if (hasMyDocumentsForAccount) {
+            continue;
+          }
+          hasMyDocumentsForAccount = true;
+          name = `My Documents (${displayName})`;
         } else {
-          const f = friendMap.get(thread.threadId);
-          if (String(thread.threadId) === String(ownId)) {
-            name = `My Documents (${displayName})`;
-          } else if (f) {
-            name = f.alias || f.aliasName || f.displayName || f.zaloName || thread.peerName || "Khách Zalo";
+          const f = friendMap.get(tidStr) || (tidClean ? friendMap.get(tidClean) : null);
+          const matchedCustomer =
+            customerByZaloId.get(tidStr) || (tidClean ? customerByZaloId.get(tidClean) : null);
+          const custName = String(
+            matchedCustomer?.fullName || matchedCustomer?.name || ""
+          ).trim();
+
+          if (f) {
+            name =
+              f.alias ||
+              f.aliasName ||
+              f.displayName ||
+              f.zaloName ||
+              thread.peerName ||
+              custName ||
+              `Khách Zalo (${tidStr.slice(-4)})`;
             avatar = f.avatar || f.avatar_url || f.thumb || f.picture || f.avt || f.fullAvt || "";
-            phone = f.phoneNumber || "";
+            phone = f.phoneNumber || matchedCustomer?.phone || "";
           } else if (thread.peerName) {
             name = thread.peerName;
-          } else if (thread.isSelf) {
-            name = `My Documents (${displayName})`;
+            phone = matchedCustomer?.phone || "";
+            avatar = matchedCustomer?.avatar || "";
+          } else if (custName && !custName.startsWith("My Documents")) {
+            name = custName;
+            phone = matchedCustomer?.phone || "";
+            avatar = matchedCustomer?.avatar || "";
+          } else if (!thread.isSelf && thread.senderName) {
+            name = thread.senderName;
           } else {
-            name = thread.senderName || `Khách Zalo (${thread.threadId.slice(-4)})`;
+            name = `Khách Zalo (${tidStr.slice(-4)})`;
           }
         }
 
@@ -477,7 +537,7 @@ export async function GET(request) {
 
         const isPinned =
           pinnedSet.has(thread.threadId) ||
-          name.startsWith("My Documents") ||
+          isTrueSelfThread ||
           name === "Nhóm Học Tập";
 
         const botStatus = isGroup

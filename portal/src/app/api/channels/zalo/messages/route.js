@@ -51,36 +51,178 @@ function formatMessageTime(timestamp) {
   };
 }
 
+if (!globalThis.__ADDP_ZALO_MSG_INDEX__) {
+  globalThis.__ADDP_ZALO_MSG_INDEX__ = new Map();
+}
 if (!globalThis.__ZALO_HISTORY_PARSED_CACHE__) {
-  globalThis.__ZALO_HISTORY_PARSED_CACHE__ = new Map();
+  globalThis.__ZALO_HISTORY_PARSED_CACHE__ = globalThis.__ADDP_ZALO_MSG_INDEX__;
+}
+if (!globalThis.__ADDP_ZALO_RESOLVED_ACC_CACHE__) {
+  globalThis.__ADDP_ZALO_RESOLVED_ACC_CACHE__ = new Map();
+}
+if (!globalThis.__ADDP_ZALO_HIST_FILES_CACHE__) {
+  globalThis.__ADDP_ZALO_HIST_FILES_CACHE__ = new Map();
+}
+if (!globalThis.__ADDP_ZALO_BG_THROTTLE__) {
+  globalThis.__ADDP_ZALO_BG_THROTTLE__ = new Map();
 }
 
-function readParsedJsonlCached(filePath) {
+function getCachedHistoryFiles(zaloHome, includeAllHomes = false, forceRefresh = false) {
+  const key = `${zaloHome || "__DEFAULT__"}::${includeAllHomes ? "ALL" : "OWN"}`;
+  const now = Date.now();
+  const cached = globalThis.__ADDP_ZALO_HIST_FILES_CACHE__.get(key);
+  if (!forceRefresh && cached && now - cached.ts < 15000) {
+    return cached.files;
+  }
+  const files = getAllZaloHistoryFiles(zaloHome, includeAllHomes);
+  globalThis.__ADDP_ZALO_HIST_FILES_CACHE__.set(key, { ts: now, files });
+  return files;
+}
+
+function getCachedResolvedAccount(threadId, homeDirParam = "", accountId = "", forceRefresh = false) {
+  const key = `${threadId || ""}::${homeDirParam || ""}::${accountId || ""}`;
+  const now = Date.now();
+  const cached = globalThis.__ADDP_ZALO_RESOLVED_ACC_CACHE__.get(key);
+  if (!forceRefresh && cached && now - cached.ts < 30000) {
+    return cached.value;
+  }
+  const resolvedAcc = resolveZaloHomeForThread(threadId, homeDirParam, accountId);
+  const targetHome = resolvedAcc.homeDir;
+  const ownId = resolvedAcc.ownId || getOwnIdForHome(targetHome);
+  const selfName = resolvedAcc.displayName || getActiveZaloAccountName(targetHome);
+  const value = {
+    resolvedAcc,
+    targetHome,
+    ownId,
+    selfName,
+  };
+  globalThis.__ADDP_ZALO_RESOLVED_ACC_CACHE__.set(key, { ts: now, value });
+  return value;
+}
+
+function normalizeRawHistoryEntry(msg, fallbackIndex = 0) {
+  const rawTs = Number(msg.timestamp) || 0;
+  const ts =
+    rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs > 0 && rawTs < 1e11 ? rawTs * 1000 : rawTs;
+  const id = String(msg.msgId || msg.cliMsgId || `${ts}_${fallbackIndex}`);
+  const { time, date } = formatMessageTime(ts);
+
+  let rawText = msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]");
+  const isRecalled =
+    Boolean(msg.recalled) ||
+    (rawText &&
+      (String(rawText).startsWith("[chat.undo") ||
+        String(rawText).startsWith("[chat.delete") ||
+        String(rawText).includes("chat.undo") ||
+        String(rawText).includes("chat.delete")));
+
+  if (isRecalled) {
+    rawText = "Tin nhắn đã được thu hồi";
+  } else if (
+    typeof rawText === "string" &&
+    (/^#[A-Za-z0-9+/=]+=\d+,\d+$/.test(rawText) ||
+      (rawText.startsWith("#") && rawText.includes("=") && rawText.length > 20))
+  ) {
+    rawText = "[Nhãn dán]";
+  } else if (rawText && typeof rawText === "string" && rawText.startsWith("{") && rawText.endsWith("}")) {
+    try {
+      const p = JSON.parse(rawText);
+      if (p.actionType || p.deleteMsg !== undefined || p.globalMsgId) {
+        rawText = "Tin nhắn đã được thu hồi";
+      }
+    } catch {}
+  }
+
+  return {
+    id,
+    msgId: String(msg.msgId || id),
+    cliMsgId: String(msg.cliMsgId || ""),
+    text: rawText,
+    isRecalled: Boolean(isRecalled),
+    edited: Boolean(msg.edited),
+    senderId: String(msg.senderId || ""),
+    rawSenderName: String(msg.senderName || ""),
+    rawIsSelf: Boolean(msg.isSelf),
+    timestamp: ts,
+    time,
+    date,
+    type: msg.type || "text",
+    status: "sent",
+  };
+}
+
+/**
+ * Chỉ mục RAM theo từng file history.jsonl (kiểm tra mtimeMs + size) ánh xạ trực tiếp `threadId -> messages[]`
+ * giúp truy xuất lịch sử hội thoại trong < 5ms mà không cần đọc đĩa hay JSON.parse lại toàn bộ file trên mỗi cú click.
+ */
+function getFileThreadIndexCached(filePath) {
   try {
     const st = fs.statSync(filePath);
-    const cached = globalThis.__ZALO_HISTORY_PARSED_CACHE__.get(filePath);
-    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
-      return cached.entries;
+    const todayKey = new Date().toDateString();
+    const cached = globalThis.__ADDP_ZALO_MSG_INDEX__.get(filePath);
+    if (
+      cached &&
+      cached.mtimeMs === st.mtimeMs &&
+      cached.size === st.size &&
+      cached.dayKey === todayKey &&
+      cached.byThread instanceof Map
+    ) {
+      return cached.byThread;
     }
+
     const content = fs.readFileSync(filePath, "utf8");
     const lines = content.split("\n");
-    const entries = [];
+    const byThread = new Map();
+    let idx = 0;
+
+    const pushToBucket = (key, item) => {
+      if (!key) return;
+      let bucket = byThread.get(key);
+      if (!bucket) {
+        bucket = [];
+        byThread.set(key, bucket);
+      }
+      bucket.push(item);
+    };
+
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
-        entries.push(JSON.parse(trimmed));
+        const msg = JSON.parse(trimmed);
+        idx++;
+        const msgTid = String(msg.threadId || "").trim();
+        const msgTidClean = msgTid.replace(/^[gu]_/, "");
+        const msgSenderId = String(msg.senderId || msg.fromId || msg.uidFrom || "").trim();
+        const msgRecipientId = String(msg.recipientId || msg.dId || msg.toId || "").trim();
+
+        if (!msgTid && !msgSenderId && !msgRecipientId) continue;
+
+        const normalized = normalizeRawHistoryEntry(msg, idx);
+        const keys = new Set();
+        if (msgTid) keys.add(msgTid);
+        if (msgTidClean) keys.add(msgTidClean);
+        if (msg.threadType === "dm") {
+          if (msgSenderId) keys.add(msgSenderId);
+          if (msgRecipientId) keys.add(msgRecipientId);
+        }
+
+        for (const k of keys) {
+          pushToBucket(k, normalized);
+        }
       } catch {}
     }
-    globalThis.__ZALO_HISTORY_PARSED_CACHE__.set(filePath, {
+
+    globalThis.__ADDP_ZALO_MSG_INDEX__.set(filePath, {
       mtimeMs: st.mtimeMs,
       size: st.size,
-      entries,
+      dayKey: todayKey,
+      byThread,
     });
-    return entries;
+    return byThread;
   } catch (err) {
     console.error("[ZALO_MESSAGES_HISTORY_READ_ERROR]", filePath, err.message);
-    return [];
+    return new Map();
   }
 }
 
@@ -89,83 +231,42 @@ function getThreadMessagesFromAllHistories(
   threadId,
   ownId = "1781287338457243967",
   selfSenderName = "Sơn Tùng",
-  includeAllHomes = false
+  includeAllHomes = false,
+  forceRefresh = false
 ) {
-  const historyFiles = getAllZaloHistoryFiles(zaloHome, includeAllHomes);
+  const historyFiles = getCachedHistoryFiles(zaloHome, includeAllHomes, forceRefresh);
   const messages = [];
   const seenIds = new Set();
   const tid = String(threadId || "").trim();
   const tidClean = tid.replace(/^[gu]_/, "");
 
   for (const filePath of historyFiles) {
-    const entries = readParsedJsonlCached(filePath);
-    for (const msg of entries) {
-      try {
-        const msgTid = String(msg.threadId || "").trim();
-        const msgTidClean = msgTid.replace(/^[gu]_/, "");
-        const msgSenderId = String(msg.senderId || msg.fromId || msg.uidFrom || "").trim();
-        const msgRecipientId = String(msg.recipientId || msg.dId || msg.toId || "").trim();
+    const byThread = getFileThreadIndexCached(filePath);
+    const bucketA = byThread.get(tid) || [];
+    const bucketB = tidClean && tidClean !== tid ? byThread.get(tidClean) || [] : [];
+    const candidates = bucketB.length > 0 ? [...bucketA, ...bucketB] : bucketA;
 
-        const isMatch =
-          msgTid === tid ||
-          (tidClean && msgTidClean === tidClean) ||
-          (msg.threadType === "dm" && (msgSenderId === tid || msgRecipientId === tid));
+    for (const item of candidates) {
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
 
-        if (!isMatch) continue;
-
-        const rawTs = Number(msg.timestamp) || 0;
-        const ts =
-          rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs > 0 && rawTs < 1e11 ? rawTs * 1000 : rawTs;
-        const id = String(msg.msgId || msg.cliMsgId || `${ts}_${messages.length}`);
-        if (seenIds.has(id)) continue;
-        seenIds.add(id);
-
-        const { time, date } = formatMessageTime(ts);
-        const isMe = Boolean(msg.isSelf || (ownId && String(msg.senderId) === String(ownId)));
-
-        let rawText = msg.text || (msg.type === "chat.photo" ? "[Hình ảnh]" : "[Tin nhắn]");
-        const isRecalled =
-          Boolean(msg.recalled) ||
-          (rawText &&
-            (String(rawText).startsWith("[chat.undo") ||
-              String(rawText).startsWith("[chat.delete") ||
-              String(rawText).includes("chat.undo") ||
-              String(rawText).includes("chat.delete")));
-
-        if (isRecalled) {
-          rawText = "Tin nhắn đã được thu hồi";
-        } else if (
-          typeof rawText === "string" &&
-          (/^#[A-Za-z0-9+/=]+=\d+,\d+$/.test(rawText) ||
-            (rawText.startsWith("#") && rawText.includes("=") && rawText.length > 20))
-        ) {
-          rawText = "[Nhãn dán]";
-        } else if (rawText && typeof rawText === "string" && rawText.startsWith("{") && rawText.endsWith("}")) {
-          try {
-            const p = JSON.parse(rawText);
-            if (p.actionType || p.deleteMsg !== undefined || p.globalMsgId) {
-              rawText = "Tin nhắn đã được thu hồi";
-            }
-          } catch {}
-        }
-
-        messages.push({
-          id,
-          msgId: String(msg.msgId || id),
-          cliMsgId: String(msg.cliMsgId || ""),
-          text: rawText,
-          isRecalled: Boolean(isRecalled),
-          edited: Boolean(msg.edited),
-          senderId: String(msg.senderId || ""),
-          senderName: msg.senderName || (isMe ? selfSenderName : "Khách"),
-          isMe,
-          timestamp: ts,
-          time,
-          date,
-          type: msg.type || "text",
-          status: "sent",
-        });
-      } catch {}
+      const isMe = Boolean(item.rawIsSelf || (ownId && item.senderId === String(ownId)));
+      messages.push({
+        id: item.id,
+        msgId: item.msgId,
+        cliMsgId: item.cliMsgId,
+        text: item.text,
+        isRecalled: item.isRecalled,
+        edited: item.edited,
+        senderId: item.senderId,
+        senderName: item.rawSenderName || (isMe ? selfSenderName : "Khách"),
+        isMe,
+        timestamp: item.timestamp,
+        time: item.time,
+        date: item.date,
+        type: item.type,
+        status: "sent",
+      });
     }
   }
 
@@ -196,6 +297,7 @@ export async function GET(request) {
     const sinceParam = Math.max(0, Number(searchParams.get("since")) || 0);
     const beforeParam = Math.max(0, Number(searchParams.get("before")) || 0);
     const limitParam = Math.min(500, Math.max(10, Number(searchParams.get("limit")) || 100));
+    const forceRefresh = searchParams.get("refresh") === "1";
 
     if (!threadId) {
       return NextResponse.json({ error: "Thiếu tham số threadId." }, { status: 400 });
@@ -329,9 +431,12 @@ export async function GET(request) {
       });
     }
 
-    const resolvedAcc = resolveZaloHomeForThread(threadId, homeDirParam, accountId);
-    const targetHome = resolvedAcc.homeDir;
-    const ownId = resolvedAcc.ownId || getOwnIdForHome(targetHome);
+    const { resolvedAcc, targetHome, ownId, selfName } = getCachedResolvedAccount(
+      threadId,
+      homeDirParam,
+      accountId,
+      forceRefresh
+    );
     if (
       isChannelScopeRestricted(guard.staff) &&
       !isConversationAllowedForStaff(
@@ -345,28 +450,63 @@ export async function GET(request) {
         { status: 403 }
       );
     }
-    const selfName = resolvedAcc.displayName || getActiveZaloAccountName(targetHome);
-    if (sinceParam === 0) {
-      if (!getZaloSyncStatus(targetHome).isSyncing) {
-        ensureZaloMcpDaemon(targetHome);
+
+    const getCachedSyncStatusFast = () => {
+      const syncKey = `sync::${targetHome || ""}`;
+      const now = Date.now();
+      const cachedSync = globalThis.__ADDP_ZALO_BG_THROTTLE__.get(syncKey);
+      if (!forceRefresh && cachedSync && now - cachedSync.ts < 3000) {
+        return cachedSync.status;
       }
-      startZaloRealtimeAiWatcher();
-      scanAndAutoReplyZaloHistories(targetHome, ownId).catch(() => {});
+      const status = getZaloSyncStatus(targetHome);
+      globalThis.__ADDP_ZALO_BG_THROTTLE__.set(syncKey, { ts: now, status });
+      return status;
+    };
+
+    if (sinceParam === 0) {
+      const bgKey = `daemon::${targetHome || ""}`;
+      const lastBgTs = Number(globalThis.__ADDP_ZALO_BG_THROTTLE__.get(bgKey) || 0);
+      if (Date.now() - lastBgTs > 15000) {
+        globalThis.__ADDP_ZALO_BG_THROTTLE__.set(bgKey, Date.now());
+        setTimeout(() => {
+          try {
+            if (!getZaloSyncStatus(targetHome).isSyncing) {
+              ensureZaloMcpDaemon(targetHome);
+            }
+            startZaloRealtimeAiWatcher();
+            scanAndAutoReplyZaloHistories(targetHome, ownId).catch(() => {});
+          } catch {}
+        }, 0);
+      }
     }
 
-    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ các file history JSONL của đúng tài khoản Zalo này
-    let localMessages = getThreadMessagesFromAllHistories(targetHome, threadId, ownId, selfName);
+    // 2. Ưu tiên đọc lịch sử tin nhắn thật từ chỉ mục RAM (globalThis.__ADDP_ZALO_MSG_INDEX__) của đúng tài khoản Zalo này (< 5ms)
+    let localMessages = getThreadMessagesFromAllHistories(
+      targetHome,
+      threadId,
+      ownId,
+      selfName,
+      false,
+      forceRefresh
+    );
 
     // 2b. Nếu chưa thấy tin trong targetHome, quét toàn bộ file history của tất cả tài khoản Zalo trên hệ thống (fallback an toàn tuyệt đối)
     if (localMessages.length === 0) {
-      localMessages = getThreadMessagesFromAllHistories(null, threadId, ownId, selfName, true);
+      localMessages = getThreadMessagesFromAllHistories(
+        null,
+        threadId,
+        ownId,
+        selfName,
+        true,
+        forceRefresh
+      );
     }
 
-    // 2c. Nếu vẫn chưa có tin và tài khoản có credentials -> Gọi live history qua Zalo CLI (hỗ trợ cả DM và Nhóm)
+    // 2c. Chỉ gọi live history qua Zalo CLI đồng bộ khi truyền refresh=1 (hoặc chạy ngầm không chặn GET khi chưa có tin)
     const threadType = searchParams.get("type") || "DIRECT";
     const isGroup = threadType === "GROUP";
 
-    if (localMessages.length === 0) {
+    const fetchAndPersistLiveHistory = async () => {
       try {
         const fetchArgs = isGroup
           ? ["group", "history", threadId, "-n", "50", "--json"]
@@ -374,7 +514,7 @@ export async function GET(request) {
 
         const liveRes = await runZaloCommand(fetchArgs, {
           homeDir: targetHome,
-          timeout: 10000,
+          timeout: 6000,
         });
 
         if (liveRes.ok && Array.isArray(liveRes.data?.messages) && liveRes.data.messages.length > 0) {
@@ -390,6 +530,7 @@ export async function GET(request) {
           } catch {}
 
           const toPersist = [];
+          const fetchedMsgs = [];
           for (const m of liveRes.data.messages) {
             const rawTs = Number(m.timestamp) || Date.now();
             const ts = rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
@@ -443,7 +584,7 @@ export async function GET(request) {
               type: m.msgType || (typeof m.content === "string" ? "text" : "attachment"),
             });
 
-            localMessages.push({
+            fetchedMsgs.push({
               id,
               text,
               senderId: fromUid,
@@ -457,7 +598,6 @@ export async function GET(request) {
             });
           }
 
-          // Ghi ngay vào history.jsonl của targetHome để lần sau nạp tức thì (<5ms)
           try {
             const saveFile = isGroup
               ? path.join(targetHome, ".zalo-agent-cli", "crm-group-history.jsonl")
@@ -465,15 +605,35 @@ export async function GET(request) {
             fs.mkdirSync(path.dirname(saveFile), { recursive: true });
             const linesToAppend = toPersist.map((item) => JSON.stringify(item)).join("\n") + "\n";
             fs.appendFileSync(saveFile, linesToAppend, "utf8");
+            globalThis.__ADDP_ZALO_MSG_INDEX__.delete(path.resolve(saveFile));
           } catch {}
+
+          return fetchedMsgs;
         }
       } catch (liveErr) {
         console.warn("[ZALO_LIVE_FETCH_HISTORY_WARN]", liveErr.message);
       }
+      return [];
+    };
+
+    if (forceRefresh && localMessages.length === 0) {
+      const liveFetched = await fetchAndPersistLiveHistory();
+      if (liveFetched.length > 0) {
+        localMessages.push(...liveFetched);
+      }
+    } else if (localMessages.length === 0 && sinceParam === 0) {
+      const liveThrottleKey = `live::${targetHome || ""}::${threadId}`;
+      const lastLiveAttempt = Number(globalThis.__ADDP_ZALO_BG_THROTTLE__.get(liveThrottleKey) || 0);
+      if (Date.now() - lastLiveAttempt > 60000) {
+        globalThis.__ADDP_ZALO_BG_THROTTLE__.set(liveThrottleKey, Date.now());
+        setTimeout(() => {
+          fetchAndPersistLiveHistory().catch(() => {});
+        }, 0);
+      }
     }
 
     // 3. Kèm theo tin nhắn vừa gửi từ CRM trong phiên làm việc (bỏ qua nếu là ZALO_PERSONAL đã có tin trong history)
-    if (channelUpper !== "ZALO_PERSONAL" || localMessages.length === 0) {
+    if (localMessages.length === 0 && channelUpper !== "ZALO_PERSONAL") {
       const omniMsgs = await getThreadMessages(threadId, channel, pageId);
       const seenIds = new Set(localMessages.map((m) => String(m.id)));
       for (const m of omniMsgs) {
@@ -496,8 +656,9 @@ export async function GET(request) {
       }
     }
 
+    const syncStatus = getCachedSyncStatusFast();
+
     if (localMessages.length > 0) {
-      localMessages.sort((a, b) => a.timestamp - b.timestamp || String(a.id).localeCompare(String(b.id)));
       const totalCount = localMessages.length;
       const globalLatestTs = localMessages[totalCount - 1]?.timestamp || 0;
 
@@ -515,7 +676,7 @@ export async function GET(request) {
           oldestTimestamp: incrementalMsgs[0]?.timestamp || 0,
           hasMore: false,
           messages: incrementalMsgs,
-          syncStatus: getZaloSyncStatus(targetHome),
+          syncStatus,
         });
       }
 
@@ -538,11 +699,10 @@ export async function GET(request) {
         hasMore,
         historyLimited: threadType !== "GROUP" && !hasMore,
         messages: sliced,
-        syncStatus: getZaloSyncStatus(targetHome),
+        syncStatus,
       });
     }
 
-    const syncStatus = getZaloSyncStatus(targetHome);
     const isDirectZalo = threadType !== "GROUP";
     return NextResponse.json({
       ok: true,
