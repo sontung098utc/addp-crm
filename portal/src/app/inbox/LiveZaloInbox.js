@@ -8,8 +8,7 @@ import QuickRepliesModal from "./QuickRepliesModal";
 import ProductPickerModal from "./ProductPickerModal";
 import DocumentPickerModal from "./DocumentPickerModal";
 import AudioRecorderBar from "./AudioRecorderBar";
-import QuickTagBar from "./QuickTagBar";
-import ChatToolbar from "./ChatToolbar";
+import EmojiPickerPopover from "./EmojiPickerPopover";
 import ChannelLogo from "../components/ChannelLogo";
 import { normalizePhone, isValidVietnamPhone } from "@/lib/phone";
 import {
@@ -55,6 +54,10 @@ import {
   Volume2,
   Pencil,
   ArrowLeft,
+  Image as ImageIcon,
+  Paperclip,
+  Package,
+  Mic,
 } from "lucide-react";
 
 /**
@@ -709,15 +712,30 @@ export default function LiveZaloInbox() {
   const messagesEndRef = useRef(null);
   const msgStreamRef = useRef(null);
   const isNearBottomRef = useRef(true);
-  const forceScrollNextRef = useRef(true);
+  const forceScrollBottomRef = useRef(true);
+  const lastThreadIdRef = useRef("");
+  const prevLastMsgKeyRef = useRef("");
   const convInFlightRef = useRef(false);
   const msgInFlightRef = useRef(false);
   const latestTimestampRef = useRef(0);
   const activeConvRef = useRef(activeConv);
   const convSignatureRef = useRef("");
-  const prevMsgCountRef = useRef(0);
   const deepLinkAppliedRef = useRef(false);
   const deepLinkStaffAppliedRef = useRef(false);
+
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const emojiTriggerRef = useRef(null);
+  const composerImageInputRef = useRef(null);
+  const composerFileInputRef = useRef(null);
+  const composerTextareaRef = useRef(null);
+
+  useEffect(() => {
+    const el = composerTextareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const nextH = inputMessage ? Math.min(Math.max(el.scrollHeight, 36), 96) : 36;
+    el.style.height = `${nextH}px`;
+  }, [inputMessage]);
 
   useEffect(() => {
     activeConvRef.current = activeConv;
@@ -991,33 +1009,44 @@ export default function LiveZaloInbox() {
     };
   }, []);
 
-  // Tự động cuộn xuống đáy khi đổi hội thoại, nạp xong tin nhắn hoặc có tin mới (chỉ khi đang ở gần đáy)
+  // Tự động cuộn xuống đáy CHỈ khi: (a) mới chuyển sang hội thoại khác lần đầu, (b) vừa gửi tin nhắn, hoặc (c) đang ở gần đáy VÀ có tin nhắn mới ở cuối
   useEffect(() => {
     if (loadingMessages) return;
+    const currentThreadKey = activeConv?.id ? getConvCacheKey(activeConv) : "";
     if (messages.length === 0) {
-      prevMsgCountRef.current = 0;
+      prevLastMsgKeyRef.current = "";
       return;
     }
 
-    const countChanged = messages.length !== prevMsgCountRef.current;
-    prevMsgCountRef.current = messages.length;
+    const lastMsg = messages[messages.length - 1];
+    const bottomKey = `${String(lastMsg?.id ?? "")}_${Number(lastMsg?.timestamp ?? 0)}`;
+    const hasNewBottomMsg = bottomKey !== prevLastMsgKeyRef.current;
+    const isThreadSwitch = Boolean(currentThreadKey) && currentThreadKey !== lastThreadIdRef.current;
 
-    if (forceScrollNextRef.current) {
-      forceScrollNextRef.current = false;
+    prevLastMsgKeyRef.current = bottomKey;
+
+    if (isThreadSwitch || forceScrollBottomRef.current) {
+      if (currentThreadKey) {
+        lastThreadIdRef.current = currentThreadKey;
+      }
+      forceScrollBottomRef.current = false;
       isNearBottomRef.current = true;
       requestAnimationFrame(() => {
         if (msgStreamRef.current) {
           msgStreamRef.current.scrollTop = msgStreamRef.current.scrollHeight;
-        } else {
-          messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
         }
       });
-    } else if (countChanged && isNearBottomRef.current) {
+    } else if (hasNewBottomMsg && isNearBottomRef.current) {
       requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        if (msgStreamRef.current) {
+          msgStreamRef.current.scrollTo({
+            top: msgStreamRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }
       });
     }
-  }, [messages, loadingMessages, activeConv?.id]);
+  }, [messages, loadingMessages, activeConv]);
 
   // 1. Tải danh sách cuộc hội thoại thực tế (chống chồng lặp request)
   const loadConversations = async (showLoading = true, forceRefresh = false) => {
@@ -1239,9 +1268,12 @@ export default function LiveZaloInbox() {
     if (!activeConv?.id) return;
     let isCancelled = false;
     const convCacheKey = getConvCacheKey(activeConv);
+    const isSwitchingThread = convCacheKey !== lastThreadIdRef.current;
     latestTimestampRef.current = 0;
-    forceScrollNextRef.current = true;
-    isNearBottomRef.current = true;
+    if (isSwitchingThread) {
+      forceScrollBottomRef.current = true;
+      isNearBottomRef.current = true;
+    }
     setMessagesError(null);
     setMessagesMeta({
       hasMore: false,
@@ -1264,7 +1296,7 @@ export default function LiveZaloInbox() {
         if (!silent) {
           setLoadingMessages(true);
           setMessagesError(null);
-          prevMsgCountRef.current = 0;
+          prevLastMsgKeyRef.current = "";
         }
         const sinceQuery =
           silent && latestTimestampRef.current > 0
@@ -1293,10 +1325,12 @@ export default function LiveZaloInbox() {
           if (data.incremental) {
             if (data.messages.length > 0) {
               setMessages((prev) => {
-                const existing = (prev || []).filter((m) => !m.isFallbackPreview);
+                const rawPrev = prev || [];
+                const hadFallback = rawPrev.some((m) => m.isFallbackPreview);
+                const existing = hadFallback ? rawPrev.filter((m) => !m.isFallbackPreview) : rawPrev;
                 const seen = new Set(existing.map((m) => String(m.id)));
                 const additions = data.messages.filter((m) => !seen.has(String(m.id)));
-                if (additions.length === 0) return existing;
+                if (additions.length === 0) return hadFallback ? existing : rawPrev;
                 const merged = [...existing, ...additions].sort(
                   (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
                 );
@@ -1348,8 +1382,22 @@ export default function LiveZaloInbox() {
             }
 
             setMessages((prev) => {
-              const existing = (prev || []).filter((m) => !m.isFallbackPreview);
+              const rawPrev = prev || [];
+              const hadFallback = rawPrev.some((m) => m.isFallbackPreview);
+              const existing = hadFallback ? rawPrev.filter((m) => !m.isFallbackPreview) : rawPrev;
               if (silent && existing.length > 0) {
+                if (
+                  !hadFallback &&
+                  existing.length === incoming.length &&
+                  existing.length > 0 &&
+                  String(existing[existing.length - 1]?.id ?? "") === String(incoming[incoming.length - 1]?.id ?? "") &&
+                  Number(existing[existing.length - 1]?.timestamp ?? 0) === Number(incoming[incoming.length - 1]?.timestamp ?? 0) &&
+                  String(existing[existing.length - 1]?.text ?? "") === String(incoming[incoming.length - 1]?.text ?? "") &&
+                  Boolean(existing[existing.length - 1]?.isRecalled) === Boolean(incoming[incoming.length - 1]?.isRecalled) &&
+                  Boolean(existing[existing.length - 1]?.edited) === Boolean(incoming[incoming.length - 1]?.edited)
+                ) {
+                  return rawPrev;
+                }
                 const byId = new Map(existing.map((m) => [String(m.id), m]));
                 let changed = false;
                 for (const m of incoming) {
@@ -1368,7 +1416,7 @@ export default function LiveZaloInbox() {
                     changed = true;
                   }
                 }
-                if (!changed) return existing;
+                if (!changed) return hadFallback ? existing : rawPrev;
                 const merged = Array.from(byId.values()).sort(
                   (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
                 );
@@ -2257,12 +2305,13 @@ export default function LiveZaloInbox() {
       isMe: true,
       isAi: false,
       senderName: activeConv.accountDisplayName || activeConv.accountName || "Chuyên viên ADDP",
+      timestamp: Date.now(),
       time: nowTime,
       date: "Hôm nay",
       status: "sending",
     };
 
-    forceScrollNextRef.current = true;
+    forceScrollBottomRef.current = true;
     setMessages((prev) => {
       const next = [...(prev || []), optimisticMsg];
       const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
@@ -4852,203 +4901,148 @@ export default function LiveZaloInbox() {
         >
           {activeConv ? (
             <>
-              {/* Header khung chat 2 dòng gọn gàng: Dòng 1 Tên + SĐT + Nút tác nghiệp; Dòng 2 Kênh + Dải thẻ gọn */}
-              <div className="px-2.5 sm:px-3 xl:px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex flex-col gap-1.5 flex-shrink-0">
-                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
-                  {/* Cụm Trái: Nút Quay lại (mobile) + Avatar + Tên khách đầy đủ + Badge SĐT */}
-                  <div className="flex-1 min-w-0 flex items-center gap-1.5 sm:gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMobilePane("list");
-                        setShowSidePanel(false);
-                      }}
-                      aria-label="Quay lại danh sách hội thoại"
-                      className="md:hidden inline-flex items-center gap-1 px-2 min-h-[44px] -ml-1 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs shrink-0 cursor-pointer"
-                    >
-                      <ArrowLeft className="w-4 h-4 shrink-0" />
-                      <span className="hidden xs:inline">Quay lại</span>
-                    </button>
-                    <div className="relative flex-shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={getSafeAvatarUrl(activeConv)}
-                        alt={activeConv.name}
-                        onError={(e) => handleAvatarImgError(e, activeConv.name)}
-                        className="h-8 w-8 xl:h-9 xl:w-9 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
-                      />
-                      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900" />
-                    </div>
-
-                    <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
-                      <h3
-                        className="font-bold text-sm text-slate-900 dark:text-white truncate max-w-[160px] xl:max-w-[220px] 2xl:max-w-[280px]"
-                        title={activeConv.name}
-                      >
-                        {activeConv.name}
-                      </h3>
-
-                      {(activeConv.phone || detectedChatPhone) && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700/60 shrink-0 tabular-nums"
-                          title="Số điện thoại xác thực của khách hàng"
-                        >
-                          📞 {activeConv.phone || detectedChatPhone}
-                        </span>
-                      )}
-
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap shrink-0 ${
-                          getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
-                        }`}
-                      >
-                        {activeChannelName}
-                      </span>
-                    </div>
+              {/* Header khung chat 1 hàng siêu gọn (compact): Avatar + Tên + SĐT + Kênh + AI/Sale + Lên Đơn + Hồ Sơ 360 + Gắn Thẻ */}
+              <div className="px-3 py-1.5 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur flex items-center justify-between gap-2 flex-shrink-0">
+                {/* Cụm Trái: Nút Quay lại (mobile) + Avatar + Tên khách + SĐT + Channel badge */}
+                <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobilePane("list");
+                      setShowSidePanel(false);
+                    }}
+                    aria-label="Quay lại danh sách hội thoại"
+                    className="md:hidden inline-flex items-center gap-1 px-1.5 min-h-[36px] -ml-1 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-xs shrink-0 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-4 h-4 shrink-0" />
+                  </button>
+                  <div className="relative flex-shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={getSafeAvatarUrl(activeConv)}
+                      alt={activeConv.name}
+                      onError={(e) => handleAvatarImgError(e, activeConv.name)}
+                      className="h-7 w-7 rounded-full object-cover border border-slate-300 dark:border-slate-700 bg-slate-800 shadow-xs"
+                    />
+                    <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-emerald-500 border border-white dark:border-slate-900" />
                   </div>
 
-                  {/* Cụm Phải: Điều khiển tác nghiệp nhanh: Toggle Switch AI + Lên Đơn + Hồ Sơ */}
-                  <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0 max-w-full">
-                    {(() => {
-                      const isThreadHuman = convBotMode === "HUMAN";
-
-                      return (
-                        <>
-                          {/* Công tắc Toggle Switch Bật/Tắt AI cho từng khách */}
-                          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs shrink-0">
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden 2xl:inline">Khách này:</span>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={!isThreadHuman}
-                              onClick={handleToggleAiSwitch}
-                              disabled={togglingBot}
-                              title={
-                                !isThreadHuman
-                                  ? "Cài đặt riêng cho khách này: AI đang trực — Bấm để chuyển sang Sale trực"
-                                  : "Cài đặt riêng cho khách này: Sale đang trực — Bấm để bật AI trực"
-                              }
-                              className="inline-flex items-center gap-1.5 cursor-pointer focus:outline-none"
-                            >
-                              <span className="text-[11px] font-bold whitespace-nowrap">
-                                {!isThreadHuman ? (
-                                  <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                                    <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse shrink-0" />
-                                    🤖 AI Trực
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                                    <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
-                                    👤 Sale Trực
-                                  </span>
-                                )}
-                              </span>
-                              <span
-                                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
-                                  !isThreadHuman
-                                    ? "bg-purple-600"
-                                    : "bg-slate-300 dark:bg-slate-700"
-                                }`}
-                              >
-                                <span
-                                  className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
-                                    !isThreadHuman ? "translate-x-3.5" : "translate-x-0.5"
-                                  }`}
-                                />
-                              </span>
-                            </button>
-                          </div>
-
-                          {/* Nút Lên Đơn Nhanh */}
-                          <button
-                            type="button"
-                            onClick={() => setIsOrderModalOpen(true)}
-                            title="Tạo đơn hàng nhanh cho khách"
-                            className="min-h-[40px] md:min-h-0 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap"
-                          >
-                            <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
-                            <span>Lên Đơn</span>
-                          </button>
-                        </>
-                      );
-                    })()}
-
-                    {/* Nút Hồ Sơ 360 */}
-                    <button
-                      type="button"
-                      onClick={() => setShowSidePanel(!showSidePanel)}
-                      title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
-                      aria-label={showSidePanel ? "Ẩn hồ sơ 360" : "Mở hồ sơ 360"}
-                      className={`min-h-[40px] md:min-h-0 px-2.5 md:px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0 ${
-                        showSidePanel
-                          ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
-                          : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
-                      }`}
+                  <div className="min-w-0 flex items-center gap-1.5">
+                    <h3
+                      className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate max-w-[140px] sm:max-w-[180px] xl:max-w-[220px]"
+                      title={activeConv.name}
                     >
-                      <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                      <span className="hidden sm:inline">Hồ Sơ 360</span>
-                    </button>
+                      {activeConv.name}
+                    </h3>
+
+                    {(activeConv.phone || detectedChatPhone) && (
+                      <span
+                        className="hidden sm:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 shrink-0 tabular-nums"
+                        title="Số điện thoại xác thực của khách hàng"
+                      >
+                        📞 {activeConv.phone || detectedChatPhone}
+                      </span>
+                    )}
+
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap shrink-0 ${
+                        getChannelMeta(activeConv.channel, activeConv.pageId, effectivePages).pillClass
+                      }`}
+                      title={
+                        activeConv.type === "GROUP" && activeConv.memberCount > 0
+                          ? `Nhóm ${activeConv.memberCount} thành viên`
+                          : activeConv.channel === "FACEBOOK" && activeConv.pageName
+                          ? `Page: ${activeConv.pageName}`
+                          : activeConv.accountDisplayName || activeConv.accountName
+                          ? `TK: ${activeConv.accountDisplayName || activeConv.accountName}`
+                          : `ID: ${activeConv.id}`
+                      }
+                    >
+                      {activeChannelName}
+                    </span>
                   </div>
                 </div>
 
-                {/* Dòng 2: Tài khoản tiếp nhận + Thẻ Tag gọn trên 1 hàng */}
-                <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/70">
-                  <span className="truncate max-w-[180px] shrink-0 text-[10px]">
-                    {activeConv.type === "GROUP" && activeConv.memberCount > 0
-                      ? `Nhóm ${activeConv.memberCount} thành viên`
-                      : activeConv.channel === "FACEBOOK" && activeConv.pageName
-                      ? `Page: ${activeConv.pageName}`
-                      : activeConv.accountDisplayName || activeConv.accountName
-                      ? `TK: ${activeConv.accountDisplayName || activeConv.accountName}`
-                      : `ID: ${activeConv.id}`}
-                  </span>
+                {/* Cụm Phải: Sale Trực / AI + Lên Đơn + Hồ Sơ 360 + Gắn Thẻ */}
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {(() => {
+                    const isThreadHuman = convBotMode === "HUMAN";
 
-                  <span className="text-slate-300 dark:text-slate-700 shrink-0">|</span>
-
-                  {/* Dải thẻ gọn (tối đa 3 thẻ trực tiếp + nút +N nếu nhiều hơn) */}
-                  <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar">
-                    {(activeConv.tags || []).slice(0, 3).map((tagStr) => {
-                      const tagMeta = availableTags.find((t) => t.name === tagStr || t.id === tagStr) || {
-                        name: tagStr,
-                        bg: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-                      };
-                      return (
-                        <span
-                          key={tagStr}
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium border whitespace-nowrap shrink-0 max-w-[130px] ${tagMeta.bg}`}
-                          title={tagMeta.name}
+                    return (
+                      <>
+                        {/* Công tắc Toggle Switch Sale Trực / AI Trực */}
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={!isThreadHuman}
+                          onClick={handleToggleAiSwitch}
+                          disabled={togglingBot}
+                          title={
+                            !isThreadHuman
+                              ? "Cài đặt riêng cho khách này: AI đang trực — Bấm để chuyển sang Sale trực"
+                              : "Cài đặt riêng cho khách này: Sale đang trực — Bấm để bật AI trực"
+                          }
+                          className="inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/90 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer focus:outline-none shrink-0"
                         >
-                          <span className="truncate">{tagMeta.name}</span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleTagOnActiveConv(tagStr);
-                            }}
-                            className="hover:text-red-500 font-bold text-[11px] leading-none cursor-pointer shrink-0"
-                            title="Gỡ thẻ tag"
+                          <span className="text-[11px] font-bold whitespace-nowrap">
+                            {!isThreadHuman ? (
+                              <span className="text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse shrink-0" />
+                                <span className="hidden sm:inline">AI Trực</span>
+                                <span className="sm:hidden">AI</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                                <span className="h-1.5 w-1.5 rounded-full bg-slate-400 shrink-0" />
+                                <span className="hidden sm:inline">Sale Trực</span>
+                                <span className="sm:hidden">Sale</span>
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            className={`relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors duration-200 ease-in-out ${
+                              !isThreadHuman ? "bg-purple-600" : "bg-slate-300 dark:bg-slate-700"
+                            }`}
                           >
-                            ×
-                          </button>
-                        </span>
-                      );
-                    })}
-                    {(activeConv.tags || []).length > 3 && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsTagPopoverOpen(true);
-                        }}
-                        className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shrink-0 cursor-pointer"
-                        title={(activeConv.tags || []).slice(3).join(", ")}
-                      >
-                        +{(activeConv.tags || []).length - 3}
-                      </button>
-                    )}
-                  </div>
+                            <span
+                              className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${
+                                !isThreadHuman ? "translate-x-3" : "translate-x-0.5"
+                              }`}
+                            />
+                          </span>
+                        </button>
 
-                  {/* Nút + Gắn Thẻ Popover - đặt NGOÀI container overflow-x-auto để không bị clip */}
+                        {/* Nút Lên Đơn Nhanh */}
+                        <button
+                          type="button"
+                          onClick={() => setIsOrderModalOpen(true)}
+                          title="Tạo đơn hàng nhanh cho khách"
+                          className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold shadow-xs inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                          <span className="hidden sm:inline">Lên Đơn</span>
+                        </button>
+                      </>
+                    );
+                  })()}
+
+                  {/* Nút Hồ Sơ 360 */}
+                  <button
+                    type="button"
+                    onClick={() => setShowSidePanel(!showSidePanel)}
+                    title={showSidePanel ? "Ẩn hồ sơ 360" : "Hiện hồ sơ 360"}
+                    aria-label={showSidePanel ? "Ẩn hồ sơ 360" : "Mở hồ sơ 360"}
+                    className={`px-2 py-1 rounded-lg text-[11px] font-semibold transition-colors border inline-flex items-center gap-1 whitespace-nowrap cursor-pointer shrink-0 ${
+                      showSidePanel
+                        ? "bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-600/20 dark:text-blue-400 dark:border-blue-500/30"
+                        : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800"
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden lg:inline">Hồ Sơ 360</span>
+                  </button>
+
+                  {/* Nút + Gắn Thẻ Popover */}
                   <div className="relative inline-block shrink-0" ref={tagPopoverRef}>
                     <button
                       type="button"
@@ -5056,15 +5050,21 @@ export default function LiveZaloInbox() {
                         e.stopPropagation();
                         setIsTagPopoverOpen(!isTagPopoverOpen);
                       }}
-                      className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-0.5 rounded-md inline-flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+                      title="Gắn hoặc gỡ thẻ tag khách hàng"
+                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300 px-2 py-1 rounded-lg inline-flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
                     >
-                      + Gắn Thẻ
+                      <span>+ Gắn Thẻ</span>
+                      {(activeConv.tags || []).length > 0 && (
+                        <span className="px-1 rounded bg-blue-600 text-white text-[9px] font-bold leading-tight">
+                          {(activeConv.tags || []).length}
+                        </span>
+                      )}
                     </button>
 
                     {isTagPopoverOpen && (
                       <div
                         onClick={(e) => e.stopPropagation()}
-                        className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
+                        className="absolute right-0 top-full mt-1.5 w-72 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-3 z-[9999] text-xs text-slate-800 dark:text-slate-200"
                       >
                         <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-800 dark:text-slate-200">
                           <span>Gắn Thẻ Khách Hàng</span>
@@ -5196,6 +5196,7 @@ export default function LiveZaloInbox() {
                   const el = e.currentTarget;
                   isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
                 }}
+                style={{ overflowAnchor: "none" }}
                 className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4 chat-stream-bg min-h-0"
               >
                 {/* Nút tải thêm lịch sử cũ nếu connector hỗ trợ */}
@@ -5602,15 +5603,71 @@ export default function LiveZaloInbox() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Composer (Ô nhập tin nhắn & Gửi chuẩn Vpage) */}
-              <div className="border-t border-slate-800 bg-slate-900/90 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] space-y-1.5 flex-shrink-0">
-                {/* 1. Thanh gắn thẻ nhanh chuẩn Vpage (Cấp 1 | Cấp 2 | Cấp 3 | Đã chốt | Bám đuổi...) */}
-                <QuickTagBar
-                  currentTags={activeConv.tags || []}
-                  availableTags={availableTags}
-                  onToggleTag={handleToggleTagOnActiveConv}
-                  onOpenTagManager={() => setIsTagPopoverOpen(true)}
-                />
+              {/* Message Composer (Tối giản gọn gàng, tăng không gian đọc tin nhắn) */}
+              <div className="border-t border-slate-800 bg-slate-900/95 px-2.5 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] space-y-1 flex-shrink-0">
+                {/* 1. Dải pill thẻ nhanh mảnh (py-1 text-[11px]) */}
+                {(() => {
+                  const activeTagsSet = new Set(
+                    (activeConv.tags || []).map((t) =>
+                      typeof t === "string"
+                        ? t.toLowerCase().trim()
+                        : String(t?.id || t?.name || "").toLowerCase().trim()
+                    )
+                  );
+                  const quickTagOptions = [
+                    { id: "cap_1", name: "Cấp 1", activeColor: "bg-blue-600 text-white border-blue-500" },
+                    { id: "cap_2", name: "Cấp 2", activeColor: "bg-cyan-600 text-white border-cyan-500" },
+                    { id: "cap_3", name: "Cấp 3", activeColor: "bg-sky-600 text-white border-sky-500" },
+                    { id: "da_chot", name: "Đã chốt", activeColor: "bg-emerald-600 text-white border-emerald-500 font-bold" },
+                    { id: "bam_duoi", name: "Bám đuổi", activeColor: "bg-amber-600 text-white border-amber-500" },
+                    { id: "khach_vip", name: "Khách VIP", activeColor: "bg-purple-600 text-white border-purple-500 font-bold" },
+                    { id: "can_tu_van", name: "Cần tư vấn", activeColor: "bg-rose-600 text-white border-rose-500" },
+                  ];
+
+                  return (
+                    <div className="flex items-center gap-1 py-1 text-[11px] overflow-x-auto no-scrollbar">
+                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold shrink-0 mr-0.5">
+                        <Tag className="w-3 h-3" />
+                        <span className="hidden sm:inline">Thẻ:</span>
+                      </span>
+                      {quickTagOptions.map((tag) => {
+                        const isSelected =
+                          activeTagsSet.has(tag.id.toLowerCase()) ||
+                          activeTagsSet.has(tag.name.toLowerCase()) ||
+                          availableTags.some(
+                            (at) =>
+                              (at.id === tag.id || at.name?.toLowerCase() === tag.name.toLowerCase()) &&
+                              (activeTagsSet.has(String(at.id).toLowerCase()) ||
+                                activeTagsSet.has(String(at.name).toLowerCase()))
+                          );
+                        return (
+                          <button
+                            key={tag.id}
+                            type="button"
+                            onClick={() => handleToggleTagOnActiveConv(tag.name)}
+                            className={`px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
+                              isSelected
+                                ? tag.activeColor
+                                : "bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700/60"
+                            }`}
+                            title={`Bấm để ${isSelected ? "bỏ gắn" : "gắn"} thẻ ${tag.name}`}
+                          >
+                            {isSelected ? `✓ ${tag.name}` : tag.name}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setIsTagPopoverOpen(true)}
+                        className="px-2 py-0.5 rounded-full text-[11px] text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition-colors inline-flex items-center gap-0.5 shrink-0 ml-auto cursor-pointer"
+                        title="Quản lý & gắn thẻ khác"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span className="hidden sm:inline">Khác</span>
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* 2. Thanh Ghi Âm Giọng Nói (khi bấm Ghi âm) */}
                 <AudioRecorderBar
@@ -5619,44 +5676,197 @@ export default function LiveZaloInbox() {
                   onSendAudio={handleSendAudio}
                 />
 
-                <div className="flex items-center justify-between text-[11px] text-slate-500 px-1 gap-2">
-                  <span className="truncate">
-                    Nhắn tin trực tiếp qua <strong className="text-slate-300">{activeChannelName}</strong>
-                  </span>
-                </div>
-
-                {/* 3. Khung soạn thảo tin nhắn (Textarea luôn full-width thoải mái, nút AI Gợi Ý & Gửi ở hàng dưới) */}
-                <form onSubmit={handleSendMessage} className="flex flex-col gap-1.5">
-                  <div className="w-full relative">
-                    <textarea
-                      rows={2}
-                      value={inputMessage}
-                      onChange={(e) => setInputMessage(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      onPaste={handlePaste}
-                      placeholder={`Nhập tin nhắn gửi tới ${activeConv.name}... (Nhấn Ctrl+Q hoặc / để mở Trả lời nhanh)`}
-                      className="w-full rounded-xl border border-slate-700/80 bg-slate-950 p-2.5 text-base md:text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none leading-relaxed"
-                    />
+                {/* 3. File đính kèm xem trước (nếu có) */}
+                {attachedFiles.length > 0 && (
+                  <div className="flex items-center gap-2 px-2 py-1 overflow-x-auto no-scrollbar rounded-lg border border-slate-800 bg-slate-950/70">
+                    {attachedFiles.map((att, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 max-w-[200px] text-xs text-slate-200 shrink-0"
+                      >
+                        {att.isImage && att.previewUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={att.previewUrl}
+                            alt={att.name}
+                            className="w-6 h-6 rounded object-cover border border-slate-600 shrink-0"
+                          />
+                        ) : (
+                          <FileText className="w-4 h-4 text-slate-300 shrink-0" />
+                        )}
+                        <span className="truncate text-[11px] font-medium flex-1">{att.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAttachment(idx)}
+                          className="text-slate-400 hover:text-rose-400 cursor-pointer shrink-0"
+                          title="Gỡ file đính kèm"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
+                )}
 
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-slate-500 truncate hidden md:inline">
-                      Enter để gửi • Shift+Enter xuống dòng • Ctrl+Q Trả lời nhanh
-                    </span>
+                {/* 4. Ô nhập liệu gọn 1-2 dòng tự giãn + 1 thanh công cụ duy nhất */}
+                <form onSubmit={handleSendMessage} className="space-y-1">
+                  <textarea
+                    ref={composerTextareaRef}
+                    rows={1}
+                    value={inputMessage}
+                    onChange={(e) => setInputMessage(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
+                    placeholder={`Nhắn qua ${activeChannelName} tới ${activeConv.name}... (Enter gửi • Shift+Enter xuống dòng • Ctrl+Q Trả lời nhanh)`}
+                    className="w-full min-h-[36px] max-h-[96px] rounded-xl border border-slate-700/80 bg-slate-950 px-3 py-1.5 text-sm md:text-xs text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none resize-none leading-snug overflow-y-auto"
+                  />
 
-                    <div className="flex items-center gap-2 ml-auto shrink-0">
-                      {/* Nút ✨ AI Gợi Ý */}
+                  <div className="flex items-center justify-between gap-1.5">
+                    {/* Nhóm công cụ bên trái */}
+                    <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar sm:overflow-visible min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => setIsQuickRepliesOpen(true)}
+                        title="Mẫu trả lời nhanh (Ctrl+Q hoặc /)"
+                        aria-label="Trả lời nhanh"
+                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="hidden 2xl:inline">Nhanh</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => composerImageInputRef.current?.click()}
+                        title="Gửi hình ảnh (.jpg, .png, .webp)"
+                        aria-label="Gửi hình ảnh"
+                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                      >
+                        <ImageIcon className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                        <span className="hidden 2xl:inline">Ảnh</span>
+                      </button>
+                      <input
+                        ref={composerImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length > 0) handleFileSelected(files, true);
+                          e.target.value = "";
+                        }}
+                        className="hidden"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => composerFileInputRef.current?.click()}
+                        title="Gửi file đính kèm (PDF, Word, Excel...)"
+                        aria-label="Gửi file"
+                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="hidden 2xl:inline">File</span>
+                      </button>
+                      <input
+                        ref={composerFileInputRef}
+                        type="file"
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || []);
+                          if (files.length > 0) handleFileSelected(files, false);
+                          e.target.value = "";
+                        }}
+                        className="hidden"
+                      />
+
+                      <div className="relative shrink-0">
+                        <button
+                          ref={emojiTriggerRef}
+                          type="button"
+                          onClick={() => setIsEmojiOpen(!isEmojiOpen)}
+                          title="Chọn biểu tượng cảm xúc (Emoji & Icon)"
+                          aria-label="Chọn Icon"
+                          className={`p-1.5 xl:px-2 xl:py-1 rounded-lg text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                            isEmojiOpen
+                              ? "bg-slate-800 text-amber-400"
+                              : "text-slate-300 hover:text-white hover:bg-slate-800"
+                          }`}
+                        >
+                          <Smile className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="hidden 2xl:inline">Icon</span>
+                        </button>
+                        <EmojiPickerPopover
+                          isOpen={isEmojiOpen}
+                          onClose={() => setIsEmojiOpen(false)}
+                          onSelectEmoji={(emoji) => {
+                            handleSelectEmoji(emoji);
+                            setIsEmojiOpen(false);
+                          }}
+                          triggerRef={emojiTriggerRef}
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsProductPickerOpen(true)}
+                        title="Gửi sản phẩm ADDP & KiotViet"
+                        aria-label="Gửi sản phẩm"
+                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Package className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="hidden 2xl:inline">Sản phẩm</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsDocumentPickerOpen(true)}
+                        title="Gửi tài liệu, giấy tờ sản phẩm"
+                        aria-label="Gửi tài liệu"
+                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <span className="hidden 2xl:inline">Tài liệu</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsAudioRecordingOpen(!isAudioRecordingOpen)}
+                        title="Ghi âm giọng nói gửi cho khách"
+                        aria-label="Ghi âm"
+                        className={`p-1.5 xl:px-2 xl:py-1 rounded-lg text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0 ${
+                          isAudioRecordingOpen
+                            ? "bg-rose-950/60 text-rose-400"
+                            : "text-slate-300 hover:text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        <Mic className={`w-3.5 h-3.5 text-rose-400 shrink-0 ${isAudioRecordingOpen ? "animate-pulse" : ""}`} />
+                        <span className="hidden 2xl:inline">Ghi âm</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsOrderModalOpen(true)}
+                        title="Tạo đơn hàng trực tiếp lên KiotViet"
+                        className="px-2 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap ml-0.5"
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden md:inline">Tạo đơn KiotViet</span>
+                      </button>
+                    </div>
+
+                    {/* Nhóm nút AI Gợi Ý & Gửi bên phải */}
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={handleAiCompose}
                         disabled={aiComposing || sending}
                         title="Dựa vào Second Brain để viết thành lời tư vấn chuẩn Dược sĩ"
-                        className="h-11 md:h-9 px-3.5 md:px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 shadow-sm whitespace-nowrap cursor-pointer badge-solid-white"
+                        className="h-8 px-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-[11px] inline-flex items-center justify-center gap-1 transition-colors shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
                       >
                         {aiComposing ? (
                           <>
                             <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                            <span>Đang soạn...</span>
+                            <span className="hidden sm:inline">Đang soạn...</span>
                           </>
                         ) : (
                           <>
@@ -5666,14 +5876,13 @@ export default function LiveZaloInbox() {
                         )}
                       </button>
 
-                      {/* Nút Gửi */}
                       <button
                         type="submit"
                         disabled={sending || (!inputMessage.trim() && attachedFiles.length === 0)}
-                        className="h-11 md:h-9 px-5 md:px-4 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-colors flex-shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
+                        className="h-8 px-3.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-[11px] inline-flex items-center justify-center gap-1 transition-colors shrink-0 whitespace-nowrap cursor-pointer badge-solid-white"
                       >
                         {sending ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <>
                             <span>Gửi</span>
@@ -5684,20 +5893,6 @@ export default function LiveZaloInbox() {
                     </div>
                   </div>
                 </form>
-
-                {/* 4. Thanh Công Cụ Nhắn Tin Đa Kênh Chuẩn Vpage (6 Mục theo yêu cầu) */}
-                <ChatToolbar
-                  onOpenQuickReplies={() => setIsQuickRepliesOpen(true)}
-                  onOpenProductPicker={() => setIsProductPickerOpen(true)}
-                  onOpenDocumentPicker={() => setIsDocumentPickerOpen(true)}
-                  onOpenKiotVietOrder={() => setIsOrderModalOpen(true)}
-                  onToggleVoiceRecorder={() => setIsAudioRecordingOpen(!isAudioRecordingOpen)}
-                  isRecordingVoice={isAudioRecordingOpen}
-                  onSelectEmoji={handleSelectEmoji}
-                  onFileSelected={handleFileSelected}
-                  attachedFiles={attachedFiles}
-                  onRemoveAttachment={handleRemoveAttachment}
-                />
               </div>
             </>
           ) : (

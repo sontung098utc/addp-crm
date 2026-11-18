@@ -43,10 +43,10 @@ export const ROLE_METADATA = {
  * Ma trận phân quyền truy cập Module theo Điều 5 - AGENTS.md
  */
 export const ROLE_PERMISSIONS = {
-  ADMIN: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "settings", "documents", "guide"],
-  SALE_LEADER: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "channels", "reports", "documents", "guide"],
-  SALE: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "orders", "inventory", "documents", "guide"],
-  CSKH: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "documents", "guide"],
+  ADMIN: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "zalo-auto-friend", "orders", "inventory", "channels", "reports", "settings", "documents", "guide"],
+  SALE_LEADER: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "zalo-auto-friend", "orders", "inventory", "channels", "reports", "documents", "guide"],
+  SALE: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "zalo-auto-friend", "orders", "inventory", "documents", "guide"],
+  CSKH: ["dashboard", "inbox", "customers", "tags", "work-tracking", "broadcast", "zalo-auto-friend", "documents", "guide"],
   KHO: ["dashboard", "orders", "inventory", "reports", "documents", "guide"],
   KE_TOAN: ["dashboard", "orders", "inventory", "reports", "documents", "guide"],
 };
@@ -58,6 +58,7 @@ export const MODULE_TO_ROUTE = {
   tags: "/settings/tags",
   "work-tracking": "/work-tracking",
   broadcast: "/broadcast",
+  "zalo-auto-friend": "/zalo-auto-friend",
   orders: "/orders",
   inventory: "/inventory",
   channels: "/channels",
