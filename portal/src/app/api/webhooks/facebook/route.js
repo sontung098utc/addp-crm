@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { normalizePhone } from "@/lib/phone.js";
 import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
+import {
+  getFacebookPageToken,
+  processFacebookCommentEvent,
+} from "@/lib/fbCommentAutoEngine.js";
 
 /**
  * ADDP Omnichannel AI CRM — Facebook Webhook (WBS-16 & WBS-21)
@@ -108,7 +112,8 @@ export async function POST(request) {
 
                 // Gọi Meta Graph API để tự động ẩn comment
                 try {
-                  const pageAccessToken = process.env.FB_PAGE_ACCESS_TOKEN;
+                  const pageTokenInfo = getFacebookPageToken(pageId);
+                  const pageAccessToken = pageTokenInfo?.accessToken || process.env.FB_PAGE_ACCESS_TOKEN;
                   if (pageAccessToken) {
                     await fetch(`https://graph.facebook.com/v19.0/${commentId}?is_hidden=true`, {
                       method: "POST",
@@ -120,6 +125,19 @@ export async function POST(request) {
                   console.error(`[FB_AUTO_HIDE_ERROR] Lỗi khi ẩn comment ${commentId}:`, hideErr);
                 }
               }
+
+              // Kích hoạt Tự động trả lời bình luận & Nhắn tin riêng (Theo bài viết hoặc từ khóa)
+              processFacebookCommentEvent({
+                pageId,
+                postId: val.post_id || "",
+                commentId,
+                parentId: val.parent_id || "",
+                senderId,
+                senderName,
+                message: commentText,
+              }).catch((err) => {
+                console.error("[FB_COMMENT_AUTO_EVENT_ERR]", err);
+              });
             }
           }
         }

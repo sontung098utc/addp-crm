@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import KeywordAutoReplyTab from "./KeywordAutoReplyTab";
+import FanpageCommentAutoTab from "./FanpageCommentAutoTab";
 
 const TAG_BADGE_STYLES = {
   "Tiểu Đường Tuýp 2": "bg-rose-500/15 text-rose-300 border-rose-500/30",
@@ -584,7 +585,19 @@ export default function BroadcastPage() {
           }`}
         >
           <span>⚡ Tự Động Trả Lời Theo Từ Khóa (Auto-Reply)</span>
-          <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 px-2 py-0.5 text-[10px] font-bold animate-pulse">
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab("fb_comment_auto")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+            activeMainTab === "fb_comment_auto"
+              ? "bg-blue-600 text-white shadow-lg shadow-blue-600/25 ring-1 ring-blue-400/40"
+              : "bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+          }`}
+        >
+          <span>💬 Bình Luận Fanpage (Reply & Inbox)</span>
+          <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 px-2 py-0.5 text-[10px] font-bold">
             Mới
           </span>
         </button>
@@ -592,6 +605,8 @@ export default function BroadcastPage() {
 
       {activeMainTab === "keyword_auto_reply" ? (
         <KeywordAutoReplyTab />
+      ) : activeMainTab === "fb_comment_auto" ? (
+        <FanpageCommentAutoTab />
       ) : (
         <>
           {/* Khối chính: Cột trái Form Tạo Chiến Dịch + Cột phải Màn hình Điện thoại Xem trước */}
