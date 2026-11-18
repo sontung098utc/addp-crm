@@ -8,6 +8,7 @@ const nextConfig = {
         experimental: {
           cpus: 1,
           webpackBuildWorker: false,
+          webpackMemoryOptimizations: true,
           parallelServerCompiles: false,
           parallelServerBuildTraces: false,
         },
