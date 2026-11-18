@@ -4929,7 +4929,7 @@ export default function LiveZaloInbox() {
 
                   <div className="flex-1 min-w-0 flex items-center gap-1.5">
                     <h3
-                      className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate min-w-[72px]"
+                      className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate flex-1 min-w-[90px]"
                       title={activeConv.name}
                     >
                       {activeConv.name}
@@ -4937,7 +4937,7 @@ export default function LiveZaloInbox() {
 
                     {(activeConv.phone || detectedChatPhone) && (
                       <span
-                        className="hidden md:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 shrink-0 tabular-nums"
+                        className="hidden 2xl:inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300/80 dark:border-emerald-700/60 shrink-0 tabular-nums"
                         title="Số điện thoại xác thực của khách hàng"
                       >
                         📞 {activeConv.phone || detectedChatPhone}
@@ -5723,16 +5723,15 @@ export default function LiveZaloInbox() {
 
                   <div className="flex items-center justify-between gap-2 min-w-0">
                     {/* Nhóm công cụ bên trái — cuộn ngang an toàn, không bao giờ đè lên nút Gửi bên phải */}
-                    <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto no-scrollbar py-0.5">
+                    <div className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
                       <button
                         type="button"
                         onClick={() => setIsQuickRepliesOpen(true)}
                         title="Mẫu trả lời nhanh (Ctrl+Q hoặc /)"
                         aria-label="Trả lời nhanh"
-                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                        className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
-                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span className="hidden 2xl:inline">Nhanh</span>
+                        <Zap className="w-4 h-4 text-amber-400 shrink-0" />
                       </button>
 
                       <button
@@ -5740,10 +5739,9 @@ export default function LiveZaloInbox() {
                         onClick={() => composerImageInputRef.current?.click()}
                         title="Gửi hình ảnh (.jpg, .png, .webp)"
                         aria-label="Gửi hình ảnh"
-                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                        className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
-                        <ImageIcon className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                        <span className="hidden 2xl:inline">Ảnh</span>
+                        <ImageIcon className="w-4 h-4 text-blue-400 shrink-0" />
                       </button>
                       <input
                         ref={composerImageInputRef}
@@ -5763,10 +5761,9 @@ export default function LiveZaloInbox() {
                         onClick={() => composerFileInputRef.current?.click()}
                         title="Gửi file đính kèm (PDF, Word, Excel...)"
                         aria-label="Gửi file"
-                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                        className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
-                        <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="hidden 2xl:inline">File</span>
+                        <Paperclip className="w-4 h-4 text-slate-400 shrink-0" />
                       </button>
                       <input
                         ref={composerFileInputRef}
@@ -5786,14 +5783,13 @@ export default function LiveZaloInbox() {
                           onClick={() => setIsEmojiOpen(!isEmojiOpen)}
                           title="Chọn biểu tượng cảm xúc (Emoji & Icon)"
                           aria-label="Chọn Icon"
-                          className={`p-1.5 xl:px-2 xl:py-1 rounded-lg text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                          className={`p-1.5 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer ${
                             isEmojiOpen
                               ? "bg-slate-800 text-amber-400"
                               : "text-slate-300 hover:text-white hover:bg-slate-800"
                           }`}
                         >
-                          <Smile className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="hidden 2xl:inline">Icon</span>
+                          <Smile className="w-4 h-4 text-amber-400 shrink-0" />
                         </button>
                         <EmojiPickerPopover
                           isOpen={isEmojiOpen}
@@ -5811,10 +5807,9 @@ export default function LiveZaloInbox() {
                         onClick={() => setIsProductPickerOpen(true)}
                         title="Gửi sản phẩm ADDP & KiotViet"
                         aria-label="Gửi sản phẩm"
-                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                        className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
-                        <Package className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="hidden 2xl:inline">Sản phẩm</span>
+                        <Package className="w-4 h-4 text-emerald-400 shrink-0" />
                       </button>
 
                       <button
@@ -5822,10 +5817,9 @@ export default function LiveZaloInbox() {
                         onClick={() => setIsDocumentPickerOpen(true)}
                         title="Gửi tài liệu, giấy tờ sản phẩm"
                         aria-label="Gửi tài liệu"
-                        className="p-1.5 xl:px-2 xl:py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                        className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
                       >
-                        <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                        <span className="hidden 2xl:inline">Tài liệu</span>
+                        <FileText className="w-4 h-4 text-sky-400 shrink-0" />
                       </button>
 
                       <button
@@ -5833,14 +5827,13 @@ export default function LiveZaloInbox() {
                         onClick={() => setIsAudioRecordingOpen(!isAudioRecordingOpen)}
                         title="Ghi âm giọng nói gửi cho khách"
                         aria-label="Ghi âm"
-                        className={`p-1.5 xl:px-2 xl:py-1 rounded-lg text-[11px] font-medium inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0 ${
+                        className={`p-1.5 rounded-lg inline-flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
                           isAudioRecordingOpen
                             ? "bg-rose-950/60 text-rose-400"
                             : "text-slate-300 hover:text-white hover:bg-slate-800"
                         }`}
                       >
-                        <Mic className={`w-3.5 h-3.5 text-rose-400 shrink-0 ${isAudioRecordingOpen ? "animate-pulse" : ""}`} />
-                        <span className="hidden 2xl:inline">Ghi âm</span>
+                        <Mic className={`w-4 h-4 text-rose-400 shrink-0 ${isAudioRecordingOpen ? "animate-pulse" : ""}`} />
                       </button>
 
                       <button
@@ -5850,8 +5843,7 @@ export default function LiveZaloInbox() {
                         className="px-2 py-1 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white text-[11px] font-bold inline-flex items-center gap-1 transition-colors cursor-pointer badge-solid-white shrink-0 whitespace-nowrap ml-0.5"
                       >
                         <ShoppingCart className="w-3.5 h-3.5 shrink-0" />
-                        <span className="hidden 2xl:inline">Tạo đơn </span>
-                        <span className="hidden md:inline">KiotViet</span>
+                        <span className="hidden sm:inline">KiotViet</span>
                       </button>
                     </div>
 
