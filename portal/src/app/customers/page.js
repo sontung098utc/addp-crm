@@ -122,7 +122,7 @@ export default function CustomersPage() {
   const [actionMessage, setActionMessage] = useState(null);
   const [syncingKiotViet, setSyncingKiotViet] = useState(false);
 
-  const handleSyncKiotVietFrom2026 = async () => {
+  const handleSyncKiotVietRange = async (fromDate = "2024-01-01", toDate = "2025-12-31") => {
     if (syncingKiotViet) return;
     try {
       setSyncingKiotViet(true);
@@ -131,14 +131,18 @@ export default function CustomersPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mode: "full",
-          fromDate: "2026-01-01",
-          maxPages: 100,
+          fromDate,
+          toDate,
+          maxPages: 300,
+          includeCustomers: true,
         }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.ok) {
         setActionMessage({
-          text: data.message || `Đã đồng bộ ${data.syncedCount || 0} đơn hàng & khách hàng KiotViet từ 01/01/2026!`,
+          text:
+            data.message ||
+            `Đã đồng bộ ${data.syncedCount || 0} đơn hàng & ${data.syncedCustomersCount || 0} khách hàng KiotViet (${fromDate} → ${toDate || "nay"})!`,
         });
         await fetchCustomers();
       } else {
@@ -597,7 +601,16 @@ export default function CustomersPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={handleSyncKiotVietFrom2026}
+            onClick={() => handleSyncKiotVietRange("2024-01-01", "2025-12-31")}
+            disabled={syncingKiotViet}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-600/15 px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-xs font-semibold text-amber-300 hover:bg-amber-600 hover:text-white transition cursor-pointer disabled:opacity-60"
+            title="Kéo toàn bộ đơn hàng & khách hàng từ KiotViet giai đoạn 01/01/2024 - 31/12/2025"
+          >
+            <span>{syncingKiotViet ? "⏳ Đang đồng bộ..." : "📅 Đồng bộ KiotViet 2024–2025"}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSyncKiotVietRange("2026-01-01", null)}
             disabled={syncingKiotViet}
             className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-600/15 px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-xs font-semibold text-emerald-300 hover:bg-emerald-600 hover:text-white transition cursor-pointer disabled:opacity-60"
             title="Kéo toàn bộ đơn hàng & khách hàng từ KiotViet từ ngày 01/01/2026 đến nay"

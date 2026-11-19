@@ -443,14 +443,50 @@ async function updateCustomer360ForOrder(order, allOrders = null) {
 /**
  * Kéo toàn bộ hoặc đơn mới từ KiotViet Open API
  */
+/**
+ * Chuẩn hóa kiểm tra ngày (YYYY-MM-DD) nằm trong khoảng [fromDate, toDate]
+ */
+function parseDateMs(raw) {
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+function isWithinDateRange(rawDate, fromDate, toDate) {
+  if (!fromDate && !toDate) return true;
+  const ts = parseDateMs(rawDate);
+  if (ts === null) return true;
+  if (fromDate) {
+    const startMs = new Date(`${String(fromDate).slice(0, 10)}T00:00:00+07:00`).getTime();
+    if (Number.isFinite(startMs) && ts < startMs) return false;
+  }
+  if (toDate) {
+    const endMs = new Date(`${String(toDate).slice(0, 10)}T23:59:59.999+07:00`).getTime();
+    if (Number.isFinite(endMs) && ts > endMs) return false;
+  }
+  return true;
+}
+
+function isBeforeFromDate(rawDate, fromDate) {
+  if (!fromDate) return false;
+  const ts = parseDateMs(rawDate);
+  if (ts === null) return false;
+  const startMs = new Date(`${String(fromDate).slice(0, 10)}T00:00:00+07:00`).getTime();
+  return Number.isFinite(startMs) && ts < startMs;
+}
+
 export async function syncAllKiotVietOrders({
   mode = "all",
   lastModifiedFrom = null,
   fromDate = null,
-  maxPages = 100, // Tối đa 100 trang x 100 = 10.000 đơn/hóa đơn mỗi lần chạy
+  toDate = null,
+  maxPages = 300, // Tối đa 300 trang x 100 = 30.000 bản ghi mỗi loại
+  includeCustomers = true,
 } = {}) {
+  const cleanFromDate = fromDate ? String(fromDate).slice(0, 10) : null;
+  const cleanToDate = toDate ? String(toDate).slice(0, 10) : null;
   const effectiveLastModifiedFrom =
-    lastModifiedFrom || (fromDate ? `${String(fromDate).slice(0, 10)}T00:00:00` : null);
+    lastModifiedFrom || (cleanFromDate ? `${cleanFromDate}T00:00:00` : null);
   if (isSafePilotMode() || !isAutoSyncAllowed()) {
     return {
       ok: false,
@@ -509,6 +545,10 @@ export async function syncAllKiotVietOrders({
       if (list.length === 0) break;
 
       for (const inv of list) {
+        const invDate = inv.purchaseDate || inv.createdDate || inv.modifiedDate;
+        if (!isWithinDateRange(invDate, cleanFromDate, cleanToDate)) {
+          continue;
+        }
         let phone =
           inv.contactNumber ||
           inv.invoiceDelivery?.contactNumber ||
@@ -523,6 +563,12 @@ export async function syncAllKiotVietOrders({
         const mapped = mapKiotVietItemToCrmOrder(inv, "INVOICE", phone);
         mappedOrders.push(mapped);
         syncedInvoicesCount++;
+      }
+
+      const lastInv = list[list.length - 1];
+      const lastInvDate = lastInv?.createdDate || lastInv?.purchaseDate;
+      if (cleanFromDate && isBeforeFromDate(lastInvDate, cleanFromDate)) {
+        hasMore = false;
       }
 
       currentItem += pageSize;
@@ -558,6 +604,10 @@ export async function syncAllKiotVietOrders({
       if (list.length === 0) break;
 
       for (const ord of list) {
+        const ordDate = ord.purchaseDate || ord.createdDate || ord.modifiedDate;
+        if (!isWithinDateRange(ordDate, cleanFromDate, cleanToDate)) {
+          continue;
+        }
         let phone =
           ord.contactNumber ||
           ord.orderDelivery?.contactNumber ||
@@ -574,9 +624,96 @@ export async function syncAllKiotVietOrders({
         syncedOrdersCount++;
       }
 
+      const lastOrd = list[list.length - 1];
+      const lastOrdDate = lastOrd?.createdDate || lastOrd?.purchaseDate;
+      if (cleanFromDate && isBeforeFromDate(lastOrdDate, cleanFromDate)) {
+        hasMore = false;
+      }
+
       currentItem += pageSize;
       if (list.length < pageSize || (data.total && currentItem >= data.total)) {
         hasMore = false;
+      }
+    }
+
+    // 2b. Kéo trực tiếp danh sách KHÁCH HÀNG từ KiotViet (/customers) trong khoảng ngày
+    let syncedCustomersCount = 0;
+    if (includeCustomers) {
+      let custItem = 0;
+      let custHasMore = true;
+      let custPage = 0;
+      while (custHasMore && custPage < maxPages) {
+        custPage++;
+        let custUrl = `${KIOTVIET_API_BASE}/customers?pageSize=${pageSize}&currentItem=${custItem}&orderBy=createdDate&orderDirection=Desc`;
+        if (effectiveLastModifiedFrom) {
+          custUrl += `&lastModifiedFrom=${encodeURIComponent(effectiveLastModifiedFrom)}`;
+        }
+        const custRes = await fetch(custUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Retailer: retailer,
+            "User-Agent": "ADDP-CRM/1.0",
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!custRes.ok) break;
+        const custData = await custRes.json();
+        const custList = custData?.data || [];
+        if (custList.length === 0) break;
+
+        for (const kvCust of custList) {
+          const kvDate = kvCust.createdDate || kvCust.modifiedDate;
+          if (!isWithinDateRange(kvDate, cleanFromDate, cleanToDate)) {
+            continue;
+          }
+          const cPhone = normalizePhone(kvCust.contactNumber || kvCust.mobilePhone || "");
+          if (!cPhone) continue;
+
+          const cName = String(kvCust.name || "").trim() || `Khách KiotViet (${cPhone})`;
+          const addrParts = [kvCust.address, kvCust.wardName, kvCust.locationName]
+            .map((s) => String(s || "").trim())
+            .filter(Boolean);
+          const fullAddress = addrParts.join(", ");
+
+          const existing = await getOrCreateCustomerByPhone({
+            phone: cPhone,
+            fullName: cName,
+            source: "KIOTVIET",
+            address: fullAddress,
+          });
+          if (existing) {
+            const patch = {};
+            if (cName && (!existing.fullName || existing.fullName.startsWith("Khách"))) {
+              patch.fullName = cName;
+            }
+            if (fullAddress && !existing.address) {
+              patch.address = fullAddress;
+            }
+            if (kvCust.locationName && !existing.province) {
+              patch.province = kvCust.locationName;
+            }
+            if (kvCust.code && !existing.kiotvietCode) {
+              patch.kiotvietCode = kvCust.code;
+            }
+            if (Number(kvCust.totalInvoiced || 0) > Number(existing.totalSpent || 0)) {
+              patch.totalSpent = Number(kvCust.totalInvoiced);
+            }
+            if (Object.keys(patch).length > 0) {
+              await updateCustomer(existing.id, patch);
+            }
+            syncedCustomersCount++;
+          }
+        }
+
+        const lastKv = custList[custList.length - 1];
+        const lastKvDate = lastKv?.createdDate || lastKv?.modifiedDate;
+        if (cleanFromDate && isBeforeFromDate(lastKvDate, cleanFromDate)) {
+          custHasMore = false;
+        }
+        custItem += pageSize;
+        if (custList.length < pageSize || (custData.total && custItem >= custData.total)) {
+          custHasMore = false;
+        }
       }
     }
 
@@ -626,19 +763,28 @@ export async function syncAllKiotVietOrders({
       count: mappedOrders.length,
       syncedInvoicesCount,
       syncedOrdersCount,
+      syncedCustomersCount,
       careTasksCreated,
       timestamp: nowIso,
     });
 
+    const rangeLabel =
+      cleanFromDate || cleanToDate
+        ? ` (${cleanFromDate || "..."} → ${cleanToDate || "nay"})`
+        : "";
+
     return {
       ok: true,
+      fromDate: cleanFromDate,
+      toDate: cleanToDate,
       syncedCount: mappedOrders.length,
       syncedInvoicesCount,
       syncedOrdersCount,
+      syncedCustomersCount,
       careTasksCreated,
       totalOrders: allStored.length,
       durationMs: Date.now() - startTime,
-      message: `Đã đồng bộ thành công ${mappedOrders.length} đơn hàng & hóa đơn từ KiotViet (${syncedInvoicesCount} hóa đơn, ${syncedOrdersCount} đơn đặt hàng)${careTasksCreated > 0 ? `, tạo ${careTasksCreated} lịch chăm sóc mới` : ""}!`,
+      message: `Đã đồng bộ thành công${rangeLabel}: ${mappedOrders.length} đơn (${syncedInvoicesCount} hóa đơn, ${syncedOrdersCount} đơn đặt hàng) & ${syncedCustomersCount} khách hàng KiotViet${careTasksCreated > 0 ? `, tạo ${careTasksCreated} lịch chăm sóc mới` : ""}!`,
     };
   } catch (err) {
     console.error("[KIOTVIET_SYNC_EXCEPTION]", err);

@@ -89,15 +89,23 @@ export default function OrdersClient() {
     fetchKiotVietInfo();
   }, []);
 
-  const handleSyncKiotViet = async (mode = "incremental") => {
+  const handleSyncKiotViet = async (mode = "incremental", customRange = null) => {
     if (syncingKiot) return;
     try {
       setSyncingKiot(true);
-      showToastMsg("Đang đồng bộ đơn hàng & hóa đơn từ KiotViet Open API...");
+      showToastMsg(
+        customRange?.fromDate
+          ? `Đang đồng bộ đơn hàng & khách hàng KiotViet (${customRange.fromDate} → ${customRange.toDate || "nay"})...`
+          : "Đang đồng bộ đơn hàng & hóa đơn từ KiotViet Open API..."
+      );
       const res = await fetch("/api/orders/kiotviet/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, registerWebhooks: true }),
+        body: JSON.stringify({
+          mode,
+          registerWebhooks: true,
+          ...(customRange || {}),
+        }),
       });
       const data = await res.json();
       if (res.ok && data.ok) {
@@ -312,30 +320,45 @@ export default function OrdersClient() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+          <button
+            onClick={() =>
+              handleSyncKiotViet("full", {
+                fromDate: "2024-01-01",
+                toDate: "2025-12-31",
+                maxPages: 300,
+                includeCustomers: true,
+              })
+            }
+            disabled={syncingKiot}
+            title="Đồng bộ toàn bộ đơn hàng, hóa đơn và khách hàng từ KiotViet giai đoạn 01/01/2024 – 31/12/2025"
+            className="px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-semibold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+          >
+            <span>{syncingKiot ? "⏳ Đang Đồng Bộ..." : "📅 Đồng Bộ 2024–2025"}</span>
+          </button>
           <button
             onClick={() => handleSyncKiotViet("incremental")}
             disabled={syncingKiot}
             title="Đồng bộ hóa đơn và đơn đặt hàng mới nhất từ KiotViet về CRM"
-            className="px-3.5 py-2 rounded-xl border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-semibold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            className="px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-sky-500/40 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-semibold transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
           >
             <span>{syncingKiot ? "🔄 Đang Đồng Bộ..." : "🔄 Đồng Bộ KiotViet"}</span>
           </button>
           <button
             onClick={() => setShowKiotConfigModal(true)}
-            className="px-3.5 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition cursor-pointer"
+            className="px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition cursor-pointer"
           >
             ⚙️ Cấu Hình KiotViet ({kiotConfig.connected ? "Đã kết nối" : "Sẵn sàng"})
           </button>
           <button
             onClick={fetchOrders}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition cursor-pointer"
+            className="px-3.5 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition cursor-pointer"
           >
             🔄 Làm Mới
           </button>
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-900/30 transition flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-lg shadow-blue-900/30 transition flex items-center gap-1.5 cursor-pointer"
           >
             <span>+ Tạo Đơn Hàng Mới</span>
           </button>
@@ -343,41 +366,41 @@ export default function OrdersClient() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1 min-w-0">
           <div className="text-xs text-slate-400 font-medium">Tổng Đơn Hàng</div>
-          <div className="text-2xl font-bold text-white">{filteredOrders.length}</div>
+          <div className="text-xl sm:text-2xl font-bold text-white">{filteredOrders.length}</div>
           <div className="text-[11px] text-slate-500">Trên các kênh được lọc</div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1 min-w-0">
           <div className="text-xs text-slate-400 font-medium">Tổng Doanh Thu</div>
-          <div className="text-2xl font-bold text-emerald-400 font-mono">
+          <div className="text-lg sm:text-2xl font-bold text-emerald-400 font-mono truncate">
             {totalRevenue.toLocaleString("vi-VN")} đ
           </div>
           <div className="text-[11px] text-slate-500">Sau khi trừ chiết khấu</div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1 min-w-0">
           <div className="text-xs text-slate-400 font-medium">Chờ Đóng Gói / Gửi</div>
-          <div className="text-2xl font-bold text-amber-400">{confirmedCount}</div>
+          <div className="text-xl sm:text-2xl font-bold text-amber-400">{confirmedCount}</div>
           <div className="text-[11px] text-slate-500">Đơn cần xử lý kho</div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1">
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-1 min-w-0">
           <div className="text-xs text-slate-400 font-medium">Giao Thành Công</div>
-          <div className="text-2xl font-bold text-blue-400">{deliveredCount}</div>
+          <div className="text-xl sm:text-2xl font-bold text-blue-400">{deliveredCount}</div>
           <div className="text-[11px] text-slate-500">Đã chốt chăm sóc 7 mốc</div>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2.5">
+      <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-3">
+        <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2.5">
           <select
             value={selectedChannel}
             onChange={(e) => setSelectedChannel(e.target.value)}
-            className="rounded-xl bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-slate-200 focus:border-blue-500 focus:outline-none"
+            className="w-full sm:w-auto rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-slate-200 focus:border-blue-500 focus:outline-none"
           >
             {CHANNELS.map((ch) => (
               <option key={ch.key} value={ch.key}>
@@ -389,7 +412,7 @@ export default function OrdersClient() {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-xl bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-slate-200 focus:border-blue-500 focus:outline-none"
+            className="w-full sm:w-auto rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-slate-200 focus:border-blue-500 focus:outline-none"
           >
             {STATUSES.map((st) => (
               <option key={st.key} value={st.key}>
@@ -405,13 +428,111 @@ export default function OrdersClient() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Tìm theo Mã đơn, Mã KiotViet, SĐT..."
-            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
+            className="w-full rounded-xl bg-slate-950 border border-slate-700 px-3 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none"
           />
         </div>
       </div>
 
-      {/* Orders Table */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/80 overflow-hidden shadow-xl">
+      {/* Mobile Stacked Cards (< md) */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-8 text-center text-xs text-slate-500">
+            Đang nạp danh sách đơn hàng...
+          </div>
+        ) : filteredOrders.length === 0 ? (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-8 text-center space-y-3">
+            <div className="text-3xl">📦</div>
+            <div className="text-sm font-bold text-white">Chưa có dữ liệu đơn hàng</div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Chưa có đơn hàng nào khớp với bộ lọc hoặc hệ thống chưa phát sinh đơn mới.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(true)}
+              className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 min-h-[44px] text-xs font-bold text-white hover:bg-blue-500 transition cursor-pointer"
+            >
+              + Tạo Đơn Hàng Mới
+            </button>
+          </div>
+        ) : (
+          filteredOrders.map((o) => (
+            <div
+              key={o.id}
+              className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-3 shadow-sm"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="font-mono text-sm font-bold text-blue-400 break-all">
+                    {o.orderCode}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    {o.createdAt ? new Date(o.createdAt).toLocaleString("vi-VN") : "Vừa xong"} • {o.staffName}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                  {getStatusBadge(o.status)}
+                  {getChannelBadge(o.channel)}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-950/70 border border-slate-800/80 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white truncate">{o.customerName}</div>
+                  <div className="text-xs font-mono text-slate-400">{o.phone}</div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-mono font-bold text-emerald-400">
+                    {(o.finalAmount || 0).toLocaleString("vi-VN")} đ
+                  </div>
+                  <div className="text-[10px] text-purple-300">
+                    📅 {o.careTasksCount || 7} mốc CarePlan
+                  </div>
+                </div>
+              </div>
+
+              {Array.isArray(o.items) && o.items.length > 0 && (
+                <div className="space-y-1 text-xs text-slate-300">
+                  {o.items.map((it, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="truncate">• {it.name}</span>
+                      <span className="text-slate-400 shrink-0">x{it.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                {o.kiotVietOrderCode ? (
+                  <span className="inline-flex items-center rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1.5 text-[11px] font-mono text-emerald-300">
+                    ✓ KiotViet: {o.kiotVietOrderCode}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handlePushSingleOrderToKiotViet(o.id)}
+                    className="inline-flex items-center justify-center rounded-xl bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/30 px-3 py-2 min-h-[40px] text-xs font-semibold text-blue-300 cursor-pointer"
+                  >
+                    ⚡ Đẩy KiotViet
+                  </button>
+                )}
+
+                {o.status !== "DELIVERED" && (
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateOrderStatus(o.id, "DELIVERED")}
+                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/30 px-3 py-2 min-h-[40px] text-xs font-semibold transition cursor-pointer"
+                  >
+                    🚚 Giao thành công
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Orders Table (Desktop >= md) */}
+      <div className="hidden md:block rounded-2xl border border-slate-800 bg-slate-900/80 overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950/80 text-slate-400 border-b border-slate-800 uppercase tracking-wider text-[11px]">
@@ -538,10 +659,10 @@ export default function OrdersClient() {
 
       {/* Modal Cấu Hình KiotViet Open API */}
       {showKiotConfigModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4 text-xs">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4">
+          <div className="w-full max-w-lg max-h-[92dvh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl text-xs overflow-hidden">
+            <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4 shrink-0">
+              <div className="min-w-0 pr-2">
                 <h3 className="text-base font-bold text-white">
                   ⚙️ Cấu Hình KiotViet Open API (OAuth2 Bearer)
                 </h3>
@@ -551,120 +672,123 @@ export default function OrdersClient() {
               </div>
               <button
                 onClick={() => setShowKiotConfigModal(false)}
-                className="text-slate-400 hover:text-white text-base font-bold cursor-pointer"
+                aria-label="Đóng"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 text-base font-bold cursor-pointer shrink-0"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveKiotConfig} className="space-y-3.5">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">
-                  Tên Gian Hàng KiotViet (Retailer Subdomain) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="VD: duocphamaddp"
-                  value={kiotConfig.retailer}
-                  onChange={(e) =>
-                    setKiotConfig({ ...kiotConfig, retailer: e.target.value })
-                  }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <form onSubmit={handleSaveKiotConfig} className="flex flex-col flex-1 min-h-0">
+              <div className="p-5 overflow-y-auto flex-1 min-h-0 space-y-3.5">
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">
-                    Client ID *
+                    Tên Gian Hàng KiotViet (Retailer Subdomain) *
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Nhập KiotViet Client ID..."
-                    value={kiotConfig.clientId}
+                    placeholder="VD: duocphamaddp"
+                    value={kiotConfig.retailer}
                     onChange={(e) =>
-                      setKiotConfig({ ...kiotConfig, clientId: e.target.value })
+                      setKiotConfig({ ...kiotConfig, retailer: e.target.value })
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-white focus:border-blue-500 focus:outline-none"
                   />
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Client ID *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Nhập KiotViet Client ID..."
+                      value={kiotConfig.clientId}
+                      onChange={(e) =>
+                        setKiotConfig({ ...kiotConfig, clientId: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-white focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Client Secret *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Nhập KiotViet Client Secret..."
+                      value={kiotConfig.clientSecret}
+                      onChange={(e) =>
+                        setKiotConfig({
+                          ...kiotConfig,
+                          clientSecret: e.target.value,
+                        })
+                      }
+                      className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-white focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-slate-300 font-semibold mb-1">
-                    Client Secret *
+                    Chi nhánh xuất kho mặc định (Branch ID)
                   </label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="Nhập KiotViet Client Secret..."
-                    value={kiotConfig.clientSecret}
+                  <select
+                    value={kiotConfig.branchId}
                     onChange={(e) =>
                       setKiotConfig({
                         ...kiotConfig,
-                        clientSecret: e.target.value,
+                        branchId: Number(e.target.value),
                       })
                     }
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 text-base sm:text-xs text-white focus:border-blue-500 focus:outline-none"
+                  >
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.branchName} (ID: {b.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-2.5 text-slate-300 cursor-pointer pt-1 min-h-[40px]">
+                  <input
+                    type="checkbox"
+                    checked={kiotConfig.autoSync}
+                    onChange={(e) =>
+                      setKiotConfig({ ...kiotConfig, autoSync: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-blue-600 shrink-0"
                   />
+                  <span>
+                    Tự động đẩy đơn hàng mới sang KiotViet & đồng bộ tồn kho thời gian thực
+                  </span>
+                </label>
+
+                <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-400">
+                  Webhook URL nhận hóa đơn KiotViet:{" "}
+                  <code className="text-emerald-400 font-mono break-all">
+                    https://crm.addp.vn/api/webhooks/kiotviet
+                  </code>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">
-                  Chi nhánh xuất kho mặc định (Branch ID)
-                </label>
-                <select
-                  value={kiotConfig.branchId}
-                  onChange={(e) =>
-                    setKiotConfig({
-                      ...kiotConfig,
-                      branchId: Number(e.target.value),
-                    })
-                  }
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-                >
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.branchName} (ID: {b.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <label className="flex items-center gap-2 text-slate-300 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={kiotConfig.autoSync}
-                  onChange={(e) =>
-                    setKiotConfig({ ...kiotConfig, autoSync: e.target.checked })
-                  }
-                  className="rounded border-slate-700 bg-slate-900 text-blue-600"
-                />
-                <span>
-                  Tự động đẩy đơn hàng mới sang KiotViet & đồng bộ tồn kho thời gian thực
-                </span>
-              </label>
-
-              <div className="rounded-xl border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-400">
-                Webhook URL nhận hóa đơn KiotViet:{" "}
-                <code className="text-emerald-400 font-mono">
-                  https://crm.addp.vn/api/webhooks/kiotviet
-                </code>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <div className="flex flex-wrap justify-end gap-2 px-5 py-3.5 border-t border-slate-800 shrink-0 bg-slate-900">
                 <button
                   type="button"
                   onClick={() => setShowKiotConfigModal(false)}
-                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 font-semibold text-slate-300 hover:text-white cursor-pointer"
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 font-semibold text-slate-300 hover:text-white cursor-pointer"
                 >
                   Đóng
                 </button>
                 <button
                   type="submit"
                   disabled={savingKiot}
-                  className="rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 font-bold text-white cursor-pointer disabled:opacity-50"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2.5 sm:py-2 min-h-[44px] sm:min-h-0 font-bold text-white cursor-pointer disabled:opacity-50"
                 >
                   {savingKiot
                     ? "Đang xác thực OAuth2..."

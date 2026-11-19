@@ -63,9 +63,14 @@ export async function POST(request) {
 
     const mode = body?.mode || "incremental"; // "incremental" | "full"
     const fromDate = body?.fromDate ? String(body.fromDate).slice(0, 10) : null;
+    const toDate = body?.toDate ? String(body.toDate).slice(0, 10) : null;
     const lastModifiedFrom = body?.lastModifiedFrom || null;
+    const includeCustomers =
+      body?.includeCustomers !== undefined
+        ? Boolean(body.includeCustomers)
+        : Boolean(fromDate || toDate || mode === "full");
     const maxPages = Number(
-      body?.maxPages || (fromDate || mode === "full" ? 100 : 15)
+      body?.maxPages || (fromDate || toDate || mode === "full" ? 300 : 15)
     );
     const registerWebhooksFlag = Boolean(body?.registerWebhooks);
 
@@ -83,9 +88,11 @@ export async function POST(request) {
     const result = await syncAllKiotVietOrders({
       mode,
       fromDate,
+      toDate,
       lastModifiedFrom,
       maxPages,
       pageSize: 100,
+      includeCustomers,
     });
 
     return NextResponse.json(result, { status: result.ok ? 200 : 400 });
