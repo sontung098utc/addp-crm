@@ -112,44 +112,66 @@ async function main() {
     await withTimeout(autoLogin(true), 12000, "AUTO_LOGIN_TIMEOUT").catch(() => {});
 
     let loginErrMsg = "";
+    let activeCliDir = cliDir;
     if (!isLoggedIn()) {
-      // Fallback đọc trực tiếp file cred_<ownId>.json trong credentials/ phòng trường hợp accounts.json thiếu active: true
+      // Fallback đọc trực tiếp file cred_<ownId>.json trên tất cả thư mục liên quan của nick (xếp mới nhất trước)
       const targetOwnId = String(process.env.TARGET_OWN_ID || "").trim();
-      const accountsFile = path.join(cliDir, "accounts.json");
-      let accountsList = [];
+      let allHomes = [homeDir];
       try {
-        if (fs.existsSync(accountsFile)) {
-          accountsList = JSON.parse(fs.readFileSync(accountsFile, "utf8")) || [];
+        const parsed = JSON.parse(process.env.ALL_HOME_DIRS || "[]");
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          allHomes = Array.from(new Set([homeDir, ...parsed].filter(Boolean)));
         }
       } catch {}
 
-      let credFileCandidates = [];
-      if (targetOwnId) {
-        credFileCandidates.push(path.join(credPath, `cred_${targetOwnId}.json`));
-      }
-      try {
-        const files = fs.readdirSync(credPath).filter((f) => f.endsWith(".json"));
-        for (const f of files) {
-          const full = path.join(credPath, f);
-          if (!credFileCandidates.includes(full)) credFileCandidates.push(full);
-        }
-      } catch {}
-
-      for (const cf of credFileCandidates) {
-        if (!fs.existsSync(cf)) continue;
+      const credCandidates = [];
+      for (const hDir of allHomes) {
+        const cCliDir = path.join(hDir, ".zalo-agent-cli");
+        const cCredDir = path.join(cCliDir, "credentials");
+        const cAccountsFile = path.join(cCliDir, "accounts.json");
+        let accList = [];
         try {
-          const creds = JSON.parse(fs.readFileSync(cf, "utf8"));
-          const matchedAcc = accountsList.find(
+          if (fs.existsSync(cAccountsFile)) {
+            accList = JSON.parse(fs.readFileSync(cAccountsFile, "utf8")) || [];
+          }
+        } catch {}
+        if (!fs.existsSync(cCredDir)) continue;
+        try {
+          const files = fs.readdirSync(cCredDir).filter((f) => f.endsWith(".json"));
+          for (const f of files) {
+            const full = path.join(cCredDir, f);
+            const st = fs.statSync(full);
+            const isTargetMatch = targetOwnId && f === `cred_${targetOwnId}.json`;
+            credCandidates.push({
+              filePath: full,
+              cliDir: cCliDir,
+              accountsList: accList,
+              priority: isTargetMatch ? 1 : 0,
+              mtimeMs: st.mtimeMs,
+            });
+          }
+        } catch {}
+      }
+
+      credCandidates.sort((a, b) => b.priority - a.priority || b.mtimeMs - a.mtimeMs);
+
+      for (const cand of credCandidates) {
+        try {
+          const creds = JSON.parse(fs.readFileSync(cand.filePath, "utf8"));
+          const matchedAcc = cand.accountsList.find(
             (a) =>
               (targetOwnId && String(a.ownId) === targetOwnId) ||
-              cf.includes(`cred_${a.ownId}.json`)
+              cand.filePath.includes(`cred_${a.ownId}.json`)
           );
           await withTimeout(
             loginWithCredentials(creds, matchedAcc?.proxy || null),
             15000,
             "DIRECT_LOGIN_TIMEOUT"
           );
-          if (isLoggedIn()) break;
+          if (isLoggedIn()) {
+            activeCliDir = cand.cliDir;
+            break;
+          }
         } catch (e) {
           loginErrMsg = String(e?.message || e || "");
         }
@@ -164,8 +186,8 @@ async function main() {
           notLoggedIn: true,
           error: "NOT_LOGGED_IN",
           detail: loginErrMsg
-            ? `Không đăng nhập được phiên Zalo (${loginErrMsg}). Vui lòng kiểm tra hoặc quét lại mã QR.`
-            : "Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR.",
+            ? `Không đăng nhập được phiên Zalo (${loginErrMsg}) [${path.basename(homeDir)}].`
+            : `Phiên đăng nhập Zalo đã hết hạn [${path.basename(homeDir)}]. Vui lòng quét lại mã QR.`,
         })
       );
       process.exit(0);
@@ -175,7 +197,7 @@ async function main() {
     const ownId = String(getOwnId() || "");
 
     // Bước 1: Kiểm tra nhanh trong danh bạ đã cache (crm-meta-cache.json) xem đã là bạn bè chưa
-    const metaPath = path.join(cliDir, "crm-meta-cache.json");
+    const metaPath = path.join(activeCliDir, "crm-meta-cache.json");
     if (fs.existsSync(metaPath)) {
       try {
         const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));

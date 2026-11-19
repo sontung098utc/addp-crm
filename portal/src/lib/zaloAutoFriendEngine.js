@@ -195,8 +195,34 @@ export function listConnectedZaloAccounts() {
   const accountsByKey = new Map();
 
   for (const home of activeHomes) {
-    const homeDir = typeof home === "string" ? home : home?.homeDir || "";
-    if (!homeDir) continue;
+    const candidateDirs = Array.from(
+      new Set([
+        ...(typeof home === "object" && Array.isArray(home?.allHomeDirs) ? home.allHomeDirs : []),
+        typeof home === "string" ? home : home?.homeDir || "",
+      ].filter(Boolean))
+    );
+    if (candidateDirs.length === 0) continue;
+
+    // Ưu tiên thư mục có file credentials/*.json mới nhất (mtimeMs lớn nhất)
+    let bestHomeDir = "";
+    let bestCredMtime = -1;
+    for (const dir of candidateDirs) {
+      const credDir = path.join(dir, ".zalo-agent-cli", "credentials");
+      if (!fs.existsSync(credDir)) continue;
+      try {
+        const files = fs.readdirSync(credDir).filter((f) => f.endsWith(".json"));
+        for (const f of files) {
+          const st = fs.statSync(path.join(credDir, f));
+          if (st.mtimeMs > bestCredMtime) {
+            bestCredMtime = st.mtimeMs;
+            bestHomeDir = dir;
+          }
+        }
+        if (!bestHomeDir) bestHomeDir = dir;
+      } catch {}
+    }
+
+    const homeDir = bestHomeDir || candidateDirs[0];
     const credPath = path.join(homeDir, ".zalo-agent-cli", "credentials");
     if (!fs.existsSync(credPath)) continue;
 
@@ -210,7 +236,7 @@ export function listConnectedZaloAccounts() {
     const matchedHub = hubChannels.find(
       (ch) =>
         (ownId && (String(ch.externalId) === ownId || String(ch.config?.ownId) === ownId)) ||
-        (ch.config?.homeDir && path.resolve(ch.config.homeDir) === path.resolve(homeDir))
+        (ch.config?.homeDir && candidateDirs.some((d) => path.resolve(ch.config.homeDir) === path.resolve(d)))
     );
 
     const key = ownId || homeDir;
@@ -219,6 +245,7 @@ export function listConnectedZaloAccounts() {
       ownId: ownId || matchedHub?.externalId || "",
       externalId: ownId || matchedHub?.externalId || "",
       homeDir,
+      allHomeDirs: candidateDirs,
       name: matchedHub?.name || name,
       platform: "ZALO_PERSONAL",
       status: "CONNECTED",
@@ -226,6 +253,7 @@ export function listConnectedZaloAccounts() {
       config: {
         ...(matchedHub?.config || {}),
         homeDir,
+        allHomeDirs: candidateDirs,
         ownId,
       },
     });
@@ -295,7 +323,7 @@ function computeCampaignStats(items = []) {
   };
 }
 
-function runAutoFriendWorker({ homeDir, ownId = "", phone, message }) {
+function runAutoFriendWorker({ homeDir, allHomeDirs = [], ownId = "", phone, message }) {
   return new Promise((resolve) => {
     const javisRoot = findJavisZaloRoot(homeDir);
     const workerCandidates = [
@@ -320,9 +348,11 @@ function runAutoFriendWorker({ homeDir, ownId = "", phone, message }) {
       HOME: homeDir,
       USERPROFILE: homeDir,
       JAVIS_ZALO_ROOT: javisRoot,
+      ALL_HOME_DIRS: JSON.stringify(allHomeDirs.length > 0 ? allHomeDirs : [homeDir]),
       TARGET_OWN_ID: String(ownId || ""),
       TARGET_PHONE: String(phone || ""),
       FRIEND_MESSAGE: String(message || "").slice(0, ZALO_FRIEND_MSG_MAX_LEN),
+      ZALO_JSON_MODE: "1",
     };
 
     execFile(
@@ -443,6 +473,7 @@ async function processNextItem(campaignId) {
   } else {
     result = await runAutoFriendWorker({
       homeDir: chosenAccount.homeDir,
+      allHomeDirs: chosenAccount.allHomeDirs || [chosenAccount.homeDir],
       ownId: chosenAccount.ownId || chosenAccount.externalId || "",
       phone: item.phone,
       message: renderedMsg,
