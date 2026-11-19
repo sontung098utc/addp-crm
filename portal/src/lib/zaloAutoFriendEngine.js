@@ -295,7 +295,7 @@ function computeCampaignStats(items = []) {
   };
 }
 
-function runAutoFriendWorker({ homeDir, phone, message }) {
+function runAutoFriendWorker({ homeDir, ownId = "", phone, message }) {
   return new Promise((resolve) => {
     const javisRoot = findJavisZaloRoot(homeDir);
     const workerCandidates = [
@@ -320,6 +320,7 @@ function runAutoFriendWorker({ homeDir, phone, message }) {
       HOME: homeDir,
       USERPROFILE: homeDir,
       JAVIS_ZALO_ROOT: javisRoot,
+      TARGET_OWN_ID: String(ownId || ""),
       TARGET_PHONE: String(phone || ""),
       FRIEND_MESSAGE: String(message || "").slice(0, ZALO_FRIEND_MSG_MAX_LEN),
     };
@@ -442,6 +443,7 @@ async function processNextItem(campaignId) {
   } else {
     result = await runAutoFriendWorker({
       homeDir: chosenAccount.homeDir,
+      ownId: chosenAccount.ownId || chosenAccount.externalId || "",
       phone: item.phone,
       message: renderedMsg,
     });

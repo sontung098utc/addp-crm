@@ -101,9 +101,61 @@ async function main() {
 
   try {
     const clientUrl = pathToFileURL(path.join(javisRoot, "src", "core", "zalo-client.js")).href;
-    const { autoLogin, getApi, getOwnId, isLoggedIn } = await import(clientUrl);
+    const {
+      autoLogin,
+      loginWithCredentials,
+      getApi,
+      getOwnId,
+      isLoggedIn,
+    } = await import(clientUrl);
 
-    await withTimeout(autoLogin(true), 12000, "AUTO_LOGIN_TIMEOUT");
+    await withTimeout(autoLogin(true), 12000, "AUTO_LOGIN_TIMEOUT").catch(() => {});
+
+    let loginErrMsg = "";
+    if (!isLoggedIn()) {
+      // Fallback đọc trực tiếp file cred_<ownId>.json trong credentials/ phòng trường hợp accounts.json thiếu active: true
+      const targetOwnId = String(process.env.TARGET_OWN_ID || "").trim();
+      const accountsFile = path.join(cliDir, "accounts.json");
+      let accountsList = [];
+      try {
+        if (fs.existsSync(accountsFile)) {
+          accountsList = JSON.parse(fs.readFileSync(accountsFile, "utf8")) || [];
+        }
+      } catch {}
+
+      let credFileCandidates = [];
+      if (targetOwnId) {
+        credFileCandidates.push(path.join(credPath, `cred_${targetOwnId}.json`));
+      }
+      try {
+        const files = fs.readdirSync(credPath).filter((f) => f.endsWith(".json"));
+        for (const f of files) {
+          const full = path.join(credPath, f);
+          if (!credFileCandidates.includes(full)) credFileCandidates.push(full);
+        }
+      } catch {}
+
+      for (const cf of credFileCandidates) {
+        if (!fs.existsSync(cf)) continue;
+        try {
+          const creds = JSON.parse(fs.readFileSync(cf, "utf8"));
+          const matchedAcc = accountsList.find(
+            (a) =>
+              (targetOwnId && String(a.ownId) === targetOwnId) ||
+              cf.includes(`cred_${a.ownId}.json`)
+          );
+          await withTimeout(
+            loginWithCredentials(creds, matchedAcc?.proxy || null),
+            15000,
+            "DIRECT_LOGIN_TIMEOUT"
+          );
+          if (isLoggedIn()) break;
+        } catch (e) {
+          loginErrMsg = String(e?.message || e || "");
+        }
+      }
+    }
+
     if (!isLoggedIn()) {
       console.log(
         JSON.stringify({
@@ -111,7 +163,9 @@ async function main() {
           status: "ERROR",
           notLoggedIn: true,
           error: "NOT_LOGGED_IN",
-          detail: "Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR.",
+          detail: loginErrMsg
+            ? `Không đăng nhập được phiên Zalo (${loginErrMsg}). Vui lòng kiểm tra hoặc quét lại mã QR.`
+            : "Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR.",
         })
       );
       process.exit(0);
