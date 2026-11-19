@@ -1568,6 +1568,7 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
               pageDisplay,
               accountName: pageDisplay,
               channel: "FACEBOOK",
+              interactionType: "MESSAGE",
               channelLabel: `Page: ${pageDisplay}`,
               channelIcon: "📘",
               name: custName,
@@ -1583,6 +1584,89 @@ export async function fetchLiveFacebookConversations(forceRefresh = false) {
               status: Number(conv.unread_count) > 0 ? "need_human" : "sale_handled",
             });
           }
+        }
+
+        // Kéo thêm Bình luận bài viết gần nhất của Fanpage (để xem & lọc Tin nhắn / Bình luận trong /inbox)
+        try {
+          const postsUrl = `https://graph.facebook.com/v19.0/${encodeURIComponent(
+            pageId
+          )}/posts?fields=id,message,created_time,permalink_url,comments.limit(20){id,message,from,created_time,is_hidden,comments.limit(10){id,message,from,created_time}}&limit=8&access_token=${encodeURIComponent(
+            token
+          )}`;
+          const pRes = await fetch(postsUrl, { signal: AbortSignal.timeout(8000) });
+          const pData = await pRes.json();
+          if (Array.isArray(pData?.data)) {
+            for (const post of pData.data) {
+              const postSnippet = String(post.message || "(Bài viết hình ảnh / video)").replace(/\s+/g, " ").trim().slice(0, 110);
+              const postUrl = post.permalink_url || "";
+              const topComments = Array.isArray(post.comments?.data) ? post.comments.data : [];
+              for (const cmt of topComments) {
+                const cmtId = String(cmt.id || "").trim();
+                if (!cmtId) continue;
+                const fromId = String(cmt.from?.id || "");
+                // Bỏ qua bình luận gốc do chính Page tự đăng
+                if (fromId && fromId === pageId) continue;
+
+                const custName = cmt.from?.name || "Khách bình luận FB";
+                const replies = Array.isArray(cmt.comments?.data) ? cmt.comments.data : [];
+                const lastReply = replies.length > 0 ? replies[replies.length - 1] : null;
+                const hasPageReply = replies.some((r) => String(r.from?.id || "") === pageId);
+                const lastFromMe = Boolean(lastReply && String(lastReply.from?.id || "") === pageId);
+                const latestTs = new Date(
+                  lastReply?.created_time || cmt.created_time || post.created_time || Date.now()
+                ).getTime();
+                const threadKey = `fb_cmt_${cmtId}`;
+                const previewText = lastReply?.message
+                  ? `${lastFromMe ? "Bạn: " : ""}${lastReply.message}`
+                  : cmt.message || "[Bình luận hình ảnh/sticker]";
+
+                fbThreadMetaMap.set(threadKey, {
+                  pageId,
+                  commentId: cmtId,
+                  postId: String(post.id || ""),
+                  postSnippet,
+                  postUrl,
+                  pageName,
+                  pageDisplay,
+                  token,
+                  customerName: custName,
+                  interactionType: "COMMENT",
+                });
+
+                results.push({
+                  id: threadKey,
+                  recipientId: cmtId,
+                  commentId: cmtId,
+                  postId: String(post.id || ""),
+                  postSnippet,
+                  postUrl,
+                  pageId,
+                  pageShortId: shortId,
+                  pageName,
+                  pageDisplay,
+                  accountName: pageDisplay,
+                  channel: "FACEBOOK",
+                  interactionType: "COMMENT",
+                  channelLabel: `Page: ${pageDisplay}`,
+                  channelIcon: "💬",
+                  name: custName,
+                  type: "DIRECT",
+                  avatar: fromId
+                    ? `/api/media/avatar-proxy?type=fb&id=${encodeURIComponent(fromId)}&pageId=${encodeURIComponent(pageId)}&name=${encodeURIComponent(custName)}`
+                    : `/api/media/avatar-proxy?name=${encodeURIComponent(custName)}&type=fb`,
+                  phone: "",
+                  lastMessage: `[Bình luận] ${previewText}`,
+                  lastMessageFromMe: lastFromMe,
+                  timestamp: Number.isFinite(latestTs) ? latestTs : Date.now(),
+                  lastActive: formatTimeAgo(Number.isFinite(latestTs) ? latestTs : Date.now()),
+                  unreadCount: hasPageReply ? 0 : 1,
+                  status: hasPageReply ? "sale_handled" : "need_human",
+                });
+              }
+            }
+          }
+        } catch (cmtErr) {
+          console.error(`[FB_GRAPH_CMT_ERR] (${pageName}):`, cmtErr.message);
         }
       } catch (err) {
         console.error(`[FB_GRAPH_CONV_ERR] (${pageName}):`, err.message);
@@ -1607,6 +1691,93 @@ export async function getThreadMessages(
 ) {
   const tid = String(threadId || "").trim();
   const rawTid = cleanTikTokConversationId(tid);
+
+  // Nếu là hội thoại Bình luận Fanpage (fb_cmt_<commentId>) -> Lấy chi tiết bình luận & các phản hồi qua Graph API
+  if (tid.startsWith("fb_cmt_")) {
+    const commentId = tid.replace(/^fb_cmt_/, "");
+    const channels = listAllChannels();
+    const fbChannels = channels.filter(
+      (c) => c.platform === "FACEBOOK" && c.config?.pageId && c.config?.pageAccessToken
+    );
+    const meta = fbThreadMetaMap.get(tid);
+    const orderedPages = [];
+    if (pageIdHint) {
+      const matched = fbChannels.find((c) => String(c.config.pageId) === String(pageIdHint));
+      if (matched) orderedPages.push(matched);
+    }
+    if (meta?.pageId) {
+      const matched = fbChannels.find((c) => String(c.config.pageId) === String(meta.pageId));
+      if (matched && !orderedPages.includes(matched)) orderedPages.push(matched);
+    }
+    for (const ch of fbChannels) {
+      if (!orderedPages.includes(ch)) orderedPages.push(ch);
+    }
+
+    for (const fbCh of orderedPages) {
+      const pageId = String(fbCh.config.pageId).trim();
+      const token = String(fbCh.config.pageAccessToken).trim();
+      try {
+        const cmtUrl = `https://graph.facebook.com/v19.0/${encodeURIComponent(
+          commentId
+        )}?fields=id,message,from,created_time,is_hidden,comments.limit(50){id,message,from,created_time}&access_token=${encodeURIComponent(
+          token
+        )}`;
+        const res = await fetch(cmtUrl, { signal: AbortSignal.timeout(8000) });
+        const data = await res.json();
+        if (data?.id && !data?.error) {
+          const cmtMsgs = [];
+          const rootTs = data.created_time ? new Date(data.created_time).getTime() : Date.now();
+          const rootIsMe = String(data.from?.id || "") === pageId;
+          cmtMsgs.push({
+            id: String(data.id),
+            channel: "FACEBOOK",
+            channelId: pageId,
+            channelName: fbCh.name,
+            threadId: tid,
+            senderId: String(data.from?.id || ""),
+            senderName: data.from?.name || (rootIsMe ? fbCh.name : customerNameHint || "Khách bình luận"),
+            text: data.message || "[Bình luận hình ảnh/sticker]",
+            type: "text",
+            isMe: rootIsMe,
+            timestamp: rootTs,
+            status: "sent",
+          });
+
+          const replies = Array.isArray(data.comments?.data) ? data.comments.data : [];
+          for (const rep of replies) {
+            const repIsMe = String(rep.from?.id || "") === pageId;
+            const repTs = rep.created_time ? new Date(rep.created_time).getTime() : Date.now();
+            cmtMsgs.push({
+              id: String(rep.id || repTs),
+              channel: "FACEBOOK",
+              channelId: pageId,
+              channelName: fbCh.name,
+              threadId: tid,
+              senderId: String(rep.from?.id || ""),
+              senderName: rep.from?.name || (repIsMe ? fbCh.name : "Khách hàng"),
+              text: rep.message || "[Phản hồi đính kèm]",
+              type: "text",
+              isMe: repIsMe,
+              timestamp: repTs,
+              status: "sent",
+            });
+          }
+
+          // Gộp thêm tin vừa phản hồi cục bộ (nếu Graph chưa index kịp)
+          for (const m of storedMessages) {
+            if (String(m.threadId) === tid && !cmtMsgs.some((x) => x.id === String(m.id))) {
+              cmtMsgs.push(m);
+            }
+          }
+
+          cmtMsgs.sort((a, b) => a.timestamp - b.timestamp);
+          return cmtMsgs;
+        }
+      } catch (err) {
+        console.error("[FB_GRAPH_CMT_DETAIL_ERR]", err.message);
+      }
+    }
+  }
 
   // Nếu là hội thoại Facebook (t_xxx hoặc channel === FACEBOOK) -> Gọi trực tiếp Graph API
   if (tid.startsWith("t_") || channel === "FACEBOOK") {
@@ -2140,6 +2311,62 @@ export async function sendUnifiedMessage({
 
     const token = fbChannel?.config?.pageAccessToken || process.env.META_TEST_PAGE_ACCESS_TOKEN || "";
     const resolvedPageId = fbChannel?.config?.pageId || targetPageId;
+
+    // Nếu là trả lời Bình luận Fanpage (fb_cmt_<commentId>) -> POST /{commentId}/comments
+    if (targetRecipientId.startsWith("fb_cmt_")) {
+      const commentId = targetRecipientId.replace(/^fb_cmt_/, "");
+      if (!token) {
+        return { ok: false, error: "Thiếu Page Access Token để trả lời bình luận Fanpage." };
+      }
+      try {
+        const replyRes = await fetch(
+          `https://graph.facebook.com/v19.0/${encodeURIComponent(commentId)}/comments`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: text,
+              access_token: token,
+            }),
+            signal: AbortSignal.timeout(10000),
+          }
+        );
+        const replyData = await replyRes.json();
+        if (!replyData?.id) {
+          return {
+            ok: false,
+            error: replyData?.error?.message || "Không thể gửi trả lời bình luận lên Facebook.",
+          };
+        }
+
+        await addUnifiedMessage({
+          channel: "FACEBOOK",
+          channelId: resolvedPageId,
+          channelName: fbChannel?.name || "Fanpage Facebook",
+          threadId: targetRecipientId,
+          senderId: resolvedPageId,
+          senderName: staffName || fbChannel?.name || "Fanpage Facebook",
+          text,
+          isMe: true,
+          metadata: {
+            commentReplyId: String(replyData.id),
+            parentCommentId: commentId,
+            provider: "META_GRAPH_API_COMMENT",
+          },
+        });
+
+        return {
+          ok: true,
+          status: "sent",
+          provider: "META_GRAPH_API_COMMENT",
+          message: text,
+          messageId: String(replyData.id),
+        };
+      } catch (err) {
+        return { ok: false, error: `Lỗi trả lời bình luận Facebook: ${err.message}` };
+      }
+    }
+
     let targetPsid = meta?.psid || targetRecipientId;
 
     if (token && targetPsid.startsWith("t_")) {

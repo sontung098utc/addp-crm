@@ -3529,10 +3529,21 @@ export default function LiveZaloInbox() {
     let overSla = 0;
     let botOn = 0;
     let unread = 0;
+    let fbMessages = 0;
+    let fbComments = 0;
 
     for (const c of list) {
       if (c.isContactOnly) continue;
       all++;
+      const isCommentConv =
+        c.interactionType === "COMMENT" ||
+        String(c.id || "").startsWith("fb_cmt_") ||
+        String(c.id || "").startsWith("post_");
+      if (isCommentConv) {
+        fbComments++;
+      } else {
+        fbMessages++;
+      }
       const phoneDirect = Boolean(c.phone && c.phone.trim().length >= 9);
       const phoneInMsg = Boolean(c.lastMessage && /(?:\+84|84|0)[35789]\d{8}/.test(c.lastMessage));
       if (phoneDirect || phoneInMsg) {
@@ -3559,6 +3570,8 @@ export default function LiveZaloInbox() {
       overSla,
       botOn,
       unread,
+      fbMessages,
+      fbComments,
     };
   }, [
     conversations,
@@ -3618,6 +3631,22 @@ export default function LiveZaloInbox() {
 
       if (activeTab === "unread") {
         return Number(c.unreadCount || c.unread || 0) > 0;
+      }
+
+      if (activeTab === "fb_messages") {
+        const isCommentConv =
+          c.interactionType === "COMMENT" ||
+          String(c.id || "").startsWith("fb_cmt_") ||
+          String(c.id || "").startsWith("post_");
+        return !isCommentConv;
+      }
+
+      if (activeTab === "fb_comments") {
+        return (
+          c.interactionType === "COMMENT" ||
+          String(c.id || "").startsWith("fb_cmt_") ||
+          String(c.id || "").startsWith("post_")
+        );
       }
 
       // Lọc theo Thẻ Tag Khách Hàng
@@ -3955,6 +3984,16 @@ export default function LiveZaloInbox() {
                 title="Cảnh báo: Hội thoại quá hạn phản hồi SLA"
               >
                 🚨 Quá SLA
+              </span>
+            )}
+            {(conv.interactionType === "COMMENT" ||
+              String(conv.id || "").startsWith("fb_cmt_") ||
+              String(conv.id || "").startsWith("post_")) && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[9px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/35"
+                title={conv.postSnippet ? `Bình luận bài viết: ${conv.postSnippet}` : "Bình luận trên Fanpage"}
+              >
+                📝 Bình luận
               </span>
             )}
             <span
@@ -4743,6 +4782,54 @@ export default function LiveZaloInbox() {
                   {pillCounts.botOn}
                 </span>
               </button>
+
+              {(channelFilter === "FACEBOOK" || selectedPageId !== "ALL" || pillCounts.fbComments > 0) && (
+                <>
+                  {/* [💬 Tin nhắn] */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("fb_messages")}
+                    className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
+                      activeTab === "fb_messages"
+                        ? "bg-sky-600 text-white border-sky-500 badge-solid-white font-bold"
+                        : "bg-slate-950/80 text-sky-400 border-slate-800 hover:border-sky-600/40"
+                    }`}
+                  >
+                    <span>💬 Tin nhắn</span>
+                    <span
+                      className={`rounded-full px-1 text-[9px] tabular-nums ${
+                        activeTab === "fb_messages"
+                          ? "bg-black/25 text-white"
+                          : "bg-sky-950 text-sky-300 border border-sky-800/40"
+                      }`}
+                    >
+                      {pillCounts.fbMessages}
+                    </span>
+                  </button>
+
+                  {/* [📝 Bình luận] */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("fb_comments")}
+                    className={`px-2 py-0.5 text-[11px] rounded-lg whitespace-nowrap shrink-0 transition-all cursor-pointer inline-flex items-center gap-1 border ${
+                      activeTab === "fb_comments"
+                        ? "bg-indigo-600 text-white border-indigo-500 badge-solid-white font-bold"
+                        : "bg-slate-950/80 text-indigo-300 border-slate-800 hover:border-indigo-500/40"
+                    }`}
+                  >
+                    <span>📝 Bình luận</span>
+                    <span
+                      className={`rounded-full px-1 text-[9px] tabular-nums ${
+                        activeTab === "fb_comments"
+                          ? "bg-black/25 text-white"
+                          : "bg-indigo-950 text-indigo-300 border border-indigo-800/40"
+                      }`}
+                    >
+                      {pillCounts.fbComments}
+                    </span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -5186,6 +5273,30 @@ export default function LiveZaloInbox() {
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Banner ngữ cảnh bài viết khi đang xem Bình luận Fanpage */}
+              {(activeConv.interactionType === "COMMENT" ||
+                String(activeConv.id || "").startsWith("fb_cmt_") ||
+                String(activeConv.id || "").startsWith("post_")) && (
+                <div className="px-3 py-1.5 bg-indigo-950/50 border-b border-indigo-500/30 flex items-center justify-between gap-2 text-[11px] text-indigo-200 flex-shrink-0">
+                  <div className="min-w-0 flex items-center gap-1.5 truncate">
+                    <span className="font-bold text-indigo-300 shrink-0">📝 Bình luận bài viết:</span>
+                    <span className="truncate text-slate-200">
+                      {activeConv.postSnippet || "Bài viết trên Fanpage"}
+                    </span>
+                  </div>
+                  {activeConv.postUrl && (
+                    <a
+                      href={activeConv.postUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] font-semibold text-indigo-300 hover:text-white underline shrink-0"
+                    >
+                      Xem bài viết ↗
+                    </a>
+                  )}
                 </div>
               )}
 
