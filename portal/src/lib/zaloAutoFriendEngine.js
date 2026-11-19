@@ -420,14 +420,34 @@ async function processNextItem(campaignId) {
   }
 
   const item = camp.items[nextIdx];
-  const accounts = Array.isArray(camp.accounts) ? camp.accounts : [];
-  if (accounts.length === 0) {
+  const savedAccounts = Array.isArray(camp.accounts) ? camp.accounts : [];
+  if (savedAccounts.length === 0) {
     camp.status = "PAUSED";
     camp.statusNote = "Không có nick Zalo khả dụng để tiếp tục.";
     saveToDisk(store);
     clearRunnerTimer(campaignId);
     return;
   }
+
+  // Luôn đối chiếu với danh sách nick Zalo kết nối mới nhất (tránh dùng snapshot homeDir cũ nếu vừa quét lại QR)
+  const liveAccounts = listConnectedZaloAccounts();
+  const accounts = savedAccounts.map((saved) => {
+    const fresh = liveAccounts.find(
+      (la) =>
+        (saved.ownId && (la.ownId === saved.ownId || la.externalId === saved.ownId)) ||
+        (saved.id && la.id === saved.id) ||
+        (saved.name && la.name === saved.name)
+    );
+    if (!fresh) return saved;
+    const mergedDirs = Array.from(
+      new Set([...(fresh.allHomeDirs || []), fresh.homeDir, ...(saved.allHomeDirs || []), saved.homeDir].filter(Boolean))
+    );
+    return {
+      ...saved,
+      ...fresh,
+      allHomeDirs: mergedDirs,
+    };
+  });
 
   // Xoay vòng tài khoản & kiểm tra giới hạn/ngày/nick (Anti-Ban Điều 4 AGENTS.md)
   const sentMap = getFriendRequestsSentTodayMap();
