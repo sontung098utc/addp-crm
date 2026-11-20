@@ -36,7 +36,12 @@ import {
   fetchShopeeMessages,
   sendShopeeMessage,
 } from "./shopeeConfig.js";
-import { isChannelBotEnabled, getConversationBotState } from "./botControlStore.js";
+import {
+  isChannelBotEnabled,
+  getChannelBotMode,
+  getConversationBotState,
+} from "./botControlStore.js";
+import { processMarketplaceAiAutoReply } from "./marketplaceAiAutoReply.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 import { isSafePilotMode, isAutoSyncAllowed } from "./pilotConfig.js";
 import { sendMetaFacebookMessage } from "./adapters/metaFacebookAdapter.js";
@@ -466,6 +471,18 @@ export async function fetchLiveShopeeConversations(forceRefresh = false) {
           item.to_name || item.buyer_name || item.user_name || `Khách Shopee #${item.to_id || convId.slice(-4)}`
         ).trim();
 
+        const shopBotMode = getChannelBotMode(shopId);
+        const convBotState = getConversationBotState(shopId, convId);
+        const effectiveBotMode =
+          shopBotMode === "HUMAN"
+            ? "HUMAN"
+            : convBotState?.isHumanTakeover || convBotState?.mode === "HUMAN"
+            ? "HUMAN"
+            : "AI";
+        const isLastFromShop = Boolean(
+          item.latest_message_from_id && String(item.latest_message_from_id) === shopId
+        );
+
         results.push({
           id: convId,
           conversationId: convId,
@@ -485,12 +502,16 @@ export async function fetchLiveShopeeConversations(forceRefresh = false) {
           pageId: shopId,
           shopId,
           lastMessage: lastMsgText,
+          lastMessageFromMe: isLastFromShop,
           lastActive: formatTimeAgo(tsMs),
           timestamp: tsMs,
           unreadCount: Number(item.unread_count || 0),
           unread: Number(item.unread_count || 0),
           isContactOnly: false,
-          isSelf: item.latest_message_from_id && String(item.latest_message_from_id) === shopId,
+          isSelf: isLastFromShop,
+          channelBotMode: shopBotMode,
+          botMode: effectiveBotMode,
+          isAccountLevelHuman: shopBotMode === "HUMAN",
         });
       }
     } catch (err) {
@@ -505,6 +526,15 @@ export async function fetchLiveShopeeConversations(forceRefresh = false) {
   lastShopeeSyncErrors = errors;
   cachedShopeeConversations = results;
   lastShopeeFetchTime = Date.now();
+
+  // Chạy nền AI tự động trả lời cho các tin nhắn mới trên gian hàng Shopee đang bật AI 24/7
+  if (results.length > 0) {
+    processMarketplaceAiAutoReply(results, {
+      getThreadMessages,
+      sendUnifiedMessage,
+    }).catch((err) => console.warn("[SHOPEE_AI_AUTO_ERR]", err?.message || err));
+  }
+
   return results;
 }
 
@@ -1227,6 +1257,15 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
           parsedLastMsg = `[Hệ thống] ${parsedLastMsg}`;
         }
 
+        const shopBotMode = getChannelBotMode(shopId);
+        const convBotState = getConversationBotState(shopId, cleanConvId);
+        const effectiveBotMode =
+          shopBotMode === "HUMAN"
+            ? "HUMAN"
+            : convBotState?.isHumanTakeover || convBotState?.mode === "HUMAN"
+            ? "HUMAN"
+            : "AI";
+
         results.push({
           id: cleanConvId,
           conversationId: cleanConvId,
@@ -1252,6 +1291,9 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
           unreadCount: Number(c.unread_count || 0),
           unread: Number(c.unread_count || 0),
           status: Number(c.unread_count || 0) > 0 ? "need_human" : "sale_handled",
+          channelBotMode: shopBotMode,
+          botMode: effectiveBotMode,
+          isAccountLevelHuman: shopBotMode === "HUMAN",
         });
       }
     } catch (err) {
@@ -1266,6 +1308,15 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
 
   cachedTikTokConversations = results;
   lastTikTokFetchTime = now;
+
+  // Chạy nền AI tự động trả lời cho các tin nhắn mới trên gian hàng TikTok Shop đang bật AI 24/7
+  if (results.length > 0) {
+    processMarketplaceAiAutoReply(results, {
+      getThreadMessages,
+      sendUnifiedMessage,
+    }).catch((err) => console.warn("[TIKTOK_AI_AUTO_ERR]", err?.message || err));
+  }
+
   return results;
 }
 

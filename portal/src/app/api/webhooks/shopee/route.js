@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import { addUnifiedMessage } from "@/lib/unifiedMessageRouter.js";
+import {
+  addUnifiedMessage,
+  getThreadMessages,
+  sendUnifiedMessage,
+} from "@/lib/unifiedMessageRouter.js";
+import { processMarketplaceAiAutoReply } from "@/lib/marketplaceAiAutoReply.js";
 
 /**
  * ADDP Omnichannel AI CRM — Shopee Open API v2 Webhook Endpoint (WBS-18)
@@ -96,6 +101,27 @@ export async function POST(request) {
         metadata: { source: "shopee_webhook", code },
       });
       logWebhook(`Saved Shopee chat message for conversation ${convId}`);
+
+      if (!isMe && shopId) {
+        processMarketplaceAiAutoReply(
+          [
+            {
+              id: convId,
+              conversationId: convId,
+              recipientId: fromId,
+              shopId,
+              pageId: shopId,
+              accountId: shopId,
+              channel: "SHOPEE",
+              name: chatData?.from_user_name || chatData?.buyer_name || "Khách Shopee",
+              lastMessage: msgText,
+              lastMessageFromMe: false,
+              timestamp: Date.now(),
+            },
+          ],
+          { getThreadMessages, sendUnifiedMessage }
+        ).catch((err) => logWebhook(`AI_AUTO_WARN: ${err?.message || err}`));
+      }
     }
 
     return NextResponse.json({

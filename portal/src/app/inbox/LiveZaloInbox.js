@@ -2846,6 +2846,36 @@ export default function LiveZaloInbox() {
         (a) => String(a.accountId) === accId || String(a.ownId) === accId
       );
     }
+    if (channelFilter === "TIKTOK_SHOP" && effectiveTikTokShops && effectiveTikTokShops.length > 0) {
+      const targetShop =
+        selectedTikTokShopId !== "ALL"
+          ? effectiveTikTokShops.find((s) => String(s.shopId || s.id) === String(selectedTikTokShopId))
+          : effectiveTikTokShops[0];
+      if (targetShop) {
+        return {
+          ...targetShop,
+          accountId: targetShop.shopId || targetShop.id,
+          name: targetShop.sellerName || targetShop.shopName || targetShop.name || "TikTok Shop",
+          platform: "TIKTOK_SHOP",
+          botMode: targetShop.botMode || "HUMAN",
+        };
+      }
+    }
+    if (channelFilter === "SHOPEE" && effectiveShopeeShops && effectiveShopeeShops.length > 0) {
+      const targetShop =
+        selectedShopeeShopId !== "ALL"
+          ? effectiveShopeeShops.find((s) => String(s.shopId || s.id) === String(selectedShopeeShopId))
+          : effectiveShopeeShops[0];
+      if (targetShop) {
+        return {
+          ...targetShop,
+          accountId: targetShop.shopId || targetShop.id,
+          name: targetShop.shopName || targetShop.name || "Shopee",
+          platform: "SHOPEE",
+          botMode: targetShop.botMode || "HUMAN",
+        };
+      }
+    }
     if (
       (selectedAccountFilter === "ZALO_ALL" || channelFilter === "ZALO_PERSONAL") &&
       effectiveZaloAccounts &&
@@ -2861,7 +2891,17 @@ export default function LiveZaloInbox() {
       if (found) return found;
     }
     return (connectedZaloAccounts && connectedZaloAccounts[0]) || null;
-  }, [selectedAccountFilter, channelFilter, effectiveZaloAccounts, connectedZaloAccounts, activeConv]);
+  }, [
+    selectedAccountFilter,
+    channelFilter,
+    effectiveZaloAccounts,
+    connectedZaloAccounts,
+    effectiveTikTokShops,
+    selectedTikTokShopId,
+    effectiveShopeeShops,
+    selectedShopeeShopId,
+    activeConv,
+  ]);
 
   // Tự động nhận diện query params (?phone=...&zaloUid=...&name=...&customerId=...&staff=...&autoOpen=true) khi điều hướng từ trang Chăm sóc / Khách hàng
   useEffect(() => {
