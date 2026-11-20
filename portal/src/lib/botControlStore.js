@@ -309,14 +309,49 @@ export function getConversationBotState(threadId) {
  */
 export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
   const tid = String(threadId || "").trim();
+  const hasAccountScope = Boolean(String(channelOrAccountId || "").trim());
   const accountMode = getChannelBotMode(channelOrAccountId);
 
-  // 1. CẤP HỘI THOẠI RIÊNG BIỆT (Per-customer Explicit Selection):
-  // Theo quy tắc cốt lõi: Mặc định tất cả mọi khách hàng là Nhân viên trực (HUMAN).
-  // CHỈ khi người dùng tự tay chỉ định cho khách hàng này chat AI (convState.mode === 'AI'),
-  // thì khách hàng đó mới được kích hoạt AI Bot.
+  // 1. MASTER RULE (Cấp Tài Khoản):
+  // Nếu tài khoản / kênh đang cấu hình Nhân viên trực (HUMAN) -> khóa AI trên TOÀN BỘ hội thoại thuộc tài khoản này.
+  if (hasAccountScope && accountMode === "HUMAN") {
+    return {
+      active: false,
+      mode: "HUMAN",
+      reason: "ACCOUNT_LEVEL_HUMAN",
+      pausedUntil: null,
+      staffId: "STAFF",
+      accountMode: "HUMAN",
+      isExplicit: false,
+    };
+  }
+
+  // 2. CẤP HỘI THOẠI (Chỉ có hiệu lực khi Cấp Tài Khoản đang bật AI, hoặc kiểm tra riêng thread):
   if (tid) {
     const convState = getConversationBotState(tid);
+    if (accountMode === "AI") {
+      if (convState && convState.mode === "HUMAN") {
+        return {
+          active: false,
+          mode: "HUMAN",
+          reason: "THREAD_LEVEL_PAUSED",
+          pausedUntil: convState.pausedUntil || null,
+          staffId: convState.staffId || "STAFF",
+          accountMode: "AI",
+          isExplicit: true,
+        };
+      }
+      return {
+        active: true,
+        mode: "AI",
+        reason: convState?.mode === "AI" ? "EXPLICIT_THREAD_AI" : "ACCOUNT_LEVEL_AI",
+        pausedUntil: null,
+        staffId: null,
+        accountMode: "AI",
+        isExplicit: Boolean(convState),
+      };
+    }
+
     if (convState && convState.mode === "AI") {
       return {
         active: true,
@@ -328,7 +363,7 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
         isExplicit: true,
       };
     }
-    // Mọi khách hàng khác chưa được chỉ định hoặc đã tắt -> Luôn luôn là Nhân viên trực (HUMAN)
+
     return {
       active: false,
       mode: "HUMAN",
@@ -340,7 +375,7 @@ export function isBotActiveForThread(threadId = "", channelOrAccountId = "") {
     };
   }
 
-  // 2. CẤP TÀI KHOẢN (Khi không truyền threadId - chỉ kiểm tra toàn nick):
+  // 3. CẤP TÀI KHOẢN (Khi không truyền threadId):
   if (accountMode === "AI") {
     return {
       active: true,

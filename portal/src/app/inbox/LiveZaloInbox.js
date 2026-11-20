@@ -681,9 +681,9 @@ export default function LiveZaloInbox() {
   const isConversationAccountHuman = useCallback(
     (conv) => {
       if (!conv) return false;
-      // Quyết định cụ thể trên hội thoại: nếu đã được BẬT AI -> Không bị khóa bởi cấp tài khoản
-      if (conv.botMode === "AI") return false;
+      // Master Rule: Nếu cấp Tài Khoản đang cấu hình Nhân viên trực (HUMAN) -> khóa AI toàn bộ hội thoại
       if (conv.channelBotMode === "HUMAN" || conv.isAccountLevelHuman) return true;
+      if (conv.botMode === "AI") return false;
       if (conv.botMode === "HUMAN") return true;
 
       const targetAccountId = String(conv.accountId || conv.accountOwnId || "");

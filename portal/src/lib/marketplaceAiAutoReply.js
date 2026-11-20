@@ -99,7 +99,7 @@ export async function processMarketplaceAiAutoReply(
 
       // 1. Kiểm tra chế độ AI ở cấp gian hàng & cấp hội thoại (tôn trọng Human-Takeover 45 phút)
       if (getChannelBotMode(shopId) !== "AI") continue;
-      if (!isBotActiveForThread(shopId, threadId)) continue;
+      if (!isBotActiveForThread(threadId, shopId)?.active) continue;
 
       // 2. Bỏ qua nếu tin cuối là của Shop hoặc tin hệ thống / tin quá cũ (> 12h)
       if (conv.lastMessageFromMe || conv.isSelf) continue;
