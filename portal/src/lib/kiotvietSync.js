@@ -499,6 +499,14 @@ export async function syncAllKiotVietOrders({
   }
 
   syncCache.isSyncing = true;
+  syncCache.lastError = null;
+  syncCache.lastResult = null;
+  syncCache.progress = {
+    stage: "Đang kết nối KiotViet...",
+    invoices: 0,
+    orders: 0,
+    customers: 0,
+  };
   syncCache.customerCodePhoneMap?.clear();
   const startTime = Date.now();
 
@@ -516,10 +524,102 @@ export async function syncAllKiotVietOrders({
     const mappedOrders = [];
     let syncedInvoicesCount = 0;
     let syncedOrdersCount = 0;
+    let syncedCustomersCount = 0;
+    const pageSize = 100;
+
+    // 0. Kéo trực tiếp danh sách KHÁCH HÀNG từ KiotViet (/customers) TRƯỚC để vừa đồng bộ Hồ sơ 360 vừa làm cache SĐT (tránh gọi lẻ từng customerId)
+    if (includeCustomers) {
+      syncCache.progress.stage = "Đang đồng bộ danh sách Khách hàng KiotViet...";
+      let custItem = 0;
+      let custHasMore = true;
+      let custPage = 0;
+      while (custHasMore && custPage < maxPages) {
+        custPage++;
+        let custUrl = `${KIOTVIET_API_BASE}/customers?pageSize=${pageSize}&currentItem=${custItem}&orderBy=createdDate&orderDirection=Desc`;
+        if (effectiveLastModifiedFrom) {
+          custUrl += `&lastModifiedFrom=${encodeURIComponent(effectiveLastModifiedFrom)}`;
+        }
+        const custRes = await fetch(custUrl, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Retailer: retailer,
+            "User-Agent": "ADDP-CRM/1.0",
+          },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!custRes.ok) break;
+        const custData = await custRes.json();
+        const custList = custData?.data || [];
+        if (custList.length === 0) break;
+
+        for (const kvCust of custList) {
+          const cPhoneRaw = normalizePhone(kvCust.contactNumber || kvCust.mobilePhone || "");
+          if (kvCust.id && cPhoneRaw) {
+            syncCache.customerPhoneMap.set(String(kvCust.id), cPhoneRaw);
+          }
+          if (kvCust.code && cPhoneRaw) {
+            syncCache.customerCodePhoneMap.set(String(kvCust.code), cPhoneRaw);
+          }
+
+          const kvDate = kvCust.createdDate || kvCust.modifiedDate;
+          if (!isWithinDateRange(kvDate, cleanFromDate, cleanToDate)) {
+            continue;
+          }
+          if (!cPhoneRaw) continue;
+
+          const cName = String(kvCust.name || "").trim() || `Khách KiotViet (${cPhoneRaw})`;
+          const addrParts = [kvCust.address, kvCust.wardName, kvCust.locationName]
+            .map((s) => String(s || "").trim())
+            .filter(Boolean);
+          const fullAddress = addrParts.join(", ");
+
+          const existing = await getOrCreateCustomerByPhone({
+            phone: cPhoneRaw,
+            fullName: cName,
+            source: "KIOTVIET",
+            address: fullAddress,
+          });
+          if (existing) {
+            const patch = {};
+            if (cName && (!existing.fullName || existing.fullName.startsWith("Khách"))) {
+              patch.fullName = cName;
+            }
+            if (fullAddress && !existing.address) {
+              patch.address = fullAddress;
+            }
+            if (kvCust.locationName && !existing.province) {
+              patch.province = kvCust.locationName;
+            }
+            if (kvCust.code && !existing.kiotvietCode) {
+              patch.kiotvietCode = kvCust.code;
+            }
+            if (Number(kvCust.totalInvoiced || 0) > Number(existing.totalSpent || 0)) {
+              patch.totalSpent = Number(kvCust.totalInvoiced);
+            }
+            if (Object.keys(patch).length > 0) {
+              await updateCustomer(existing.id, patch);
+            }
+            syncedCustomersCount++;
+          }
+        }
+
+        syncCache.progress.customers = syncedCustomersCount;
+
+        const lastKv = custList[custList.length - 1];
+        const lastKvDate = lastKv?.createdDate || lastKv?.modifiedDate;
+        if (cleanFromDate && isBeforeFromDate(lastKvDate, cleanFromDate)) {
+          custHasMore = false;
+        }
+        custItem += pageSize;
+        if (custList.length < pageSize || (custData.total && custItem >= custData.total)) {
+          custHasMore = false;
+        }
+      }
+    }
 
     // 1. Kéo HÓA ĐƠN (Invoices - Bán lẻ thực tế)
+    syncCache.progress.stage = "Đang đồng bộ Hóa đơn KiotViet...";
     let currentItem = 0;
-    const pageSize = 100;
     let hasMore = true;
     let pageCount = 0;
 
@@ -564,6 +664,7 @@ export async function syncAllKiotVietOrders({
         mappedOrders.push(mapped);
         syncedInvoicesCount++;
       }
+      syncCache.progress.invoices = syncedInvoicesCount;
 
       const lastInv = list[list.length - 1];
       const lastInvDate = lastInv?.createdDate || lastInv?.purchaseDate;
@@ -623,6 +724,7 @@ export async function syncAllKiotVietOrders({
         mappedOrders.push(mapped);
         syncedOrdersCount++;
       }
+      syncCache.progress.orders = syncedOrdersCount;
 
       const lastOrd = list[list.length - 1];
       const lastOrdDate = lastOrd?.createdDate || lastOrd?.purchaseDate;
@@ -636,88 +738,8 @@ export async function syncAllKiotVietOrders({
       }
     }
 
-    // 2b. Kéo trực tiếp danh sách KHÁCH HÀNG từ KiotViet (/customers) trong khoảng ngày
-    let syncedCustomersCount = 0;
-    if (includeCustomers) {
-      let custItem = 0;
-      let custHasMore = true;
-      let custPage = 0;
-      while (custHasMore && custPage < maxPages) {
-        custPage++;
-        let custUrl = `${KIOTVIET_API_BASE}/customers?pageSize=${pageSize}&currentItem=${custItem}&orderBy=createdDate&orderDirection=Desc`;
-        if (effectiveLastModifiedFrom) {
-          custUrl += `&lastModifiedFrom=${encodeURIComponent(effectiveLastModifiedFrom)}`;
-        }
-        const custRes = await fetch(custUrl, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Retailer: retailer,
-            "User-Agent": "ADDP-CRM/1.0",
-          },
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!custRes.ok) break;
-        const custData = await custRes.json();
-        const custList = custData?.data || [];
-        if (custList.length === 0) break;
-
-        for (const kvCust of custList) {
-          const kvDate = kvCust.createdDate || kvCust.modifiedDate;
-          if (!isWithinDateRange(kvDate, cleanFromDate, cleanToDate)) {
-            continue;
-          }
-          const cPhone = normalizePhone(kvCust.contactNumber || kvCust.mobilePhone || "");
-          if (!cPhone) continue;
-
-          const cName = String(kvCust.name || "").trim() || `Khách KiotViet (${cPhone})`;
-          const addrParts = [kvCust.address, kvCust.wardName, kvCust.locationName]
-            .map((s) => String(s || "").trim())
-            .filter(Boolean);
-          const fullAddress = addrParts.join(", ");
-
-          const existing = await getOrCreateCustomerByPhone({
-            phone: cPhone,
-            fullName: cName,
-            source: "KIOTVIET",
-            address: fullAddress,
-          });
-          if (existing) {
-            const patch = {};
-            if (cName && (!existing.fullName || existing.fullName.startsWith("Khách"))) {
-              patch.fullName = cName;
-            }
-            if (fullAddress && !existing.address) {
-              patch.address = fullAddress;
-            }
-            if (kvCust.locationName && !existing.province) {
-              patch.province = kvCust.locationName;
-            }
-            if (kvCust.code && !existing.kiotvietCode) {
-              patch.kiotvietCode = kvCust.code;
-            }
-            if (Number(kvCust.totalInvoiced || 0) > Number(existing.totalSpent || 0)) {
-              patch.totalSpent = Number(kvCust.totalInvoiced);
-            }
-            if (Object.keys(patch).length > 0) {
-              await updateCustomer(existing.id, patch);
-            }
-            syncedCustomersCount++;
-          }
-        }
-
-        const lastKv = custList[custList.length - 1];
-        const lastKvDate = lastKv?.createdDate || lastKv?.modifiedDate;
-        if (cleanFromDate && isBeforeFromDate(lastKvDate, cleanFromDate)) {
-          custHasMore = false;
-        }
-        custItem += pageSize;
-        if (custList.length < pageSize || (custData.total && custItem >= custData.total)) {
-          custHasMore = false;
-        }
-      }
-    }
-
     // 3. Upsert vào bộ nhớ và file orders.json
+    syncCache.progress.stage = "Đang lưu đơn hàng & cập nhật Hồ sơ 360...";
     const allStored = upsertStoredOrders(mappedOrders);
 
     // 4. Tự động sinh Lịch Chăm Sóc (Ngày 1, 3, 7, 14, 21) cho đơn Hoàn thành / Đã giao
@@ -773,7 +795,7 @@ export async function syncAllKiotVietOrders({
         ? ` (${cleanFromDate || "..."} → ${cleanToDate || "nay"})`
         : "";
 
-    return {
+    const finalResult = {
       ok: true,
       fromDate: cleanFromDate,
       toDate: cleanToDate,
@@ -786,9 +808,20 @@ export async function syncAllKiotVietOrders({
       durationMs: Date.now() - startTime,
       message: `Đã đồng bộ thành công${rangeLabel}: ${mappedOrders.length} đơn (${syncedInvoicesCount} hóa đơn, ${syncedOrdersCount} đơn đặt hàng) & ${syncedCustomersCount} khách hàng KiotViet${careTasksCreated > 0 ? `, tạo ${careTasksCreated} lịch chăm sóc mới` : ""}!`,
     };
+    syncCache.lastResult = finalResult;
+    syncCache.progress = {
+      stage: "Hoàn tất",
+      invoices: syncedInvoicesCount,
+      orders: syncedOrdersCount,
+      customers: syncedCustomersCount,
+    };
+    return finalResult;
   } catch (err) {
     console.error("[KIOTVIET_SYNC_EXCEPTION]", err);
-    return { ok: false, error: `Lỗi đồng bộ KiotViet: ${err.message}` };
+    const errObj = { ok: false, error: `Lỗi đồng bộ KiotViet: ${err.message}` };
+    syncCache.lastError = errObj.error;
+    syncCache.lastResult = errObj;
+    return errObj;
   } finally {
     syncCache.isSyncing = false;
   }

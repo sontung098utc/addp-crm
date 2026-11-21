@@ -26,6 +26,9 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     isSyncing: Boolean(syncCache.isSyncing),
+    progress: syncCache.progress || null,
+    lastResult: syncCache.lastResult || null,
+    lastError: syncCache.lastError || null,
     lastSyncTime: syncCache.lastSyncTime || null,
     lastSyncedAt: cfg.lastSyncedAt || null,
     totalOrders: orders.length,
@@ -83,6 +86,34 @@ export async function POST(request) {
       registerKiotVietWebhooks(webhookUrl).catch((err) =>
         console.warn("[KIOTVIET_WEBHOOK_REG_WARN]", err.message)
       );
+    }
+
+    const runBackground =
+      body?.async !== undefined
+        ? Boolean(body.async)
+        : Boolean(fromDate || toDate || mode === "full");
+
+    if (runBackground) {
+      const syncCache = globalThis.__KIOTVIET_SYNC_CACHE__ || {};
+      if (!syncCache.isSyncing) {
+        syncAllKiotVietOrders({
+          mode,
+          fromDate,
+          toDate,
+          lastModifiedFrom,
+          maxPages,
+          pageSize: 100,
+          includeCustomers,
+        }).catch((err) => {
+          console.error("[KIOTVIET_BG_SYNC_ERR]", err);
+        });
+      }
+      return NextResponse.json({
+        ok: true,
+        started: true,
+        isSyncing: true,
+        message: `Đang đồng bộ KiotViet (${fromDate || "..."} → ${toDate || "nay"}) dưới nền, vui lòng chờ trong giây lát...`,
+      });
     }
 
     const result = await syncAllKiotVietOrders({

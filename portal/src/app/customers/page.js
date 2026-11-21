@@ -126,6 +126,9 @@ export default function CustomersPage() {
     if (syncingKiotViet) return;
     try {
       setSyncingKiotViet(true);
+      setActionMessage({
+        text: `⏳ Đang khởi chạy đồng bộ KiotViet (${fromDate} → ${toDate || "nay"}) dưới nền...`,
+      });
       const res = await fetch("/api/orders/kiotviet/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,10 +138,38 @@ export default function CustomersPage() {
           toDate,
           maxPages: 300,
           includeCustomers: true,
+          async: true,
         }),
       });
       const data = await res.json().catch(() => null);
-      if (res.ok && data?.ok) {
+      if (res.ok && data?.ok && data?.started) {
+        // Theo dõi tiến độ chạy nền tránh timeout trình duyệt/Nginx
+        for (let attempt = 0; attempt < 180; attempt++) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const stRes = await fetch("/api/orders/kiotviet/sync");
+          const st = await stRes.json().catch(() => null);
+          if (!st) continue;
+          if (st.isSyncing) {
+            const p = st.progress || {};
+            setActionMessage({
+              text: `⏳ ${p.stage || "Đang đồng bộ KiotViet..."} (${p.customers || 0} khách, ${p.invoices || 0} hóa đơn, ${p.orders || 0} đơn đặt hàng)`,
+            });
+            continue;
+          }
+          if (st.lastResult?.ok) {
+            setActionMessage({
+              text: st.lastResult.message || "Đồng bộ KiotViet hoàn tất!",
+            });
+            await fetchCustomers();
+          } else {
+            setActionMessage({
+              text: st.lastError || st.lastResult?.error || "Không thể đồng bộ KiotViet. Vui lòng thử lại.",
+            });
+          }
+          return;
+        }
+        setActionMessage({ text: "Tiến trình đồng bộ vẫn đang chạy nền, bạn có thể bấm Làm mới sau ít phút." });
+      } else if (res.ok && data?.ok) {
         setActionMessage({
           text:
             data.message ||
@@ -147,7 +178,7 @@ export default function CustomersPage() {
         await fetchCustomers();
       } else {
         setActionMessage({
-          text: data?.error || "Không thể đồng bộ KiotViet. Vui lòng thử lại.",
+          text: data?.error || `Không thể đồng bộ KiotViet (HTTP ${res.status}). Vui lòng thử lại.`,
         });
       }
     } catch (err) {

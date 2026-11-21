@@ -104,18 +104,35 @@ export default function OrdersClient() {
         body: JSON.stringify({
           mode,
           registerWebhooks: true,
+          async: Boolean(customRange?.fromDate || mode === "full"),
           ...(customRange || {}),
         }),
       });
-      const data = await res.json();
-      if (res.ok && data.ok) {
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok && data?.started) {
+        showToastMsg(data.message || "Đang đồng bộ KiotViet dưới nền...");
+        for (let attempt = 0; attempt < 180; attempt++) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const stRes = await fetch("/api/orders/kiotviet/sync");
+          const st = await stRes.json().catch(() => null);
+          if (!st) continue;
+          if (st.isSyncing) continue;
+          if (st.lastResult?.ok) {
+            showToastMsg(st.lastResult.message || "Đồng bộ KiotViet thành công!");
+            await fetchOrders();
+          } else {
+            showToastMsg(`Lỗi đồng bộ KiotViet: ${st.lastError || st.lastResult?.error || "Không xác định"}`);
+          }
+          return;
+        }
+      } else if (res.ok && data?.ok) {
         showToastMsg(
           data.message ||
             `Đồng bộ KiotViet thành công! Nạp ${data.syncedCount || 0} đơn hàng.`
         );
         await fetchOrders();
       } else {
-        showToastMsg(`Lỗi đồng bộ KiotViet: ${data.error || "Không xác định"}`);
+        showToastMsg(`Lỗi đồng bộ KiotViet: ${data?.error || `HTTP ${res.status}`}`);
       }
     } catch (err) {
       showToastMsg(`Lỗi kết nối đồng bộ: ${err.message}`);
