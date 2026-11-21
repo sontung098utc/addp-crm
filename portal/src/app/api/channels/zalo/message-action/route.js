@@ -20,7 +20,7 @@ export async function POST(request) {
     const cookieStore = await cookies();
     const guard = guardApiRequest(cookieStore, request.headers, { allowPublicDemo: false });
     if (!guard.ok) return guard.response;
-    const currentUser = guard.user;
+    const currentUser = guard.staff || guard.user;
 
     const body = await request.json();
     const action = String(body.action || "").trim().toLowerCase(); // "recall" | "edit"
