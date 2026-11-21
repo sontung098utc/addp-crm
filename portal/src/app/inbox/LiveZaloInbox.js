@@ -552,6 +552,93 @@ function formatSnippetForDisplay(rawSnippet) {
   return `${prefix}${info.text}`;
 }
 
+function normalizeMsgTextForDedupe(t = "") {
+  return String(t || "").trim().replace(/\s+/g, " ");
+}
+
+function isOptimisticOrFallbackId(id) {
+  const s = String(id || "");
+  return s.startsWith("temp_") || s.startsWith("sent_");
+}
+
+function mergeMessagesDeduplicated(existingList = [], incomingList = []) {
+  const existing = (existingList || []).filter((m) => !m.isFallbackPreview);
+  const incoming = (incomingList || []).filter((m) => !m.isFallbackPreview);
+  if (incoming.length === 0) {
+    return existingList || [];
+  }
+
+  const merged = existing.map((m) => ({ ...m }));
+  const matchedExistingIdx = new Set();
+
+  for (const inc of incoming) {
+    const incId = String(inc.id || "");
+    const incMsgId = String(inc.msgId || "");
+    const incCliMsgId = String(inc.cliMsgId || "");
+
+    // 1. Khớp theo id / msgId / cliMsgId
+    let idx = merged.findIndex((m) => {
+      const mId = String(m.id || "");
+      const mMsgId = String(m.msgId || "");
+      const mCliMsgId = String(m.cliMsgId || "");
+      if (incId && mId === incId) return true;
+      if (incMsgId && (mMsgId === incMsgId || mId === incMsgId)) return true;
+      if (incCliMsgId && mCliMsgId && mCliMsgId === incCliMsgId) return true;
+      return false;
+    });
+
+    // 2. Nếu chưa khớp ID, kiểm tra tin nhắn optimistic/tạm (temp_* / sent_*) vừa gửi của chính mình
+    if (idx === -1 && inc.isMe) {
+      const incTs = Number(inc.timestamp) || 0;
+      const incText = normalizeMsgTextForDedupe(inc.text);
+      const incIsPhoto = Boolean(inc.isPhoto || inc.type === "chat.photo");
+      const incIsAudio = Boolean(inc.isAudio || inc.type === "chat.voice");
+
+      idx = merged.findIndex((m, i) => {
+        if (matchedExistingIdx.has(i)) return false;
+        if (!m.isMe) return false;
+        const mIsTemp =
+          isOptimisticOrFallbackId(m.id) || m.status === "sending" || m.status === "sent";
+        if (!mIsTemp) return false;
+        if (isOptimisticOrFallbackId(incId)) return false;
+
+        const mTs = Number(m.timestamp) || 0;
+        if (incTs > 0 && mTs > 0 && Math.abs(incTs - mTs) > 120000) return false;
+
+        const mIsPhoto = Boolean(m.isPhoto || m.type === "chat.photo");
+        const mIsAudio = Boolean(m.isAudio || m.type === "chat.voice");
+        if (incIsPhoto && mIsPhoto) {
+          if (m.fileName && inc.fileName) return m.fileName === inc.fileName;
+          return Math.abs(incTs - mTs) <= 60000;
+        }
+        if (incIsAudio && mIsAudio) {
+          return Math.abs(incTs - mTs) <= 60000;
+        }
+        const mText = normalizeMsgTextForDedupe(m.text);
+        return Boolean(incText && mText && incText === mText);
+      });
+    }
+
+    if (idx !== -1) {
+      matchedExistingIdx.add(idx);
+      const old = merged[idx];
+      const preferIncomingId = isOptimisticOrFallbackId(old.id) && !isOptimisticOrFallbackId(inc.id);
+      merged[idx] = {
+        ...old,
+        ...inc,
+        id: preferIncomingId ? inc.id : old.id || inc.id,
+        url: inc.url || old.url || "",
+        mediaUrl: inc.mediaUrl || old.mediaUrl || "",
+      };
+    } else {
+      merged.push(inc);
+      matchedExistingIdx.add(merged.length - 1);
+    }
+  }
+
+  return merged.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+}
+
 export default function LiveZaloInbox() {
   const [conversations, setConversations] = useState([]);
   const [connectedPages, setConnectedPages] = useState([]);
@@ -939,24 +1026,28 @@ export default function LiveZaloInbox() {
             if (activeConvRef.current && String(activeConvRef.current.id) === String(newMsg.threadId)) {
               const msgTs = Number(newMsg.timestamp) || Date.now();
               if (msgTs > latestTimestampRef.current) latestTimestampRef.current = msgTs;
-              setMessages((prev) => {
-                if ((prev || []).some((m) => m.id === newMsg.id)) return prev;
-                return [
-                  ...prev,
+              setMessages((prev) =>
+                mergeMessagesDeduplicated(prev, [
                   {
                     id: newMsg.id,
+                    msgId: newMsg.msgId || newMsg.id,
+                    cliMsgId: newMsg.cliMsgId || "",
                     text: newMsg.text,
                     senderName: newMsg.senderName,
                     isMe: newMsg.isMe,
                     isAi: newMsg.isAi || newMsg.fromBot || false,
+                    timestamp: msgTs,
                     time: "Vừa xong",
                     date: "Hôm nay",
                     status: "sent",
                     type: newMsg.type,
-                    mediaUrl: newMsg.mediaUrl,
+                    isPhoto: newMsg.type === "chat.photo",
+                    isAudio: newMsg.type === "chat.voice",
+                    url: newMsg.mediaUrl || newMsg.url || "",
+                    mediaUrl: newMsg.mediaUrl || "",
                   },
-                ];
-              });
+                ])
+              );
               markAsRead(newMsg.threadId);
             }
 
@@ -1325,15 +1416,7 @@ export default function LiveZaloInbox() {
           if (data.incremental) {
             if (data.messages.length > 0) {
               setMessages((prev) => {
-                const rawPrev = prev || [];
-                const hadFallback = rawPrev.some((m) => m.isFallbackPreview);
-                const existing = hadFallback ? rawPrev.filter((m) => !m.isFallbackPreview) : rawPrev;
-                const seen = new Set(existing.map((m) => String(m.id)));
-                const additions = data.messages.filter((m) => !seen.has(String(m.id)));
-                if (additions.length === 0) return hadFallback ? existing : rawPrev;
-                const merged = [...existing, ...additions].sort(
-                  (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
-                );
+                const merged = mergeMessagesDeduplicated(prev, data.messages);
                 messagesCacheRef.current.set(convCacheKey, merged);
                 return merged;
               });
@@ -1398,28 +1481,7 @@ export default function LiveZaloInbox() {
                 ) {
                   return rawPrev;
                 }
-                const byId = new Map(existing.map((m) => [String(m.id), m]));
-                let changed = false;
-                for (const m of incoming) {
-                  if (m.isFallbackPreview) continue;
-                  const key = String(m.id);
-                  const old = byId.get(key);
-                  if (!old) {
-                    byId.set(key, m);
-                    changed = true;
-                  } else if (
-                    old.isRecalled !== m.isRecalled ||
-                    old.edited !== m.edited ||
-                    old.text !== m.text
-                  ) {
-                    byId.set(key, { ...old, ...m });
-                    changed = true;
-                  }
-                }
-                if (!changed) return hadFallback ? existing : rawPrev;
-                const merged = Array.from(byId.values()).sort(
-                  (a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)
-                );
+                const merged = mergeMessagesDeduplicated(existing, incoming);
                 messagesCacheRef.current.set(convCacheKey, merged);
                 return merged;
               }
@@ -2272,13 +2334,22 @@ export default function LiveZaloInbox() {
     if (e && e.preventDefault) e.preventDefault();
     if (!activeConv || sending) return;
 
-    const primaryAtt = customAttachment || (attachedFiles.length > 0 ? attachedFiles[0] : null);
+    const attachmentsToSend = customAttachment ? [customAttachment] : [...attachedFiles];
     const messageText = typeof customText === "string" ? customText.trim() : inputMessage.trim();
 
-    if (!messageText && !primaryAtt) return;
+    if (!messageText && attachmentsToSend.length === 0) return;
 
-    const tempId = `temp_${Date.now()}`;
+    const baseTs = Date.now();
     const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    const sendJobs =
+      attachmentsToSend.length === 0
+        ? [{ tempId: `temp_${baseTs}`, attachment: null, text: messageText, ts: baseTs }]
+        : attachmentsToSend.map((att, idx) => ({
+            tempId: `temp_${baseTs}_${idx}`,
+            attachment: att,
+            text: idx === 0 ? messageText : "",
+            ts: baseTs + idx,
+          }));
 
     // Human-Takeover: Tự động ngắt Bot AI khi nhân viên chủ động gửi tin
     setConvBotMode("HUMAN");
@@ -2294,26 +2365,35 @@ export default function LiveZaloInbox() {
       }),
     }).catch(() => {});
 
-    const optimisticMsg = {
-      id: tempId,
-      text: messageText || (primaryAtt?.isImage ? "[Hình ảnh]" : primaryAtt?.isAudio ? "[Ghi âm]" : `[Tập tin: ${primaryAtt?.name || ""}]`),
-      url: primaryAtt?.previewUrl || primaryAtt?.url || "",
-      isPhoto: Boolean(primaryAtt?.isImage),
-      isAudio: Boolean(primaryAtt?.isAudio),
-      fileName: primaryAtt?.name || "",
-      type: primaryAtt?.isImage ? "chat.photo" : primaryAtt?.isAudio ? "chat.voice" : "text",
-      isMe: true,
-      isAi: false,
-      senderName: activeConv.accountDisplayName || activeConv.accountName || "Chuyên viên ADDP",
-      timestamp: Date.now(),
-      time: nowTime,
-      date: "Hôm nay",
-      status: "sending",
-    };
+    const optimisticMsgs = sendJobs.map((job) => {
+      const att = job.attachment;
+      return {
+        id: job.tempId,
+        text:
+          job.text ||
+          (att?.isImage
+            ? "[Hình ảnh]"
+            : att?.isAudio
+            ? "[Ghi âm]"
+            : `[Tập tin: ${att?.name || ""}]`),
+        url: att?.previewUrl || att?.url || "",
+        isPhoto: Boolean(att?.isImage),
+        isAudio: Boolean(att?.isAudio),
+        fileName: att?.name || "",
+        type: att?.isImage ? "chat.photo" : att?.isAudio ? "chat.voice" : "text",
+        isMe: true,
+        isAi: false,
+        senderName: activeConv.accountDisplayName || activeConv.accountName || "Chuyên viên ADDP",
+        timestamp: job.ts,
+        time: nowTime,
+        date: "Hôm nay",
+        status: "sending",
+      };
+    });
 
     forceScrollBottomRef.current = true;
     setMessages((prev) => {
-      const next = [...(prev || []), optimisticMsg];
+      const next = [...(prev || []), ...optimisticMsgs];
       const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
       messageCacheRef.current.set(convCacheKey, next);
       return next;
@@ -2325,116 +2405,154 @@ export default function LiveZaloInbox() {
     setAttachedFiles([]);
     setSending(true);
 
+    const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
+    const targetRecipient =
+      activeConv.channel === "ZALO_PERSONAL"
+        ? activeConv.zaloUid ||
+          activeConv.threadId ||
+          activeConv.recipientId ||
+          activeConv.id ||
+          activeConv.phone
+        : activeConv.id || activeConv.recipientId || activeConv.phone;
+    const targetRecipientId =
+      activeConv.recipientId ||
+      activeConv.zaloUid ||
+      activeConv.id ||
+      activeConv.phone;
+
     try {
-      const res = await fetch("/api/channels/zalo/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipient:
-            activeConv.channel === "ZALO_PERSONAL"
-              ? activeConv.zaloUid ||
-                activeConv.threadId ||
-                activeConv.recipientId ||
-                activeConv.id ||
-                activeConv.phone
-              : activeConv.id || activeConv.recipientId || activeConv.phone,
-          recipientId:
-            activeConv.recipientId ||
-            activeConv.zaloUid ||
-            activeConv.id ||
-            activeConv.phone,
-          recipientPhone: activeConv.phone || detectedChatPhone || "",
-          pageId: activeConv.pageId || "",
-          accountId: activeConv.accountId || "",
-          homeDir: activeConv.zaloHome || "",
-          type: activeConv.type || "DIRECT",
-          message: messageText,
-          mediaUrl: primaryAtt?.url || "",
-          filePath: primaryAtt?.filePath || "",
-          isImage: Boolean(primaryAtt?.isImage),
-          isAudio: Boolean(primaryAtt?.isAudio),
-          fileName: primaryAtt?.name || "",
-          channel: activeConv.channel || "ZALO_PERSONAL",
-          staffId: "STAFF",
-          staffName: currentStaffName || "Chuyên viên ADDP",
-          staffConfirmed: true,
-        }),
-      });
-
-      const resText = await res.text();
-      let data = null;
-      try {
-        data = JSON.parse(resText);
-      } catch {}
-
-      if (res.ok && data?.ok) {
-        const isMocked = Boolean(data.mocked);
-        setMessages((prev) => {
-          const realMsgId = String(data.msgId || data.result?.msgId || tempId);
-          const realCliMsgId = String(data.cliMsgId || data.result?.cliMsgId || "");
-          const next = (prev || []).map((m) =>
-            m.id === tempId
-              ? { ...m, id: realMsgId, msgId: realMsgId, cliMsgId: realCliMsgId, status: isMocked ? "mocked" : "sent" }
-              : m
-          );
-          const convCacheKey = `${activeConv.channel}_${activeConv.accountId || ""}_${activeConv.id}`;
-          messageCacheRef.current.set(convCacheKey, next);
-          return next;
-        });
-        if (isMocked) {
-          setToast({
-            type: "info",
-            text: data.message || "Chế độ An toàn (Mock): Tin nhắn chỉ được mô phỏng, chưa gửi thật ra ngoài.",
+      for (const job of sendJobs) {
+        const att = job.attachment;
+        try {
+          const res = await fetch("/api/channels/zalo/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipient: targetRecipient,
+              recipientId: targetRecipientId,
+              recipientPhone: activeConv.phone || detectedChatPhone || "",
+              pageId: activeConv.pageId || "",
+              accountId: activeConv.accountId || "",
+              homeDir: activeConv.zaloHome || "",
+              type: activeConv.type || "DIRECT",
+              message: job.text,
+              mediaUrl: att?.url || "",
+              filePath: att?.filePath || "",
+              isImage: Boolean(att?.isImage),
+              isAudio: Boolean(att?.isAudio),
+              fileName: att?.name || "",
+              channel: activeConv.channel || "ZALO_PERSONAL",
+              staffId: "STAFF",
+              staffName: currentStaffName || "Chuyên viên ADDP",
+              staffConfirmed: true,
+            }),
           });
-        }
-        setConversations((prev) => {
-          const list = prev || [];
-          const idx = list.findIndex(
-            (c) =>
-              String(c.id) === String(activeConv.id) &&
-              c.channel === activeConv.channel &&
-              String(c.accountId || "") === String(activeConv.accountId || "")
-          );
-          if (idx === -1) {
-            const updatedConv = {
-              ...activeConv,
-              isContactOnly: false,
-              lastMessage: `Bạn: ${messageText || (primaryAtt?.isImage ? "[Hình ảnh]" : "[Tập tin]")}`,
-              lastActive: "Vài giây",
-              timestamp: Date.now(),
-            };
-            return [updatedConv, ...list];
+
+          const resText = await res.text();
+          let data = null;
+          try {
+            data = JSON.parse(resText);
+          } catch {}
+
+          if (res.ok && data?.ok) {
+            const isMocked = Boolean(data.mocked);
+            setMessages((prev) => {
+              const realMsgId = String(
+                data.msgId ||
+                  data.messageId ||
+                  data.result?.msgId ||
+                  data.data?.msgId ||
+                  data.data?.message?.msgId ||
+                  job.tempId
+              );
+              const realCliMsgId = String(
+                data.cliMsgId ||
+                  data.result?.cliMsgId ||
+                  data.data?.cliMsgId ||
+                  data.data?.message?.cliMsgId ||
+                  ""
+              );
+              const list = prev || [];
+              const alreadySyncedReal =
+                realMsgId !== job.tempId &&
+                list.some((m) => m.id !== job.tempId && String(m.id) === realMsgId);
+
+              const next = alreadySyncedReal
+                ? list.filter((m) => m.id !== job.tempId)
+                : list.map((m) =>
+                    m.id === job.tempId
+                      ? {
+                          ...m,
+                          id: realMsgId,
+                          msgId: realMsgId,
+                          cliMsgId: realCliMsgId,
+                          status: isMocked ? "mocked" : "sent",
+                        }
+                      : m
+                  );
+              messageCacheRef.current.set(convCacheKey, next);
+              return next;
+            });
+            if (isMocked) {
+              setToast({
+                type: "info",
+                text:
+                  data.message ||
+                  "Chế độ An toàn (Mock): Tin nhắn chỉ được mô phỏng, chưa gửi thật ra ngoài.",
+              });
+            }
+            const snippetText =
+              job.text || (att?.isImage ? "[Hình ảnh]" : att?.isAudio ? "[Ghi âm]" : "[Tập tin]");
+            setConversations((prev) => {
+              const list = prev || [];
+              const idx = list.findIndex(
+                (c) =>
+                  String(c.id) === String(activeConv.id) &&
+                  c.channel === activeConv.channel &&
+                  String(c.accountId || "") === String(activeConv.accountId || "")
+              );
+              if (idx === -1) {
+                const updatedConv = {
+                  ...activeConv,
+                  isContactOnly: false,
+                  lastMessage: `Bạn: ${snippetText}`,
+                  lastActive: "Vài giây",
+                  timestamp: Date.now(),
+                };
+                return [updatedConv, ...list];
+              }
+              const updatedConv = {
+                ...list[idx],
+                isContactOnly: false,
+                lastMessage: `Bạn: ${snippetText}`,
+                lastActive: "Vài giây",
+                timestamp: Date.now(),
+              };
+              const others = list.filter((_, i) => i !== idx);
+              return [updatedConv, ...others];
+            });
+          } else {
+            const errorMsg =
+              data?.error ||
+              data?.message ||
+              (resText && resText.length < 160
+                ? resText
+                : `Lỗi gửi tin (${res.status}: ${res.statusText || "Máy chủ không phản hồi"})`);
+            setToast({ type: "error", text: errorMsg });
+            setMessages((prev) =>
+              (prev || []).map((m) => (m.id === job.tempId ? { ...m, status: "error" } : m))
+            );
           }
-          const updatedConv = {
-            ...list[idx],
-            isContactOnly: false,
-            lastMessage: `Bạn: ${messageText || (primaryAtt?.isImage ? "[Hình ảnh]" : "[Tập tin]")}`,
-            lastActive: "Vài giây",
-            timestamp: Date.now(),
-          };
-          const others = list.filter((_, i) => i !== idx);
-          return [updatedConv, ...others];
-        });
-      } else {
-        const errorMsg =
-          data?.error ||
-          data?.message ||
-          (resText && resText.length < 160
-            ? resText
-            : `Lỗi gửi tin (${res.status}: ${res.statusText || "Máy chủ không phản hồi"})`);
-        setToast({ type: "error", text: errorMsg });
-        setMessages((prev) =>
-          (prev || []).map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
-        );
+        } catch (netErr) {
+          setToast({
+            type: "error",
+            text: `Lỗi kết nối khi gửi tin: ${netErr?.message || "Không thể kết nối máy chủ"}`,
+          });
+          setMessages((prev) =>
+            (prev || []).map((m) => (m.id === job.tempId ? { ...m, status: "error" } : m))
+          );
+        }
       }
-    } catch (netErr) {
-      setToast({
-        type: "error",
-        text: `Lỗi kết nối khi gửi tin: ${netErr?.message || "Không thể kết nối máy chủ"}`,
-      });
-      setMessages((prev) =>
-        (prev || []).map((m) => (m.id === tempId ? { ...m, status: "error" } : m))
-      );
     } finally {
       setSending(false);
     }

@@ -326,6 +326,9 @@ export async function POST(request) {
     const finalMsgId = String(
       sendResult.msgId || sendResult.data?.message?.msgId || sendResult.data?.msgId || `sent_${Date.now()}`
     );
+    const finalCliMsgId = String(
+      sendResult.cliMsgId || sendResult.data?.message?.cliMsgId || sendResult.data?.cliMsgId || ""
+    );
 
     // Ghi ngay vào file history.jsonl của đúng tài khoản Zalo đó nếu worker chưa ghi
     try {
@@ -373,6 +376,8 @@ export async function POST(request) {
       message: `Đã gửi tin nhắn Zalo (${activeSenderName}) thành công!`,
       recipient: sendResult.recipient || recipient,
       messageId: finalMsgId,
+      msgId: finalMsgId,
+      cliMsgId: finalCliMsgId,
       accountId: resolvedAcc.accountId,
       accountName: resolvedAcc.accountName,
       channel: "ZALO_PERSONAL",
