@@ -2356,13 +2356,17 @@ export async function sendZaloFileViaMcp({
       }
 
       if (rpcData?.error) {
-        return { ok: false, error: rpcData.error.message || "Lỗi MCP zalo_send_file", recipient: targetUid };
-      }
-      if (rpcData?.result?.isError) {
+        if (!isImage) {
+          return { ok: false, error: rpcData.error.message || "Lỗi MCP zalo_send_file", recipient: targetUid };
+        }
+        console.warn("[ZALO_MCP_IMG_FALLBACK_CLI]", rpcData.error.message);
+      } else if (rpcData?.result?.isError) {
         const errTxt = rpcData.result.content?.map((c) => c.text).join(" ") || "Zalo từ chối gửi tệp.";
-        return { ok: false, error: errTxt, recipient: targetUid };
-      }
-      if (rpcData?.result) {
+        if (!isImage) {
+          return { ok: false, error: errTxt, recipient: targetUid };
+        }
+        console.warn("[ZALO_MCP_IMG_FALLBACK_CLI]", errTxt);
+      } else if (rpcData?.result) {
         return { ok: true, data: rpcData.result, recipient: targetUid, via: "mcp" };
       }
     } catch (mcpErr) {
