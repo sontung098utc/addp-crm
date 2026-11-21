@@ -52,10 +52,14 @@ function markRepliedKey(key) {
 function isSystemOrEmptyMessage(text = "") {
   const t = String(text || "").trim();
   if (!t) return true;
-  if (/^\[(notification|tin nhắn shopee|tin nhắn tiktok|hình ảnh|tệp đính kèm)\]$/i.test(t)) {
+  if (/^\[(notification|tin nhắn shopee|tin nhắn tiktok|tin nhắn|hình ảnh|tệp đính kèm|hệ thống)\]$/i.test(t)) {
     return true;
   }
-  if (/^(the chat has been assigned|bạn:|\[other\])/i.test(t)) {
+  if (
+    /^(the chat has been assigned|bạn:|\[other\]\s*please check this message|message card shared:|logistics card shared:|\[hệ thống\])/i.test(
+      t
+    )
+  ) {
     return true;
   }
   return false;
@@ -178,4 +182,47 @@ export async function processMarketplaceAiAutoReply(
   }
 
   return { ok: true, repliedCount };
+}
+
+/**
+ * Watcher chạy nền định kỳ (mỗi 20 giây) CHỈ dành riêng cho TikTok Shop & Shopee.
+ * Hoàn toàn độc lập với Zalo và Fanpage Facebook.
+ */
+export function startMarketplaceRealtimeAiWatcher({
+  getConnectedTikTokShops,
+  getConnectedShopeeShops,
+  fetchLiveTikTokConversations,
+  fetchLiveShopeeConversations,
+} = {}) {
+  if (isSafePilotMode()) return;
+  if (globalThis.__ADDP_MKT_AI_WATCHER_STARTED__) return;
+  globalThis.__ADDP_MKT_AI_WATCHER_STARTED__ = true;
+
+  const tick = async () => {
+    try {
+      const ttShops = typeof getConnectedTikTokShops === "function" ? getConnectedTikTokShops() : [];
+      const spShops = typeof getConnectedShopeeShops === "function" ? getConnectedShopeeShops() : [];
+
+      const hasAiTikTok = ttShops.some((s) => getChannelBotMode(s.shopId || s.id) === "AI");
+      const hasAiShopee = spShops.some((s) => getChannelBotMode(s.shopId || s.id) === "AI");
+
+      if (hasAiTikTok && typeof fetchLiveTikTokConversations === "function") {
+        await fetchLiveTikTokConversations(true).catch(() => {});
+      }
+      if (hasAiShopee && typeof fetchLiveShopeeConversations === "function") {
+        await fetchLiveShopeeConversations(true).catch(() => {});
+      }
+    } catch {}
+  };
+
+  setTimeout(() => {
+    tick().catch(() => {});
+  }, 5000);
+
+  const timer = setInterval(() => {
+    tick().catch(() => {});
+  }, 20000);
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
 }

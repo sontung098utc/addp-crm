@@ -41,7 +41,10 @@ import {
   getChannelBotMode,
   getConversationBotState,
 } from "./botControlStore.js";
-import { processMarketplaceAiAutoReply } from "./marketplaceAiAutoReply.js";
+import {
+  processMarketplaceAiAutoReply,
+  startMarketplaceRealtimeAiWatcher,
+} from "./marketplaceAiAutoReply.js";
 import { generateHumanLikeReply, extractCustomerPhoneFromMessage } from "./ai/chatBotEngine.js";
 import { isSafePilotMode, isAutoSyncAllowed } from "./pilotConfig.js";
 import { sendMetaFacebookMessage } from "./adapters/metaFacebookAdapter.js";
@@ -390,6 +393,7 @@ export function getConnectedTikTokShops() {
       displayName,
       sellerName,
       status: ch.status || "CONNECTED",
+      botMode: ch.botMode === "AI" ? "AI" : "HUMAN",
       colorIndex: idx,
     };
   });
@@ -453,10 +457,9 @@ export async function fetchLiveShopeeConversations(forceRefresh = false) {
           item.last_message_timestamp ||
             item.latest_message_create_time ||
             item.update_time ||
-            Date.now()
+            0
         );
-        const tsMs =
-          rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+        const tsMs = normalizeUnixMs(rawTs);
 
         let lastMsgText = "[Tin nhắn Shopee]";
         if (typeof item.latest_message_content === "string" && item.latest_message_content.trim()) {
@@ -578,6 +581,7 @@ export function getConnectedShopeeShops() {
       name: rawName,
       displayName,
       status: ch.status || "CONNECTED",
+      botMode: ch.botMode === "AI" ? "AI" : "HUMAN",
       colorIndex: idx,
     };
   });
@@ -700,11 +704,51 @@ export function parseTikTokMessageText(msg) {
   return cleanStr;
 }
 
+export function normalizeUnixMs(rawTs, fallback = Date.now()) {
+  let n = Number(rawTs);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  while (n > 2e12) {
+    n = Math.floor(n / 1000);
+  }
+  if (n < 1e11) {
+    n = n * 1000;
+  }
+  return n;
+}
+
+export function isTikTokNoiseMessage(msg, parsedText = "") {
+  const txt = String(parsedText || "").trim();
+  const msgType = String(msg?.type || "").toUpperCase();
+  const senderRole = String(msg?.sender?.role || msg?.sender_role || "").toUpperCase();
+
+  if (senderRole === "SYSTEM" || senderRole === "PLATFORM" || senderRole === "ROBOT") {
+    return true;
+  }
+  if (
+    msgType === "SYSTEM" ||
+    msgType === "NOTIFY" ||
+    msgType === "NOTIFICATION" ||
+    msgType === "ORDER_CARD" ||
+    msgType === "LOGISTICS_CARD" ||
+    msgType === "ALLOCATED_SERVICE" ||
+    msgType === "OTHER"
+  ) {
+    return true;
+  }
+  if (
+    !txt ||
+    /^(\[Other\]|\[Tin nhắn\]$|\[Hệ thống\]|\[Thẻ đơn hàng\]|\[Thông báo hệ thống\]|Please check this message in seller center|Message card shared:|Logistics card shared:|The chat has been assigned to)/i.test(
+      txt
+    ) ||
+    txt.includes("Please check this message in seller center")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export const parseTikTokTime = (ts) => {
-  if (!ts) return Date.now();
-  const num = Number(ts);
-  if (!Number.isFinite(num) || num <= 0) return Date.now();
-  return num < 10000000000 ? num * 1000 : num; // Nếu là giây (10 chữ số) thì nhân 1000 sang mili-giây
+  return normalizeUnixMs(ts);
 };
 
 function normalizeTikTokTs(rawTs) {
@@ -1251,6 +1295,10 @@ export async function fetchLiveTikTokConversations(forceRefresh = false) {
         const isLastMe = !isLastCustomer && !isLastSystem && Boolean(c.latest_message);
 
         let parsedLastMsg = parseTikTokMessageText(c.latest_message);
+        if (isTikTokNoiseMessage(c.latest_message, parsedLastMsg)) {
+          // Bỏ qua hội thoại nếu tin nhắn gần nhất là thẻ đơn hàng / thẻ vận chuyển / thông báo tự động của sàn
+          continue;
+        }
         if (isLastMe) {
           parsedLastMsg = `Bạn: ${parsedLastMsg}`;
         } else if (isLastSystem) {
@@ -1448,6 +1496,8 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
         }
 
         for (const m of convMsgs) {
+          const text = parseTikTokMessageText(m);
+          if (isTikTokNoiseMessage(m, text)) continue;
           const senderRole = String(m.sender?.role || m.sender_role || "").toUpperCase();
           const isFromCustomer =
             senderRole === "USER" ||
@@ -1460,7 +1510,6 @@ export async function syncTikTokShopMessages({ shopId = "" } = {}) {
           const isMe = !isFromCustomer && !isSystem;
           const ts = parseTikTokTime(m.create_time || m.create_timestamp || conv.create_time);
           const msgId = String(m.id || m.message_id || `${convId}_${ts}`);
-          const text = parseTikTokMessageText(m);
 
           let mediaUrl = null;
           const parsedCont = tryParseJsonObject(m.content) || m.content;
@@ -1929,9 +1978,8 @@ export async function getThreadMessages(
           for (const m of rawMsgs) {
             const mId = String(m.message_id || m.id || "");
             if (!mId) continue;
-            const rawTs = Number(m.created_timestamp || m.timestamp || Date.now());
-            const tsMs =
-              rawTs > 2e12 ? Math.floor(rawTs / 1000) : rawTs < 1e11 ? rawTs * 1000 : rawTs;
+            const rawTs = Number(m.created_timestamp || m.timestamp || 0);
+            const tsMs = normalizeUnixMs(rawTs);
             const fromId = String(m.from_id || "");
             const isMe =
               Boolean(shopIdStr && fromId === shopIdStr) ||
@@ -2032,6 +2080,8 @@ export async function getThreadMessages(
 
         if (Array.isArray(rawMsgs) && rawMsgs.length > 0) {
           for (const m of rawMsgs) {
+            const text = parseTikTokMessageText(m);
+            if (isTikTokNoiseMessage(m, text)) continue;
             const senderRole = String(m.sender?.role || m.sender_role || "").toUpperCase();
             const isFromCustomer =
               senderRole === "USER" ||
@@ -2041,7 +2091,6 @@ export async function getThreadMessages(
             const isMe = !isFromCustomer && !isSystem;
             const ts = parseTikTokTime(m.create_time || m.create_timestamp);
             const msgId = String(m.id || m.message_id || `${rawTid}_${ts}`);
-            const text = parseTikTokMessageText(m);
 
             let mediaUrl = null;
             const parsedCont = tryParseJsonObject(m.content) || m.content;
@@ -2706,3 +2755,11 @@ export async function sendUnifiedMessage({
 
   return { ok: false, status: "failed", error: `Kênh không được hỗ trợ: ${channel}` };
 }
+
+// Khởi chạy Watcher AI nền riêng biệt cho TikTok Shop & Shopee (mỗi 20s, chỉ khi shop bật AI 24/7)
+startMarketplaceRealtimeAiWatcher({
+  getConnectedTikTokShops,
+  getConnectedShopeeShops,
+  fetchLiveTikTokConversations,
+  fetchLiveShopeeConversations,
+});

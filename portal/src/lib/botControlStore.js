@@ -138,10 +138,6 @@ export function getChannelBotMode(channelOrAccountId = "") {
     store.channels[`zalo_${query}`] ||
     (query.includes("zalo") ? store.channels["ZALO_PERSONAL"] : null);
 
-  if (explicitStoreEntry && typeof explicitStoreEntry.enabled === "boolean") {
-    if (!explicitStoreEntry.enabled) return "HUMAN";
-  }
-
   try {
     const channels = getCachedChannelsList();
     if (Array.isArray(channels)) {
@@ -150,6 +146,7 @@ export function getChannelBotMode(channelOrAccountId = "") {
         const chId = String(ch.id || "").toLowerCase();
         const extId = String(ch.externalId || "").toLowerCase();
         const ownId = String(ch.config?.ownId || "").toLowerCase();
+        const shopId = String(ch.shopId || ch.config?.shopId || ch.config?.shop_id || "").toLowerCase();
         const accName = String(ch.config?.accountName || ch.name || "").toLowerCase();
         const label = String(ch.config?.label || "").toLowerCase();
 
@@ -157,16 +154,18 @@ export function getChannelBotMode(channelOrAccountId = "") {
           chId === query ||
           extId === query ||
           ownId === query ||
+          (shopId && shopId === query) ||
           `zalo_${extId}` === query ||
           `zalo_${ownId}` === query ||
           (query.length >= 3 &&
             (chId.includes(query) ||
               extId.includes(query) ||
               ownId.includes(query) ||
+              (shopId && shopId.includes(query)) ||
               accName.includes(query) ||
               label.includes(query) ||
-              query.includes(accName) ||
-              query.includes(label)));
+              (accName && query.includes(accName)) ||
+              (label && query.includes(label))));
 
         if (isMatch) {
           return ch.botMode === "AI" ? "AI" : "HUMAN";
@@ -177,8 +176,8 @@ export function getChannelBotMode(channelOrAccountId = "") {
     console.error("[GET_CHANNEL_BOT_MODE_ERR]", err.message);
   }
 
-  if (explicitStoreEntry && explicitStoreEntry.enabled === true) {
-    return "AI";
+  if (explicitStoreEntry && typeof explicitStoreEntry.enabled === "boolean") {
+    return explicitStoreEntry.enabled ? "AI" : "HUMAN";
   }
 
   return "HUMAN";
