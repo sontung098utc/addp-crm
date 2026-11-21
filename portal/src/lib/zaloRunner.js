@@ -2242,12 +2242,23 @@ export async function sendZaloFileViaMcp({
   recipient,
   recipientPhone = "",
   filePath,
+  filePaths = [],
   caption = "",
   isGroup = false,
   isImage = false,
 }) {
   const targetHome = homeDir || getActiveZaloHome();
-  if (!targetHome || !filePath || !fs.existsSync(filePath)) {
+  const inputPaths = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(filePaths) ? filePaths : []),
+        ...(filePath ? [filePath] : []),
+      ]
+        .map((p) => String(p || "").trim())
+        .filter((p) => p && fs.existsSync(p))
+    )
+  );
+  if (!targetHome || inputPaths.length === 0) {
     return { ok: false, error: "Không tìm thấy tệp tin hoặc tài khoản Zalo." };
   }
 
@@ -2257,14 +2268,19 @@ export async function sendZaloFileViaMcp({
     fs.mkdirSync(outboxDir, { recursive: true });
   } catch {}
 
-  const outboxPath = path.join(outboxDir, path.basename(filePath));
+  const outboxPaths = [];
   try {
-    if (path.resolve(filePath) !== path.resolve(outboxPath)) {
-      fs.copyFileSync(filePath, outboxPath);
+    for (const fp of inputPaths) {
+      const outboxPath = path.join(outboxDir, path.basename(fp));
+      if (path.resolve(fp) !== path.resolve(outboxPath)) {
+        fs.copyFileSync(fp, outboxPath);
+      }
+      outboxPaths.push(outboxPath);
     }
   } catch (copyErr) {
     return { ok: false, error: `Không thể chuẩn bị file trong outbox: ${copyErr.message}` };
   }
+  const outboxPath = outboxPaths[0];
 
   // Phân giải SĐT -> UID nếu là DM
   let targetUid = String(recipient || "").trim();
@@ -2325,7 +2341,7 @@ export async function sendZaloFileViaMcp({
             name: "zalo_send_file",
             arguments: {
               threadId: targetUid,
-              paths: [outboxPath],
+              paths: outboxPaths,
               caption: caption || "",
               threadType: isGroup ? 1 : 0,
             },
@@ -2377,9 +2393,14 @@ export async function sendZaloFileViaMcp({
   // Fallback CLI: ảnh dùng send-image (HTTP), file/ghi âm dùng send-file --listen
   const typeStr = isGroup ? "1" : "0";
   if (isImage) {
-    const imageArgs = ["msg", "send-image", targetUid, outboxPath, "-t", typeStr, ...(caption ? ["--caption", caption] : []), "--json"];
-    const res = await runZaloCommand(imageArgs, { homeDir: targetHome, timeout: 35000 });
-    return { ...res, recipient: targetUid };
+    let lastRes = { ok: false };
+    for (let i = 0; i < outboxPaths.length; i++) {
+      const cap = i === 0 ? caption : "";
+      const imageArgs = ["msg", "send-image", targetUid, outboxPaths[i], "-t", typeStr, ...(cap ? ["--caption", cap] : []), "--json"];
+      lastRes = await runZaloCommand(imageArgs, { homeDir: targetHome, timeout: 35000 });
+      if (!lastRes.ok) break;
+    }
+    return { ...lastRes, recipient: targetUid };
   } else {
     const fileArgs = ["msg", "send-file", targetUid, outboxPath, "-t", typeStr, "--listen", "--json"];
     const res = await runZaloCommand(fileArgs, { homeDir: targetHome, timeout: 45000 });

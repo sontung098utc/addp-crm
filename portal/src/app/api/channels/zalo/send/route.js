@@ -83,7 +83,11 @@ export async function POST(request) {
       );
     }
 
-    const hasMedia = Boolean(body.mediaUrl || body.filePath);
+    const reqFilePaths = Array.isArray(body.filePaths)
+      ? body.filePaths.map((p) => String(p || "").trim()).filter((p) => p && fs.existsSync(p))
+      : [];
+    const hasSingleFile = Boolean(body.filePath && fs.existsSync(body.filePath));
+    const hasMedia = Boolean(body.mediaUrl || body.filePath || reqFilePaths.length > 0);
     if ((!message || !String(message).trim()) && !hasMedia) {
       return NextResponse.json(
         { error: "Nội dung tin nhắn không được để trống." },
@@ -252,8 +256,8 @@ export async function POST(request) {
           isImage: false,
         });
       }
-    } else if (body.filePath && fs.existsSync(body.filePath)) {
-      // 2. Nếu có file hình ảnh hoặc file đính kèm cục bộ
+    } else if (hasSingleFile || reqFilePaths.length > 0) {
+      // 2. Nếu có file hình ảnh hoặc file đính kèm cục bộ (hỗ trợ gửi nhiều ảnh cùng lúc như Zalo)
       const caption =
         message && message !== "[Hình ảnh]" && message !== "[Ghi âm giọng nói]"
           ? message
@@ -262,7 +266,8 @@ export async function POST(request) {
         homeDir: activeHome,
         recipient,
         recipientPhone: recipientPhone || body.recipientPhone || "",
-        filePath: body.filePath,
+        filePath: hasSingleFile ? body.filePath : reqFilePaths[0],
+        filePaths: reqFilePaths.length > 0 ? reqFilePaths : [body.filePath],
         caption,
         isGroup,
         isImage: Boolean(body.isImage),
@@ -330,27 +335,29 @@ export async function POST(request) {
       sendResult.cliMsgId || sendResult.data?.message?.cliMsgId || sendResult.data?.cliMsgId || ""
     );
 
-    // Ghi ngay vào file history.jsonl của đúng tài khoản Zalo đó nếu worker chưa ghi
-    try {
-      const histDir = path.join(activeHome, ".zalo-agent-cli");
-      if (!fs.existsSync(histDir)) fs.mkdirSync(histDir, { recursive: true });
-      const histFile = path.join(histDir, "history.jsonl");
-      const record =
-        JSON.stringify({
-          msgId: finalMsgId,
-          threadId: String(sendResult?.recipient || recipient),
-          threadType: isGroup ? "group" : "dm",
-          senderId: String(activeOwnId || "1781287338457243967"),
-          senderName: activeSenderName || "Chuyên viên Tư vấn ADDP",
-          isSelf: true,
-          text: message,
-          url: body.mediaUrl || "",
-          timestamp: Date.now(),
-          type: body.isImage ? "chat.photo" : body.isAudio ? "chat.voice" : "text",
-        }) + "\n";
-      fs.appendFileSync(histFile, record, "utf8");
-    } catch (saveErr) {
-      console.warn("[ZALO_SEND_HISTORY_SAVE_WARN]", saveErr?.message);
+    // Chỉ ghi vào history.jsonl nếu không đi qua MCP daemon (vì MCP daemon WebSocket listener đã tự ghi bản ghi chính thức từ Zalo)
+    if (sendResult.via !== "mcp") {
+      try {
+        const histDir = path.join(activeHome, ".zalo-agent-cli");
+        if (!fs.existsSync(histDir)) fs.mkdirSync(histDir, { recursive: true });
+        const histFile = path.join(histDir, "history.jsonl");
+        const record =
+          JSON.stringify({
+            msgId: finalMsgId,
+            threadId: String(sendResult?.recipient || recipient),
+            threadType: isGroup ? "group" : "dm",
+            senderId: String(activeOwnId || "1781287338457243967"),
+            senderName: activeSenderName || "Chuyên viên Tư vấn ADDP",
+            isSelf: true,
+            text: message,
+            url: body.mediaUrl || "",
+            timestamp: Date.now(),
+            type: body.isImage ? "chat.photo" : body.isAudio ? "chat.voice" : "text",
+          }) + "\n";
+        fs.appendFileSync(histFile, record, "utf8");
+      } catch (saveErr) {
+        console.warn("[ZALO_SEND_HISTORY_SAVE_WARN]", saveErr?.message);
+      }
     }
 
     recordMessageAudit({

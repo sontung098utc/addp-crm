@@ -636,7 +636,105 @@ function mergeMessagesDeduplicated(existingList = [], incomingList = []) {
     }
   }
 
-  return merged.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+  // Nếu có bong bóng album tạm (temp_*_album) vừa gửi và tin thật từ Zalo đã về cùng thời điểm, loại bỏ bong bóng tạm tránh trùng
+  const hasRealPhotoNearTempAlbum = new Set();
+  for (let i = 0; i < merged.length; i++) {
+    const m = merged[i];
+    if (!isOptimisticOrFallbackId(m.id) || !Array.isArray(m.images) || m.images.length <= 1) continue;
+    const mTs = Number(m.timestamp) || 0;
+    const hasSyncedSibling = merged.some(
+      (other) =>
+        !isOptimisticOrFallbackId(other.id) &&
+        other.isMe &&
+        (other.isPhoto || other.type === "chat.photo") &&
+        Math.abs((Number(other.timestamp) || 0) - mTs) <= 60000
+    );
+    if (hasSyncedSibling) {
+      hasRealPhotoNearTempAlbum.add(i);
+    }
+  }
+
+  const finalMerged =
+    hasRealPhotoNearTempAlbum.size > 0
+      ? merged.filter((_, i) => !hasRealPhotoNearTempAlbum.has(i))
+      : merged;
+
+  return finalMerged.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+}
+
+function isPurePhotoCaption(text = "") {
+  const t = String(text || "").trim();
+  if (!t || t === "[Hình ảnh]") return true;
+  return /^https?:\/\/\S+$/i.test(t);
+}
+
+function extractPhotoUrlFromMsg(m) {
+  if (!m) return null;
+  const rawUrl = m.url || m.thumb || m.mediaUrl || "";
+  const isAudioMsg = Boolean(
+    m.type === "chat.voice" ||
+      m.type === "voice" ||
+      m.isAudio ||
+      (rawUrl && /\.(mp3|wav|ogg|webm|m4a)(\?|$)/i.test(rawUrl))
+  );
+  const isFileMsg = Boolean(
+    m.type === "chat.file" ||
+      m.isFile ||
+      (rawUrl && !isAudioMsg && /\.(pdf|docx?|xlsx?|zip|rar|txt|csv)(\?|$)/i.test(rawUrl))
+  );
+  if (isAudioMsg || isFileMsg) return null;
+  const hasValidUrl =
+    typeof rawUrl === "string" &&
+    (rawUrl.startsWith("http://") ||
+      rawUrl.startsWith("https://") ||
+      rawUrl.startsWith("/") ||
+      rawUrl.startsWith("blob:") ||
+      rawUrl.startsWith("data:"));
+  if (hasValidUrl) return rawUrl;
+  if (
+    typeof m.text === "string" &&
+    (m.text.startsWith("http://") || m.text.startsWith("https://")) &&
+    (m.text.includes(".jpg") || m.text.includes(".png") || m.text.includes(".webp") || m.text.includes("zdn.vn"))
+  ) {
+    return m.text;
+  }
+  return null;
+}
+
+function groupConsecutivePhotoMessages(messages = []) {
+  const grouped = [];
+  for (const m of messages || []) {
+    const photoUrl = extractPhotoUrlFromMsg(m);
+    const msgImages = Array.isArray(m.images) && m.images.length > 0 ? m.images : photoUrl ? [photoUrl] : [];
+    const isPhotoItem = msgImages.length > 0 && !m.isRecalled;
+
+    if (isPhotoItem && grouped.length > 0) {
+      const prev = grouped[grouped.length - 1];
+      const prevImages = Array.isArray(prev.images) ? prev.images : [];
+      const sameSender =
+        Boolean(prev.isMe || prev.sender === "STAFF" || prev.senderRole === "SHOP") ===
+          Boolean(m.isMe || m.sender === "STAFF" || m.senderRole === "SHOP") &&
+        String(prev.senderId || "") === String(m.senderId || "");
+      const closeInTime =
+        Math.abs((Number(m.timestamp) || 0) - (Number(prev.timestamp) || 0)) <= 8000;
+      const canMergeCaptions = isPurePhotoCaption(prev.text) || isPurePhotoCaption(m.text);
+
+      if (prevImages.length > 0 && !prev.isRecalled && sameSender && closeInTime && canMergeCaptions) {
+        const mergedUrls = Array.from(new Set([...prevImages, ...msgImages]));
+        grouped[grouped.length - 1] = {
+          ...prev,
+          images: mergedUrls,
+          text: !isPurePhotoCaption(prev.text) ? prev.text : !isPurePhotoCaption(m.text) ? m.text : prev.text,
+          status: m.status || prev.status,
+          time: m.time || prev.time,
+        };
+        continue;
+      }
+    }
+
+    grouped.push(isPhotoItem ? { ...m, images: msgImages } : m);
+  }
+  return grouped;
 }
 
 export default function LiveZaloInbox() {
@@ -2341,12 +2439,30 @@ export default function LiveZaloInbox() {
 
     const baseTs = Date.now();
     const nowTime = new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    const allImages =
+      attachmentsToSend.length > 1 &&
+      attachmentsToSend.every((a) => a.isImage) &&
+      (activeConv.channel || "ZALO_PERSONAL") === "ZALO_PERSONAL";
+
     const sendJobs =
       attachmentsToSend.length === 0
-        ? [{ tempId: `temp_${baseTs}`, attachment: null, text: messageText, ts: baseTs }]
+        ? [{ tempId: `temp_${baseTs}`, attachment: null, filePaths: [], images: [], text: messageText, ts: baseTs }]
+        : allImages
+        ? [
+            {
+              tempId: `temp_${baseTs}_album`,
+              attachment: attachmentsToSend[0],
+              filePaths: attachmentsToSend.map((a) => a.filePath).filter(Boolean),
+              images: attachmentsToSend.map((a) => a.previewUrl || a.url).filter(Boolean),
+              text: messageText,
+              ts: baseTs,
+            },
+          ]
         : attachmentsToSend.map((att, idx) => ({
             tempId: `temp_${baseTs}_${idx}`,
             attachment: att,
+            filePaths: att?.filePath ? [att.filePath] : [],
+            images: att?.isImage && (att?.previewUrl || att?.url) ? [att.previewUrl || att.url] : [],
             text: idx === 0 ? messageText : "",
             ts: baseTs + idx,
           }));
@@ -2377,6 +2493,7 @@ export default function LiveZaloInbox() {
             ? "[Ghi âm]"
             : `[Tập tin: ${att?.name || ""}]`),
         url: att?.previewUrl || att?.url || "",
+        images: job.images && job.images.length > 0 ? job.images : undefined,
         isPhoto: Boolean(att?.isImage),
         isAudio: Boolean(att?.isAudio),
         fileName: att?.name || "",
@@ -2438,6 +2555,7 @@ export default function LiveZaloInbox() {
               message: job.text,
               mediaUrl: att?.url || "",
               filePath: att?.filePath || "",
+              filePaths: job.filePaths || [],
               isImage: Boolean(att?.isImage),
               isAudio: Boolean(att?.isAudio),
               fileName: att?.name || "",
@@ -5618,7 +5736,7 @@ export default function LiveZaloInbox() {
                         <span>Đang đồng bộ thêm lịch sử từ Zalo. Đã nạp tin nhắn mới nhất từ bộ nhớ đệm.</span>
                       </div>
                     )}
-                    {messages.map((m) => {
+                    {groupConsecutivePhotoMessages(messages).map((m) => {
                       const isMe = Boolean(m.isMe || m.sender === "STAFF" || m.senderRole === "SHOP");
                       const isAi = m.isAi || m.fromBot || (isMe && m.senderName?.includes("AI"));
                       const rawUrl = m.url || m.thumb || m.mediaUrl || "";
@@ -5652,8 +5770,18 @@ export default function LiveZaloInbox() {
                           m.text.includes(".png") ||
                           m.text.includes(".webp") ||
                           m.text.includes("zdn.vn"));
-                      const photoUrl = !isAudioMsg && !isFileMsg ? (hasValidUrl ? rawUrl : textIsUrl ? m.text : null) : null;
-                      const isPhoto = Boolean(photoUrl);
+                      const photoList =
+                        !isAudioMsg && !isFileMsg
+                          ? Array.isArray(m.images) && m.images.length > 0
+                            ? m.images
+                            : hasValidUrl
+                            ? [rawUrl]
+                            : textIsUrl
+                            ? [m.text]
+                            : []
+                          : [];
+                      const photoUrl = photoList[0] || null;
+                      const isPhoto = photoList.length > 0;
 
                       const msgInfo = formatMessageForDisplay(m.text, m.type);
                       const isRecalled = Boolean(m.isRecalled || msgInfo.isRecalled);
@@ -5810,15 +5938,42 @@ export default function LiveZaloInbox() {
                             </div>
                           ) : isPhoto ? (
                             <div className="my-1">
-                              <a href={photoUrl} target="_blank" rel="noreferrer" className="block">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={photoUrl}
-                                  alt="Ảnh tin nhắn"
-                                  className="max-h-56 rounded-lg object-contain border border-slate-700 hover:opacity-90 transition"
-                                />
-                              </a>
-                              {displayText && displayText !== photoUrl && (
+                              {photoList.length > 1 ? (
+                                <div
+                                  className={`grid gap-1 rounded-lg overflow-hidden ${
+                                    photoList.length === 2 || photoList.length === 4
+                                      ? "grid-cols-2"
+                                      : "grid-cols-3"
+                                  }`}
+                                >
+                                  {photoList.map((imgSrc, imgIdx) => (
+                                    <a
+                                      key={`${imgSrc}_${imgIdx}`}
+                                      href={imgSrc}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block overflow-hidden rounded-md border border-white/15 bg-black/10"
+                                    >
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={imgSrc}
+                                        alt={`Ảnh ${imgIdx + 1}`}
+                                        className="w-full h-36 sm:h-40 object-cover hover:opacity-90 transition"
+                                      />
+                                    </a>
+                                  ))}
+                                </div>
+                              ) : (
+                                <a href={photoUrl} target="_blank" rel="noreferrer" className="block">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={photoUrl}
+                                    alt="Ảnh tin nhắn"
+                                    className="max-h-56 rounded-lg object-contain border border-slate-700 hover:opacity-90 transition"
+                                  />
+                                </a>
+                              )}
+                              {displayText && !isPurePhotoCaption(displayText) && displayText !== photoUrl && (
                                 <p className="text-xs leading-relaxed mt-1.5 whitespace-pre-wrap">{displayText}</p>
                               )}
                             </div>
