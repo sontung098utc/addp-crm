@@ -2330,8 +2330,19 @@ export default function LiveZaloInbox() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recipient: activeConv.phone || activeConv.id,
-          recipientId: activeConv.recipientId || activeConv.phone || activeConv.id,
+          recipient:
+            activeConv.channel === "ZALO_PERSONAL"
+              ? activeConv.zaloUid ||
+                activeConv.threadId ||
+                activeConv.recipientId ||
+                activeConv.id ||
+                activeConv.phone
+              : activeConv.id || activeConv.recipientId || activeConv.phone,
+          recipientId:
+            activeConv.recipientId ||
+            activeConv.zaloUid ||
+            activeConv.id ||
+            activeConv.phone,
           recipientPhone: activeConv.phone || detectedChatPhone || "",
           pageId: activeConv.pageId || "",
           accountId: activeConv.accountId || "",
