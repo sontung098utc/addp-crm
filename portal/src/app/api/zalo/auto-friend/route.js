@@ -12,6 +12,7 @@ import {
   createAutoFriendCampaign,
   controlAutoFriendCampaign,
   getAllAutoFriendCampaigns,
+  syncAutoFriendAcceptedStatus,
 } from "@/lib/zaloAutoFriendEngine.js";
 
 /**
@@ -146,6 +147,22 @@ export async function POST(request) {
         return NextResponse.json({ ok: false, error: res.error }, { status: 404 });
       }
       return NextResponse.json({ ok: true, campaign: res.campaign });
+    }
+
+    if (action === "check-accepted") {
+      const id = String(body?.id || "").trim() || null;
+      const res = await syncAutoFriendAcceptedStatus(id);
+      return NextResponse.json({
+        ok: true,
+        newlyAcceptedCount: res.newlyAcceptedCount,
+        checkedAccounts: res.checkedAccounts,
+        campaign: res.campaign,
+        campaigns: res.campaigns,
+        message:
+          res.newlyAcceptedCount > 0
+            ? `Phát hiện thêm ${res.newlyAcceptedCount} khách hàng đã đồng ý kết bạn.`
+            : "Đã đối soát danh sách bạn bè Zalo mới nhất, chưa có khách đồng ý thêm.",
+      });
     }
 
     return NextResponse.json(

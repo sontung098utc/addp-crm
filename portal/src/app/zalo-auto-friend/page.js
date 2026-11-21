@@ -30,6 +30,10 @@ const STATUS_META = {
     label: "Đã gửi lời mời",
     badge: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30",
   },
+  ACCEPTED: {
+    label: "Kết bạn thành công",
+    badge: "bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30",
+  },
   ALREADY_FRIEND: {
     label: "Đã là bạn bè",
     badge: "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30",
@@ -121,6 +125,7 @@ export default function ZaloAutoFriendPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
   const [logStatusFilter, setLogStatusFilter] = useState("ALL");
   const [logSearch, setLogSearch] = useState("");
+  const [checkingAccepted, setCheckingAccepted] = useState(false);
   const [toast, setToast] = useState(null);
 
   const showToast = (type, text) => {
@@ -325,6 +330,53 @@ export default function ZaloAutoFriendPage() {
       showToast("error", "Lỗi kết nối máy chủ.");
     }
   };
+
+  const handleCheckAccepted = async (campaignId = null) => {
+    setCheckingAccepted(true);
+    try {
+      const res = await fetch("/api/zalo/auto-friend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "check-accepted", id: campaignId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        if (Array.isArray(data.campaigns)) {
+          setCampaigns(data.campaigns);
+        } else {
+          await fetchOverview(true);
+        }
+        showToast("success", data.message || "Đã đối soát danh sách bạn bè Zalo.");
+      } else {
+        showToast("error", data?.error || "Không thể đối soát danh sách bạn bè.");
+      }
+    } catch {
+      showToast("error", "Lỗi kết nối máy chủ khi kiểm tra kết bạn thành công.");
+    } finally {
+      setCheckingAccepted(false);
+    }
+  };
+
+  const overallReport = useMemo(() => {
+    let totalSentPending = 0;
+    let totalAccepted = 0;
+    let totalAlreadyFriend = 0;
+    for (const c of campaigns) {
+      totalSentPending += Number(c.stats?.sent || 0);
+      totalAccepted += Number(c.stats?.accepted || 0);
+      totalAlreadyFriend += Number(c.stats?.alreadyFriend || 0);
+    }
+    const totalInvited = totalSentPending + totalAccepted;
+    const acceptRate = totalInvited > 0 ? Math.round((totalAccepted / totalInvited) * 100) : 0;
+    return {
+      totalCampaigns: campaigns.length,
+      totalSentPending,
+      totalAccepted,
+      totalInvited,
+      totalAlreadyFriend,
+      acceptRate,
+    };
+  }, [campaigns]);
 
   const activeCampaign = useMemo(
     () => campaigns.find((c) => c.id === selectedCampaignId) || campaigns[0] || null,
@@ -814,6 +866,41 @@ export default function ZaloAutoFriendPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Báo cáo tổng hợp kết bạn thành công (tất cả chiến dịch) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="p-3 rounded-xl bg-teal-500/10 border border-teal-500/25">
+                <div className="text-[11px] font-medium text-teal-700 dark:text-teal-300">
+                  Tổng kết bạn thành công (Khách đồng ý)
+                </div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="text-lg font-bold text-teal-700 dark:text-teal-200">
+                    {overallReport.totalAccepted}
+                  </span>
+                  <span className="text-[11px] font-semibold text-teal-600 dark:text-teal-400">
+                    ({overallReport.acceptRate}% trên {overallReport.totalInvited} lời mời)
+                  </span>
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  Tổng đã gửi lời mời (Chờ đồng ý)
+                </div>
+                <div className="text-lg font-bold mt-1">{overallReport.totalSentPending}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20">
+                <div className="text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                  Đã là bạn bè từ trước
+                </div>
+                <div className="text-lg font-bold mt-1">{overallReport.totalAlreadyFriend}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                <div className="text-[11px] font-medium text-slate-500">
+                  Tổng số chiến dịch
+                </div>
+                <div className="text-lg font-bold mt-1">{overallReport.totalCampaigns}</div>
+              </div>
+            </div>
+
             {/* Thanh trạng thái & nút điều khiển */}
             <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -836,7 +923,17 @@ export default function ZaloAutoFriendPage() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCheckAccepted(activeCampaign.id)}
+                    disabled={checkingAccepted}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30 hover:bg-teal-500/25 disabled:opacity-50"
+                    title="Đối soát danh sách bạn bè Zalo hiện tại để cập nhật số khách đã đồng ý kết bạn"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${checkingAccepted ? "animate-spin" : ""}`} />
+                    {checkingAccepted ? "Đang đối soát..." : "Kiểm tra khách đồng ý"}
+                  </button>
                   {activeCampaign.status === "RUNNING" && (
                     <button
                       type="button"
@@ -887,7 +984,7 @@ export default function ZaloAutoFriendPage() {
               </div>
 
               {/* KPI thống kê trạng thái */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
                 <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
                   <div className="text-slate-500">Đang chờ</div>
                   <div className="font-bold text-sm mt-0.5">{activeCampaign.stats?.pending || 0}</div>
@@ -895,6 +992,17 @@ export default function ZaloAutoFriendPage() {
                 <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-emerald-500/20 text-xs">
                   <div className="text-emerald-600 dark:text-emerald-400">Đã gửi lời mời</div>
                   <div className="font-bold text-sm mt-0.5">{activeCampaign.stats?.sent || 0}</div>
+                </div>
+                <div className="p-2 rounded-lg bg-teal-500/10 border border-teal-500/30 text-xs">
+                  <div className="text-teal-700 dark:text-teal-300 font-medium">Kết bạn thành công</div>
+                  <div className="flex items-baseline gap-1.5 mt-0.5">
+                    <span className="font-bold text-sm text-teal-700 dark:text-teal-200">
+                      {activeCampaign.stats?.accepted || 0}
+                    </span>
+                    <span className="text-[11px] text-teal-600 dark:text-teal-400 font-semibold">
+                      ({activeCampaign.stats?.acceptRate || 0}%)
+                    </span>
+                  </div>
                 </div>
                 <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-blue-500/20 text-xs">
                   <div className="text-blue-600 dark:text-blue-400">Đã là bạn bè</div>
@@ -918,6 +1026,7 @@ export default function ZaloAutoFriendPage() {
                   { key: "ALL", label: "Tất cả" },
                   { key: "PENDING", label: "Đang chờ" },
                   { key: "SENT", label: "Đã gửi lời mời" },
+                  { key: "ACCEPTED", label: "Kết bạn thành công" },
                   { key: "ALREADY_FRIEND", label: "Đã là bạn bè" },
                   { key: "NOT_FOUND", label: "Không tìm thấy Zalo" },
                   { key: "ERROR", label: "Lỗi" },

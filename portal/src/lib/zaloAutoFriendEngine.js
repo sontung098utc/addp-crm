@@ -286,6 +286,7 @@ export function renderFriendInviteMessage(template = "", phone = "") {
 function computeCampaignStats(items = []) {
   let pending = 0;
   let sent = 0;
+  let accepted = 0;
   let alreadyFriend = 0;
   let notFound = 0;
   let error = 0;
@@ -294,6 +295,9 @@ function computeCampaignStats(items = []) {
     switch (item.status) {
       case "SENT":
         sent += 1;
+        break;
+      case "ACCEPTED":
+        accepted += 1;
         break;
       case "ALREADY_FRIEND":
         alreadyFriend += 1;
@@ -312,14 +316,19 @@ function computeCampaignStats(items = []) {
 
   const total = items.length;
   const processed = total - pending;
+  const totalInvited = sent + accepted;
+  const acceptRate = totalInvited > 0 ? Math.round((accepted / totalInvited) * 100) : 0;
   return {
     total,
     processed,
     pending,
     sent,
+    accepted,
     alreadyFriend,
     notFound,
     error,
+    totalInvited,
+    acceptRate,
   };
 }
 
@@ -755,6 +764,271 @@ export function controlAutoFriendCampaign(id, action) {
   return { ok: false, error: "Hành động không hợp lệ (chỉ hỗ trợ pause, resume, cancel)." };
 }
 
+function addFriendsToMap(targetMap, key, friends = []) {
+  if (!key || !Array.isArray(friends) || friends.length === 0) return;
+  let entry = targetMap.get(key);
+  if (!entry) {
+    entry = { uids: new Set(), phones: new Set(), names: new Map() };
+    targetMap.set(key, entry);
+  }
+  for (const f of friends) {
+    const uid = String(f.userId || f.uid || f.id || "").trim();
+    const phone = normalizePhone(f.phoneNumber || f.phone || "");
+    const displayName = String(f.displayName || f.zaloName || f.name || "").trim();
+    if (uid) {
+      entry.uids.add(uid);
+      if (displayName && !entry.names.has(uid)) {
+        entry.names.set(uid, displayName);
+      }
+    }
+    if (phone && isValidVietnamPhone(phone)) {
+      entry.phones.add(phone);
+      if (displayName && !entry.names.has(phone)) {
+        entry.names.set(phone, displayName);
+      }
+    }
+  }
+}
+
+function buildFriendMapsFromCache() {
+  const mapByOwnId = new Map();
+  const accounts = listConnectedZaloAccounts();
+  for (const acc of accounts) {
+    const dirs = Array.from(new Set([...(acc.allHomeDirs || []), acc.homeDir].filter(Boolean)));
+    const key = String(acc.ownId || acc.id || "").trim();
+    if (!key) continue;
+    for (const dir of dirs) {
+      const metaPath = path.join(dir, ".zalo-agent-cli", "crm-meta-cache.json");
+      if (!fs.existsSync(metaPath)) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        if (Array.isArray(meta?.friends) && meta.friends.length > 0) {
+          addFriendsToMap(mapByOwnId, key, meta.friends);
+        }
+      } catch {}
+    }
+  }
+  return mapByOwnId;
+}
+
+function reconcileCampaignsWithFriendMaps(store, friendMapsByOwnId, targetCampaignId = null) {
+  let changed = false;
+  let newlyAcceptedCount = 0;
+  const nowIso = new Date().toISOString();
+  const allEntries = Array.from(friendMapsByOwnId.values());
+
+  for (const camp of store) {
+    if (targetCampaignId && camp.id !== targetCampaignId) continue;
+
+    let campChanged = false;
+    const items = Array.isArray(camp.items) ? camp.items : [];
+    for (const item of items) {
+      if (item.status !== "SENT") continue;
+
+      const ownKey = String(item.ownId || item.accountId || "").trim();
+      const candidateEntries =
+        ownKey && friendMapsByOwnId.has(ownKey)
+          ? [friendMapsByOwnId.get(ownKey)]
+          : ownKey
+          ? []
+          : allEntries;
+
+      if (candidateEntries.length === 0) continue;
+
+      const uid = String(item.uid || "").trim();
+      const phone = normalizePhone(item.phone || "");
+      let matchedName = "";
+      let isFriendNow = false;
+
+      for (const entry of candidateEntries) {
+        if (uid && entry.uids.has(uid)) {
+          isFriendNow = true;
+          matchedName = entry.names.get(uid) || "";
+          break;
+        }
+        if (phone && entry.phones.has(phone)) {
+          isFriendNow = true;
+          matchedName = entry.names.get(phone) || "";
+          break;
+        }
+      }
+
+      if (isFriendNow) {
+        item.status = "ACCEPTED";
+        item.acceptedAt = item.acceptedAt || nowIso;
+        item.updatedAt = nowIso;
+        item.detail = "Khách hàng đã đồng ý kết bạn trên Zalo.";
+        if (matchedName && (!item.displayName || item.displayName === item.phone)) {
+          item.displayName = matchedName;
+        }
+        if (!Array.isArray(camp.logs)) camp.logs = [];
+        camp.logs.unshift({
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          phone: item.phone,
+          status: "ACCEPTED",
+          accountId: item.accountId || "",
+          ownId: item.ownId || "",
+          accountName: item.accountName || "",
+          uid: item.uid || "",
+          displayName: item.displayName || "",
+          renderedMessage: item.renderedMessage || "",
+          detail: item.detail,
+          timestamp: nowIso,
+        });
+        if (camp.logs.length > 1000) {
+          camp.logs = camp.logs.slice(0, 1000);
+        }
+        newlyAcceptedCount += 1;
+        campChanged = true;
+      }
+    }
+
+    if (campChanged || camp.stats?.accepted === undefined || camp.stats?.acceptRate === undefined) {
+      camp.stats = computeCampaignStats(items);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveToDisk(store);
+  }
+  return newlyAcceptedCount;
+}
+
+function runFriendCheckWorker({ homeDir, allHomeDirs = [], ownId = "" }) {
+  return new Promise((resolve) => {
+    const javisRoot = findJavisZaloRoot(homeDir);
+    const workerCandidates = [
+      path.resolve(process.cwd(), "src", "lib", "zaloAutoFriendCheckWorker.mjs"),
+      path.resolve(process.cwd(), "portal", "src", "lib", "zaloAutoFriendCheckWorker.mjs"),
+    ];
+    const workerPath = workerCandidates.find((p) => fs.existsSync(p));
+
+    if (!workerPath || !javisRoot || !homeDir) {
+      resolve({ ok: false, error: "MISSING_WORKER", friends: [] });
+      return;
+    }
+
+    const childEnv = {
+      ...process.env,
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+      JAVIS_ZALO_ROOT: javisRoot,
+      ALL_HOME_DIRS: JSON.stringify(allHomeDirs.length > 0 ? allHomeDirs : [homeDir]),
+      TARGET_OWN_ID: String(ownId || ""),
+      ZALO_JSON_MODE: "1",
+    };
+
+    execFile(
+      process.execPath,
+      [workerPath],
+      { env: childEnv, timeout: 30000, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err && !stdout) {
+          resolve({ ok: false, error: err.message, friends: [] });
+          return;
+        }
+        try {
+          const lines = String(stdout || "")
+            .trim()
+            .split(/\r?\n/)
+            .filter(Boolean);
+          const lastLine = lines[lines.length - 1] || "{}";
+          resolve(JSON.parse(lastLine));
+        } catch {
+          resolve({ ok: false, error: "INVALID_JSON", friends: [] });
+        }
+      }
+    );
+  });
+}
+
+/**
+ * Đồng bộ danh sách bạn bè mới nhất từ Zalo (api.getAllFriends) để phát hiện
+ * các khách hàng đã đồng ý lời mời kết bạn (SENT -> ACCEPTED).
+ */
+export async function syncAutoFriendAcceptedStatus(campaignId = null) {
+  const store = getCampaignStore();
+  const targetCampaigns = campaignId ? store.filter((c) => c.id === campaignId) : store;
+  const liveAccounts = listConnectedZaloAccounts();
+
+  const accountsToCheck = new Map();
+  for (const camp of targetCampaigns) {
+    const sentItems = (camp.items || []).filter((it) => it.status === "SENT");
+    if (sentItems.length === 0) continue;
+
+    for (const it of sentItems) {
+      const ownId = String(it.ownId || "").trim();
+      const accId = String(it.accountId || "").trim();
+      const matched = liveAccounts.find(
+        (la) =>
+          (ownId && (la.ownId === ownId || la.externalId === ownId)) ||
+          (accId && la.id === accId) ||
+          (it.accountName && la.name === it.accountName)
+      );
+      if (matched) {
+        const key = String(matched.ownId || matched.id);
+        if (!accountsToCheck.has(key)) {
+          accountsToCheck.set(key, matched);
+        }
+      }
+    }
+  }
+
+  const friendMapsByOwnId = buildFriendMapsFromCache();
+  let checkedAccounts = 0;
+
+  if (accountsToCheck.size > 0 && !isSafePilotMode()) {
+    const checks = await Promise.all(
+      Array.from(accountsToCheck.values()).map(async (acc) => {
+        const res = await runFriendCheckWorker({
+          homeDir: acc.homeDir,
+          allHomeDirs: acc.allHomeDirs || [acc.homeDir],
+          ownId: acc.ownId || acc.externalId || "",
+        });
+        return { acc, res };
+      })
+    );
+
+    for (const { acc, res } of checks) {
+      if (res?.ok && Array.isArray(res.friends)) {
+        checkedAccounts += 1;
+        const key = String(res.ownId || acc.ownId || acc.id || "").trim();
+        addFriendsToMap(friendMapsByOwnId, key, res.friends);
+        if (acc.ownId && acc.ownId !== key) {
+          addFriendsToMap(friendMapsByOwnId, String(acc.ownId), res.friends);
+        }
+      }
+    }
+  }
+
+  const newlyAcceptedCount = reconcileCampaignsWithFriendMaps(
+    store,
+    friendMapsByOwnId,
+    campaignId
+  );
+
+  const campaign = campaignId ? store.find((c) => c.id === campaignId) || null : null;
+  return {
+    ok: true,
+    newlyAcceptedCount,
+    checkedAccounts,
+    campaign,
+    campaigns: store,
+  };
+}
+
 export function getAllAutoFriendCampaigns() {
-  return getCampaignStore();
+  const store = getCampaignStore();
+  const hasSentOrMissingStats = store.some(
+    (c) =>
+      c.stats?.accepted === undefined ||
+      c.stats?.acceptRate === undefined ||
+      (c.items || []).some((it) => it.status === "SENT")
+  );
+  if (hasSentOrMissingStats) {
+    const friendMaps = buildFriendMapsFromCache();
+    reconcileCampaignsWithFriendMaps(store, friendMaps, null);
+  }
+  return store;
 }
